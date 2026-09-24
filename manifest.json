@@ -1,0 +1,32 @@
+{
+  "schemaVersion": 1,
+  "id": "foamy.syncthing",
+  "name": "Foamy Syncthing",
+  "version": "1.0.0",
+  "author": "foamrider",
+  "license": "MIT AND MPL-2.0 AND OFL-1.1 AND BSD-3-Clause",
+  "description": "A Syncthing plugin with a bundled native core for monitoring file activity, safely managing folders, controlling the user service, and following the Omarchy theme.",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "Panel.qml"
+  },
+  "barWidget": {
+    "displayName": "Syncthing",
+    "description": "Monitor Syncthing file activity, safely manage folders, control the user service, and follow the Omarchy theme through one bundled native core.",
+    "category": "Files",
+    "allowMultiple": false,
+    "defaultSection": "right",
+    "defaults": {
+      "language": "system",
+      "minimumConnectedDevices": 0,
+      "refreshIntervalSec": 60,
+      "openRefreshIntervalSec": 5,
+      "probeIntervalSec": 15
+    }
+  }
+}

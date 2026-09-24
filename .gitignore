@@ -1,0 +1,4 @@
+*.local.json
+shell.json
+__pycache__/
+*.pyc
