@@ -7,8 +7,10 @@ SettingsController.qml is intentionally adapted to read the widget in shell.json
 and adapter add-folder notices use Translations.js. Keep these changes when
 updating Syncshell. The native binary and bundled Web UI GUI assets remain
 unmodified. Foamy's Web UI installer and theme/removal adapters share
-webui/ownership.sh; keep its ownership check in every path that replaces or
-deletes a theme directory.
+webui/ownership.sh; compare the full installation fingerprint before replacing
+or deleting a theme directory. A directory marker alone does not authorize
+deleting its contents. Render refreshes in staging and record their fingerprint
+only after generation finishes; never re-record an existing user tree to adopt it.
 
 Never store user paths, API keys, Syncthing configuration, or machine preferences
 in this repository. Use Omarchy's bar settings API for plugin preferences.

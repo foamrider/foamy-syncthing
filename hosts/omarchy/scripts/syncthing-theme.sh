@@ -21,7 +21,7 @@ bundle_root="$script_dir/../../../webui"
 # shellcheck source=webui/ownership.sh
 source "$bundle_root/ownership.sh"
 theme_root="$assets_root/$theme_name"
-webui_require_owned_or_absent "$theme_root"
+webui_require_pristine_or_absent "$theme_root"
 revision=$(sha256sum "$bundle_root/SHA256SUMS")
 revision=${revision%% *}
 staging=""
@@ -35,7 +35,7 @@ cleanup() {
     previous=""
   fi
   [[ -z $staging ]] || rm -rf -- "$staging"
-  [[ -z $previous ]] || rm -rf -- "$previous"
+  [[ -z $previous ]] || webui_cleanup_previous "$previous"
 }
 trap cleanup EXIT
 
@@ -43,15 +43,13 @@ base_stylesheet() {
   cat -- "$bundle_root/gui/syncshell-modern/assets/css/theme.css"
 }
 
-output_root=$theme_root
-if [[ ! -f $theme_root/.syncshell-bundle
-    || $(<"$theme_root/.syncshell-bundle") != "$revision" ]]; then
-  (cd -- "$bundle_root" && sha256sum --quiet --check SHA256SUMS)
-  mkdir -p -- "$assets_root"
-  staging=$(mktemp -d -- "$assets_root/.$theme_name.XXXXXX")
-  cp -a -- "$bundle_root/gui/syncshell-modern/." "$staging/"
-  output_root=$staging
-fi
+# Build every refresh off to the side so generated files never overwrite edits
+# in the active tree and a failed refresh cannot leave a stale fingerprint.
+(cd -- "$bundle_root" && sha256sum --quiet --check SHA256SUMS)
+mkdir -p -- "$assets_root"
+staging=$(mktemp -d -- "$assets_root/.$theme_name.XXXXXX")
+cp -a -- "$bundle_root/gui/syncshell-modern/." "$staging/"
+output_root=$staging
 
 if [[ $style == modern ]]; then
   index_tmp=$(mktemp --tmpdir="$output_root" .index.html.XXXXXX)
@@ -145,16 +143,14 @@ if [[ $style == omarchy ]]; then
   mv -- "$version_tmp" "$output_root/theme-version.txt"
 fi
 
-if [[ -n $staging ]]; then
-  printf '%s\n' "$revision" >"$staging/.syncshell-bundle"
-  webui_mark_owned "$staging"
-  webui_require_owned_or_absent "$theme_root"
-  if [[ -e $theme_root ]]; then
-    previous="$staging.previous"
-    mv -- "$theme_root" "$previous"
-  fi
-  mv -- "$staging" "$theme_root"
-  staging=""
+printf '%s\n' "$revision" >"$staging/.syncshell-bundle"
+webui_record_installation "$staging"
+webui_require_pristine_or_absent "$theme_root"
+if [[ -e $theme_root ]]; then
+  previous="$staging.previous"
+  mv -- "$theme_root" "$previous"
 fi
+mv -- "$staging" "$theme_root"
+staging=""
 
 printf '%s\n' "$theme_root"

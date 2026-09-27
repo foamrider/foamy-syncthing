@@ -115,11 +115,11 @@ worker() {
   fi
 
   for theme_path in "${theme_paths[@]}"; do
-    # Native removal can take time; check ownership at the point of deletion.
-    if webui_is_owned "$theme_path"; then
+    # Native removal can take time; compare installed contents before deletion.
+    if webui_is_pristine "$theme_path"; then
       delete_tree "$theme_path"
     elif [[ -e $theme_path || -L $theme_path ]]; then
-      printf 'Preserving unowned Web UI path: %s\n' "$theme_path" >&2
+      printf 'Preserving unowned or modified Web UI path: %s\n' "$theme_path" >&2
       preserved_themes=true
     fi
   done
@@ -132,7 +132,7 @@ worker() {
     message="Plugin settings preserved: $config_root/settings.toml"
   fi
   if [[ $preserved_themes == true ]]; then
-    message+="; unowned Web UI paths preserved"
+    message+="; unowned or modified Web UI paths preserved"
   fi
   notify_result "Syncshell removed" "$message"
 }
