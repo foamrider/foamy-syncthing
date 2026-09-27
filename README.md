@@ -36,6 +36,11 @@ omarchy plugin add https://github.com/foamrider/foamy-syncthing.git --enable
 it from Syncthing while keeping local files. **Add folder** uses an existing
 directory.
 
+Web UI setup only replaces directories marked as owned by Foamy Syncthing.
+Existing unmarked directories, including themes installed by older versions,
+are preserved. If setup reports an unowned path, move that directory aside
+manually before retrying; its name or bundle revision alone does not prove ownership.
+
 ## Remove
 
 ```sh
@@ -49,6 +54,8 @@ state, and installed Web UI themes remain on disk with this command. To stop
 synchronization as well, stop the Syncthing user service separately before
 removing the plugin. The panel's separate removal dialog offers plugin-data
 cleanup; review its confirmation before choosing that option.
+That cleanup deletes only Web UI theme directories with a valid Foamy ownership
+marker and preserves unmarked directories and symbolic links.
 
 Omarchy manages the plugin entry in `shell.json`. Packages and data outside
 the plugin directory are retained unless you remove them separately.

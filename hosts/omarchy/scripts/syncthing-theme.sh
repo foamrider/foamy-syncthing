@@ -18,11 +18,10 @@ esac
 
 script_dir=$(cd -- "$(dirname -- "$0")" && pwd)
 bundle_root="$script_dir/../../../webui"
+# shellcheck source=webui/ownership.sh
+source "$bundle_root/ownership.sh"
 theme_root="$assets_root/$theme_name"
-[[ ! -L $theme_root ]] || {
-  printf 'Refusing to replace a linked Web UI directory\n' >&2
-  exit 1
-}
+webui_require_owned_or_absent "$theme_root"
 revision=$(sha256sum "$bundle_root/SHA256SUMS")
 revision=${revision%% *}
 staging=""
@@ -148,6 +147,8 @@ fi
 
 if [[ -n $staging ]]; then
   printf '%s\n' "$revision" >"$staging/.syncshell-bundle"
+  webui_mark_owned "$staging"
+  webui_require_owned_or_absent "$theme_root"
   if [[ -e $theme_root ]]; then
     previous="$staging.previous"
     mv -- "$theme_root" "$previous"

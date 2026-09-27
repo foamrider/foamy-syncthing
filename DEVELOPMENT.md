@@ -5,14 +5,18 @@ Preferences.js, Translations.js and scripts/ implement Foamy's presentation.
 The hosts/omarchy/ and shared/ directories contain the Syncshell adapter.
 SettingsController.qml is intentionally adapted to read the widget in shell.json,
 and adapter add-folder notices use Translations.js. Keep these changes when
-updating Syncshell. The native binary and bundled Web UI assets remain unmodified.
+updating Syncshell. The native binary and bundled Web UI GUI assets remain
+unmodified. Foamy's Web UI installer and theme/removal adapters share
+webui/ownership.sh; keep its ownership check in every path that replaces or
+deletes a theme directory.
 
 Never store user paths, API keys, Syncthing configuration, or machine preferences
 in this repository. Use Omarchy's bar settings API for plugin preferences.
 Keep English keys and Norwegian translations in Translations.js; substitute
 user names and paths as parameters, never translate them as keys.
 
-Run node --test tests/*.test.js, bash tests/test-preferences.sh, and
+Run node --test tests/*.test.js, bash tests/test-preferences.sh,
+python3 -m unittest discover -s tests -p 'test_*.py', and
 omarchy plugin validate from this checkout. Verify the native binary with
 sha256sum -c packaging/bundled/SHA256SUMS. Restart the shell before checking
 both languages, overview/settings/add-folder views, narrow layouts, offline

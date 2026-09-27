@@ -4,6 +4,13 @@ set -euo pipefail
 readonly plugin_id="foamy.syncthing"
 readonly data_id="foamy.syncthing"
 
+script_dir=$(cd -- "$(dirname -- "$0")" && pwd)
+ownership_script="$script_dir/../../../webui/ownership.sh"
+# The detached worker must retain the ownership check after plugin removal.
+[[ ${1:-} != _worker ]] || ownership_script="$script_dir/ownership.sh"
+# shellcheck source=webui/ownership.sh
+source "$ownership_script"
+
 fail() {
   printf 'syncthing-remove: %s\n' "$*" >&2
   exit 1
@@ -58,7 +65,7 @@ validate_theme_paths() {
   gui_assets=$(realpath -m -- "$gui_assets")
   theme_paths=("$gui_assets/syncthing-omarchy" "$gui_assets/syncshell-modern")
   for theme_path in "${theme_paths[@]}"; do
-    [[ $(dirname -- "$theme_path") == "$gui_assets" && ! -L $theme_path ]] \
+    [[ $(dirname -- "$theme_path") == "$gui_assets" ]] \
       || fail "refusing unsafe theme path"
   done
 }
@@ -81,7 +88,7 @@ worker() {
   local source_root=$1
   local gui_assets=$2
   local cleanup_mode=$3
-  local exit_code message worker_dir theme_path
+  local exit_code message worker_dir theme_path preserved_themes=false
 
   init_paths
   worker_dir=$(dirname -- "$(realpath -m -- "$0")")
@@ -108,7 +115,13 @@ worker() {
   fi
 
   for theme_path in "${theme_paths[@]}"; do
-    delete_tree "$theme_path"
+    # Native removal can take time; check ownership at the point of deletion.
+    if webui_is_owned "$theme_path"; then
+      delete_tree "$theme_path"
+    elif [[ -e $theme_path || -L $theme_path ]]; then
+      printf 'Preserving unowned Web UI path: %s\n' "$theme_path" >&2
+      preserved_themes=true
+    fi
   done
   if [[ $cleanup_mode == purge ]]; then
     delete_tree "$config_root"
@@ -117,6 +130,9 @@ worker() {
   message="Plugin settings deleted"
   if [[ $cleanup_mode == preserve ]]; then
     message="Plugin settings preserved: $config_root/settings.toml"
+  fi
+  if [[ $preserved_themes == true ]]; then
+    message+="; unowned Web UI paths preserved"
   fi
   notify_result "Syncshell removed" "$message"
 }
@@ -139,6 +155,7 @@ start() {
   worker_dir=$(mktemp -d "$runtime_root/remove.XXXXXX")
   worker_path="$worker_dir/syncthing-remove"
   install -m 0700 -- "$0" "$worker_path"
+  install -m 0600 -- "$ownership_script" "$worker_dir/ownership.sh"
 
   setsid bash "$worker_path" _worker "$source_root" "$gui_assets" \
     "$cleanup_mode" </dev/null >/dev/null 2>&1 &
