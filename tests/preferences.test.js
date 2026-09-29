@@ -46,7 +46,7 @@ test('translations preserve placeholders and literal user data', () => {
 });
 
 test('every static Foamy UI translation key has Norwegian text', () => {
-  const files = ['Panel.qml','Service.qml','ui/SyncthingPanelPopup.qml','ui/SyncthingSettings.qml','ui/AddFolderForm.qml'];
+  const files = ['Panel.qml','Service.qml','ui/SyncthingPanelPopup.qml','ui/SyncthingOverview.qml','models/OverviewModel.js','ui/SyncthingSettings.qml','ui/AddFolderForm.qml'];
   for (const file of files) {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
     for (const match of source.matchAll(/\btr\(("(?:[^"\\]|\\.)*")/g)) {

@@ -60,6 +60,8 @@ function buildFolderRows(syncthing, homePath) {
       syncing: needItems > 0 || state === "syncing",
       scanning: state.indexOf("scan") === 0,
       paused: !!folder.paused,
+      devices: folderDevices,
+      errorDetails: status.errorDetails || [],
       sharedDeviceCount: sharedDeviceCount,
       needItems: needItems,
       needBytes: Number(status.needBytes || 0),

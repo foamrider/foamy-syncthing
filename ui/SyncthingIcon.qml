@@ -17,6 +17,10 @@ Image {
     back: '<path d="m11 5-7 7 7 7M4 12h16"/>',
     settings: '<path d="m10 3-.6 2.3-2 .9-2.1-.7-2 3.5 1.6 1.7v2.6L3.3 15l2 3.5 2.1-.7 2 .9L10 21h4l.6-2.3 2-.9 2.1.7 2-3.5-1.6-1.7v-2.6L20.7 9l-2-3.5-2.1.7-2-.9L14 3Z"/><circle cx="12" cy="12" r="3"/>',
     check: '<path d="m5 12 4 4L19 6"/>',
+    devices: '<rect x="2" y="3" width="14" height="12" rx="1"/><path d="M9 15v5M5 20h8"/><rect x="17" y="9" width="5" height="12" rx="1"/>',
+    chevron: '<path d="m9 5 7 7-7 7"/>',
+    external: '<path d="M14 3h7v7m0-7L10 14M10 3H4a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1v-6"/>',
+    disconnected: '<path d="m4 4 16 16M8 3v4m8-4v4M6 7h12v4a6 6 0 0 1-6 6v5M6 11a6 6 0 0 0 2 4"/>',
     alert: '<path d="M12 3 2 21h20Z M12 9v5M12 17h.01"/>'
   })
   sourceSize.width: Math.ceil(width * 2)

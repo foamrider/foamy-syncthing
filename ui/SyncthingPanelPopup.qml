@@ -1,6 +1,5 @@
 pragma ComponentBehavior: Bound
 import QtQuick
-import QtQuick.Controls as Controls
 import QtQuick.Layouts
 import qs.Commons
 import qs.Ui
@@ -25,7 +24,7 @@ SyncthingPopup {
   }
   function focusAddPath() { addForm.focusPath() }
   function focusPanel() { keyCatcher.forceActiveFocus() }
-  function scrollToTop() { overviewFlick.contentY = 0; settings.scrollToTop() }
+  function scrollToTop() { overview.scrollToTop(); settings.scrollToTop() }
 
   focusTarget: keyCatcher
   padding: 0
@@ -55,7 +54,7 @@ SyncthingPopup {
     }
     onTabRequested: function(direction) {
       if (!root.controller.moreOpen) {
-        root.controller.switchPanel(direction)
+        overview.focusFirstAction()
         return
       }
       // Enter the settings controls; subsequent Tab presses use Qt's focus chain.
@@ -66,8 +65,7 @@ SyncthingPopup {
         forgetDialog.selectedIndex = forgetDialog.selectedIndex === 0 ? 1 : 0
       } else if (dy !== 0) {
         if (root.controller.moreOpen) settings.scrollFolders(dy)
-        else overviewFlick.contentY = Math.max(0, Math.min(overviewFlick.contentHeight - overviewFlick.height,
-          overviewFlick.contentY + dy * Style.space(40)))
+        else overview.scrollRows(dy)
       }
     }
     onReturnRequested: {
@@ -246,102 +244,14 @@ SyncthingPopup {
         font.pixelSize: Style.space(12); wrapMode: Text.WordWrap
         Behavior on opacity { NumberAnimation { duration: 350 } }
       }
-      Flickable {
-        id: overviewFlick
+      SyncthingOverview {
+        id: overview
         visible: !root.controller.moreOpen
         Layout.fillWidth: true
         Layout.fillHeight: true
         Layout.minimumHeight: 0
-        Layout.maximumHeight: implicitHeight
-        implicitHeight: overviewFolders.implicitHeight
-        contentWidth: width
-        contentHeight: overviewFolders.implicitHeight
-        clip: true
-        boundsBehavior: Flickable.StopAtBounds
-        flickableDirection: Flickable.VerticalFlick
-        interactive: contentHeight > height
-        Controls.ScrollBar.vertical: Controls.ScrollBar { policy: Controls.ScrollBar.AsNeeded }
-        Column {
-          id: overviewFolders
-          width: overviewFlick.width
-          Repeater {
-            model: root.controller.folderRows
-            delegate: Rectangle {
-              id: folderRow
-              required property var modelData
-              required property int index
-              readonly property string stateLabel: root.controller.compactFolderState(modelData)
-              width: parent.width
-              height: Style.space(44) + (folderError.visible ? folderError.implicitHeight + Style.space(8) : 0)
-              radius: Style.space(7)
-              color: folderMouse.containsMouse || activeFocus ? root.controller.panelFill : "transparent"
-              activeFocusOnTab: true
-              onActiveFocusChanged: {
-                if (!activeFocus) return
-                if (y < overviewFlick.contentY) overviewFlick.contentY = y
-                else if (y + height > overviewFlick.contentY + overviewFlick.height)
-                  overviewFlick.contentY = y + height - overviewFlick.height
-              }
-              Accessible.role: Accessible.Button
-              Accessible.name: root.tr("{name}, {state}. Open folder", {name: folderRow.modelData.label, state: root.tr(folderRow.stateLabel)})
-              Accessible.onPressAction: root.controller.openFolder(folderRow.modelData)
-              Keys.onReturnPressed: root.controller.openFolder(folderRow.modelData)
-              Keys.onSpacePressed: root.controller.openFolder(folderRow.modelData)
-              Keys.forwardTo: [keyCatcher]
-              Rectangle {
-                visible: folderRow.index > 0
-                x: folderRow.radius
-                width: parent.width - 2 * folderRow.radius; height: 1
-                color: Qt.rgba(root.foreground.r, root.foreground.g, root.foreground.b, 0.10)
-              }
-              SyncthingIcon {
-                id: folderIcon
-                x: Style.space(2); y: Style.space(14)
-                width: Style.space(16); height: width
-                name: folderRow.modelData.problem ? "alert" : "folder"
-                color: folderRow.modelData.problem ? root.controller.urgent : root.muted
-              }
-              Label {
-                anchors.left: folderIcon.right; anchors.leftMargin: Style.space(10)
-                anchors.right: folderState.left; anchors.rightMargin: Style.space(12)
-                y: Style.space(13)
-                text: folderRow.modelData.label; elide: Text.ElideRight
-              }
-              Label {
-                id: folderState
-                anchors.right: parent.right; y: Style.space(15)
-                anchors.rightMargin: Style.space(8)
-                text: root.tr(folderRow.stateLabel)
-                color: folderRow.stateLabel === "Needs attention" ? root.controller.urgent
-                  : folderRow.stateLabel === "Up to date" ? root.controller.success
-                  : folderRow.stateLabel === "Paused" || folderRow.stateLabel === "Stopped" ? root.controller.warning
-                  : folderRow.stateLabel === "Syncing" || folderRow.stateLabel === "Scanning"
-                    || folderRow.stateLabel === "Checking" ? Color.accent : root.muted
-                font.pixelSize: Style.space(11)
-              }
-              Label {
-                id: folderError
-                visible: folderRow.modelData.problem
-                x: Style.space(28); y: Style.space(40)
-                width: parent.width - x
-                text: root.controller.folderMeta(folderRow.modelData)
-                color: root.controller.urgent
-                font.pixelSize: Style.space(11); wrapMode: Text.WordWrap
-              }
-              MouseArea {
-                id: folderMouse
-                anchors.fill: parent; hoverEnabled: true
-                cursorShape: Qt.PointingHandCursor
-                onClicked: root.controller.openFolder(folderRow.modelData)
-              }
-              PanelToolTip {
-                visible: folderMouse.containsMouse
-                text: folderRow.modelData.path + "\n" + root.controller.folderMeta(folderRow.modelData)
-                fontFamily: "sans-serif"
-              }
-            }
-          }
-        }
+        controller: root.controller
+        onCloseRequested: keyCatcher.closeRequested()
       }
       AddFolderForm {
         id: addForm
