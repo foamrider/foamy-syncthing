@@ -1,7 +1,6 @@
 import QtQuick
-import qs.Ui as Ui
 
-Ui.Dropdown {
+SyncthingDropdown {
   id: root
 
   property double lastClosedAt: 0

@@ -94,7 +94,7 @@ SyncthingPopup {
     height: Style.space(root.controller.moreOpen ? 88 : 58)
     Rectangle {
       anchors.fill: parent
-      radius: Style.space(13)
+      radius: Math.max(0, root.cornerRadius - Border.top(root.borderSpec))
       color: Qt.tint(Color.popups.background, Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.09))
       Rectangle {
         anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom

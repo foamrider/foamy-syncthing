@@ -71,7 +71,7 @@ Column {
     selectedTextColor: Color.popups.background
     leftPadding: Style.space(10); rightPadding: Style.space(10)
     background: Rectangle {
-      radius: Style.space(7)
+      radius: Style.cornerRadius * 2
       color: root.controller.panelFill
       border.width: 1
       border.color: field.activeFocus ? Color.accent : "transparent"
@@ -82,7 +82,7 @@ Column {
     Keys.onEscapePressed: root.controller.closeAddFolder()
   }
 
-  Dropdown {
+  SyncthingDropdown {
     id: pendingFolderPicker
     visible: options.length > 1
     width: parent.width
@@ -200,7 +200,7 @@ Column {
             readonly property bool selected: root.selectedDeviceIds.indexOf(String(modelData.value)) >= 0
             width: parent.width
             height: Style.space(34)
-            radius: Style.space(7)
+            radius: Style.cornerRadius * 2
             enabled: !root.busy
             color: deviceMouse.containsMouse || activeFocus ? root.controller.panelFill : "transparent"
             border.width: activeFocus ? 1 : 0
@@ -272,7 +272,7 @@ Column {
       fontSize: Style.space(12)
       foreground: root.foreground
       background: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.12)
-      radius: Style.space(7)
+      radius: Style.cornerRadius * 2
       horizontalPadding: Style.space(14)
       verticalPadding: Style.space(8)
       focusable: true

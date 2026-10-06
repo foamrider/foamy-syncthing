@@ -48,7 +48,7 @@ ColumnLayout {
     Layout.fillWidth: true
     spacing: Style.space(12)
     Label { text: root.tr("Plugin preferences"); font.pixelSize: Style.space(14) }
-    Dropdown {
+    SyncthingDropdown {
       id: languagePicker
       width: parent.width
       label: root.tr("Language")
@@ -62,7 +62,7 @@ ColumnLayout {
       enabled: !root.controller.preferencesSaving
       onChanged: function(value) { root.controller.savePreference("language", value) }
     }
-    Dropdown {
+    SyncthingDropdown {
       id: minimumPicker
       width: parent.width
       label: root.tr("Minimum connected devices (this host included)")

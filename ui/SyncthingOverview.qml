@@ -58,7 +58,7 @@ ColumnLayout {
     Keys.onLeftPressed: { root.setTab("folders"); folderTab.forceActiveFocus(Qt.TabFocusReason) }
     Keys.onRightPressed: { root.setTab("devices"); deviceTab.forceActiveFocus(Qt.TabFocusReason) }
     background: Rectangle {
-      radius: Style.space(6)
+      radius: Style.cornerRadius * 2
       color: button.checked || button.hovered ? root.controller.panelFill : "transparent"
       border.width: button.visualFocus ? 1 : 0
       border.color: Color.accent
@@ -127,7 +127,7 @@ ColumnLayout {
               if (row.y < flick.contentY) flick.contentY = row.y
               else if (row.y + height > flick.contentY + flick.height) flick.contentY = row.y + height - flick.height
             }
-            background: Rectangle { radius: Style.space(6); color: rowButton.hovered || rowButton.activeFocus ? root.controller.panelFill : "transparent"; border.width: rowButton.visualFocus ? 1 : 0; border.color: Color.accent }
+            background: Rectangle { radius: Style.cornerRadius * 2; color: rowButton.hovered || rowButton.activeFocus ? root.controller.panelFill : "transparent"; border.width: rowButton.visualFocus ? 1 : 0; border.color: Color.accent }
             contentItem: Item {
               SyncthingIcon { id: kind; x: Style.space(2); anchors.verticalCenter: parent.verticalCenter; width: Style.space(16); height: width; name: row.modelData.icon; color: root.controller.panelMuted }
               Column {
@@ -190,7 +190,7 @@ ColumnLayout {
               implicitWidth: folderAction.implicitWidth + leftPadding + rightPadding
               onClicked: root.controller.openFolder(row.modelData.folder)
               Keys.onEscapePressed: root.closeRequested()
-              background: Rectangle { radius: Style.space(5); color: root.controller.panelFill; border.width: openFolder.visualFocus ? 1 : 0; border.color: Color.accent }
+              background: Rectangle { radius: Style.cornerRadius * 2; color: root.controller.panelFill; border.width: openFolder.visualFocus ? 1 : 0; border.color: Color.accent }
               contentItem: Row {
                 id: folderAction
                 spacing: Style.space(6)

@@ -12,7 +12,7 @@ Rectangle {
   signal clicked()
   implicitWidth: Style.space(32)
   implicitHeight: Style.space(32)
-  radius: Style.space(7)
+  radius: Style.cornerRadius * 2
   opacity: enabled ? 1 : 0.4
   color: mouse.containsMouse || activeFocus
     ? Qt.rgba(foreground.r, foreground.g, foreground.b, 0.08) : "transparent"

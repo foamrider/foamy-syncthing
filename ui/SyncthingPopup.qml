@@ -43,7 +43,7 @@ PanelWindow {
   required property Item anchorItem
   required property QtObject bar
   property var owner: null
-  property real cornerRadius: Style.space(14)
+  property real cornerRadius: Style.cornerRadius * 2
   property int margin: Style.gapsOut
   property int padding: Style.spacing.popupPadding
   property int contentWidth: Style.space(280)

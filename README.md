@@ -2,6 +2,9 @@
 
 Syncthing folder status and controls.
 
+Status colors adapt to light and dark themes. Popup corners use twice Hyprland's
+`decoration:rounding` value through Omarchy; zero keeps them square.
+
 ![Foamy Syncthing screenshot](preview.png)
 
 ## Install

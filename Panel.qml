@@ -60,9 +60,10 @@ Panel {
   readonly property var syncthing: Plugin.ServiceRegistry.instance
   readonly property color foreground: bar ? bar.foreground : Color.foreground
   readonly property color urgent: bar ? bar.urgent : Color.urgent
-  readonly property color warning: "#ebcb8b"
-  readonly property color success: "#a3be8c"
-  readonly property color syncthingBlue: "#26B6DB"
+  readonly property bool lightTheme: Color.popups.background.hslLightness > 0.5
+  readonly property color warning: lightTheme ? "#886000" : "#ebcb8b"
+  readonly property color success: lightTheme ? "#3b6b30" : "#a3be8c"
+  readonly property color syncthingBlue: lightTheme ? "#006a73" : "#26B6DB"
   readonly property color dim: Qt.darker(foreground, 1.5)
   readonly property string fontFamily: bar ? bar.fontFamily : Style.font.family
   readonly property string panelFontFamily: "sans-serif"
@@ -146,7 +147,8 @@ Panel {
   }
   readonly property color syncthingIconColor: {
     if (hasConflict) return urgent
-    if (hasTooFewDevices) return warning
+    // The bar and popup can use different surfaces in the same theme.
+    if (hasTooFewDevices) return Color.bar.background.hslLightness > 0.5 ? "#886000" : "#ebcb8b"
     return foreground
   }
   readonly property string visibleNotice: syncthing

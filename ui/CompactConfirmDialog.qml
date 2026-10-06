@@ -40,7 +40,7 @@ Item {
       color: root.background
       borderSpec: Border.flat(root.selectedText, Style.normalBorderWidth)
       padding: Style.space(12)
-      radius: Style.cornerRadius
+      radius: Style.cornerRadius * 2
 
       MouseArea {
         anchors.fill: parent
@@ -95,7 +95,7 @@ Item {
                 : (selected
                   ? root.selectedText : Util.alpha(root.foreground, 0.38)),
                 Style.normalBorderWidth)
-              radius: 0
+              radius: Style.cornerRadius * 2
 
               Text {
                 textFormat: Text.PlainText

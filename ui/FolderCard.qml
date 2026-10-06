@@ -34,7 +34,7 @@ Rectangle {
   implicitHeight: content.implicitHeight + Style.space(16)
   color: rowMouse.containsMouse
     ? Style.hoverFillFor(foreground, Color.accent) : "transparent"
-  radius: Style.cornerRadius
+  radius: Style.cornerRadius * 2
 
   Behavior on color { ColorAnimation { duration: 120 } }
 
@@ -149,6 +149,8 @@ Rectangle {
   }
 
   Button {
+
+    radius: Style.cornerRadius * 2
     id: forgetButton
     z: 1
     visible: root.folder && root.folder.paused

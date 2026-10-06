@@ -51,6 +51,8 @@ Column {
     }
 
     Button {
+
+      radius: Style.cornerRadius * 2
       text: "+"
       Layout.preferredHeight: Style.space(28)
       tooltipText: root.controller.addOpen
@@ -68,6 +70,8 @@ Column {
     }
 
     Button {
+
+      radius: Style.cornerRadius * 2
       readonly property var targetFolder: root.controller.selectedFolder()
       readonly property bool targetBusy: root.syncthing
         && root.syncthing.folderMutationBusy
@@ -116,6 +120,8 @@ Column {
     }
 
     Button {
+
+      radius: Style.cornerRadius * 2
       text: "ACCEPT"
       Layout.preferredHeight: Style.space(28)
       tooltipText: "Prepare this offered folder for local acceptance"
@@ -150,6 +156,8 @@ Column {
     }
 
     Button {
+
+      radius: Style.cornerRadius * 2
       id: installationHelp
       implicitWidth: implicitHeight
       text: "?"
@@ -227,6 +235,8 @@ Column {
   }
 
   Button {
+
+    radius: Style.cornerRadius * 2
     visible: root.syncthing && root.syncthing.canInstall
     text: "Install Syncthing"
     bordered: true
