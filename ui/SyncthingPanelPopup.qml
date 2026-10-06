@@ -92,14 +92,16 @@ SyncthingPopup {
     anchors.top: parent.top
     width: parent.width
     height: Style.space(root.controller.moreOpen ? 88 : 58)
-    Rectangle {
+    Item {
       anchors.fill: parent
-      radius: Math.max(0, root.cornerRadius - Border.top(root.borderSpec))
-      color: Qt.tint(Color.popups.background, Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.09))
+      clip: true
+      // Qt clamps a short Rectangle's corners; crop a taller background instead.
       Rectangle {
-        anchors.left: parent.left; anchors.right: parent.right; anchors.bottom: parent.bottom
-        height: parent.height / 2
-        color: parent.color
+        width: parent.width
+        height: Math.max(parent.height, topLeftRadius * 2)
+        topLeftRadius: Math.max(0, root.cornerRadius - Border.top(root.borderSpec))
+        topRightRadius: topLeftRadius
+        color: Qt.tint(Color.popups.background, Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.09))
       }
     }
     Row {
