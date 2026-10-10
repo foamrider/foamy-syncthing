@@ -10,7 +10,8 @@ Status colors adapt to light and dark themes. Popup corners use twice Hyprland's
 ## Install
 
 Requires Omarchy Quattro on **x86-64 Linux**, Bash, `jq`, GNU coreutils,
-and systemd user services. The repository includes the compiled
+`wl-clipboard` (included in Omarchy), and systemd user services. The repository
+includes the compiled
 `bin/x86_64/syncshell-core` helper and Web UI assets. This helper connects the
 plugin to Syncthing; **Syncthing itself is not bundled**. Other CPU architectures
 are not supported by the bundled helper.
@@ -41,6 +42,11 @@ omarchy plugin add https://github.com/foamrider/foamy-syncthing.git --enable
 **Pause** keeps a folder configured. **Unlink** asks for confirmation and removes
 it from Syncthing while keeping local files. **Add folder** uses an existing
 directory.
+
+Add-folder clipboard paste runs outside the shell process. It accepts at most
+16 KiB of text and times out after two seconds. Oversized or stalled clipboard
+sources leave the field unchanged and show an error. Pasted line breaks become
+spaces to keep the fields on one line.
 
 Web UI setup and theme refresh only replace an installation whose file contents,
 paths, types, and permissions still match the recorded installation fingerprint.

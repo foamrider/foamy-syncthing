@@ -59,8 +59,9 @@ Column {
     color: root.dim
     wrapMode: Text.WordWrap
   }
-  component Field: Controls.TextField {
+  component Field: SafeTextField {
     id: field
+    translate: root.tr
     enabled: !root.busy
     implicitHeight: Style.space(36)
     font.family: root.fontFamily
@@ -74,7 +75,7 @@ Column {
       radius: Style.cornerRadius * 2
       color: root.controller.panelFill
       border.width: 1
-      border.color: field.activeFocus ? Color.accent : "transparent"
+      border.color: field.inputActiveFocus ? Color.accent : "transparent"
     }
   }
   component Action: SyncthingAction {
@@ -255,6 +256,13 @@ Column {
         : root.tr("Selected devices receive a share offer to accept.")
       color: root.selectedDeviceIds.length === 0 ? root.warning : root.dim
     }
+  }
+  Hint {
+    width: parent.width
+    readonly property string error: addPathField.pasteError || addLabelField.pasteError || addIdField.pasteError
+    visible: error !== ""
+    text: root.tr(error)
+    color: root.urgent
   }
   Hint {
     visible: text !== ""
