@@ -37,6 +37,8 @@ function buildFolderRows(syncthing, homePath) {
     var state = String(status.state || "unknown")
     var errors = Number(status.errors || 0) + Number(status.pullErrors || 0)
     var needItems = Number(status.needTotalItems || 0)
+    // Match Syncthing's idle backlog state; it may require manual resolution.
+    var outOfSync = !folder.paused && state === "idle" && needItems > 0
     var configuredLabel = String(folder.label || "")
     var folderDevices = folder.devices || []
     var sharedDeviceCount = 0
@@ -55,9 +57,10 @@ function buildFolderRows(syncthing, homePath) {
       path: String(folder.path || ""),
       state: state,
       error: String(status.error || ""),
-      problem: state === "error" || !!status.error || errors > 0,
+      outOfSync: outOfSync,
+      problem: outOfSync || state === "error" || !!status.error || errors > 0,
       // Preparing without queued work is not active synchronization.
-      syncing: needItems > 0 || state === "syncing",
+      syncing: !outOfSync && (needItems > 0 || state === "syncing"),
       scanning: state.indexOf("scan") === 0,
       paused: !!folder.paused,
       devices: folderDevices,
@@ -108,6 +111,7 @@ function formatBytes(value) {
 function folderMeta(folder, translate) {
   var tr = translate || function(key, values) { return key.replace(/\{(\w+)\}/g, function(m, k) { return values && values[k] !== undefined ? values[k] : m }) }
   var suffix = folder.configuredLabel && folder.configuredLabel !== folder.label ? " · " + folder.configuredLabel : ""
+  if (folder.outOfSync) return tr("Out of sync") + suffix
   if (folder.problem) return (folder.error || tr("Needs attention")) + suffix
   if (folder.paused) return tr("Syncing paused") + suffix
   if (folder.scanning) return tr("Checking local changes") + suffix
@@ -122,6 +126,7 @@ function folderMeta(folder, translate) {
 function folderState(folder, recentlyLinkedFolderId, hasActivity) {
   if (!folder) return "UNKNOWN"
   if (folder.paused) return "PAUSED"
+  if (folder.outOfSync) return "OUT OF SYNC"
   if (folder.problem) return "ERROR"
   if (recentlyLinkedFolderId === folder.id) return "LINKED"
   if (folder.syncing || folder.scanning || hasActivity) return "SYNCING"
@@ -240,6 +245,7 @@ function deviceCounts(service) {
 function compactFolderState(folder, online, stopped, hasActivity) {
   if (stopped) return "Stopped"
   if (!online) return "Unavailable"
+  if (folder.outOfSync) return "Out of sync"
   if (folder.problem) return "Needs attention"
   if (folder.paused) return "Paused"
   if (folder.scanning) return "Scanning"
@@ -262,8 +268,10 @@ function compactSummary(service, rows, translate) {
     return result
   }
   if (service.hasConflicts || stateCount(rows, "problem") > 0) {
-    result.title = "Needs attention"
-    result.detail = service.hasConflicts ? "Sync conflicts detected" : "Check the folder errors below"
+    var outOfSync = !service.hasConflicts && stateCount(rows, "outOfSync") > 0
+    result.title = outOfSync ? "Out of sync" : "Needs attention"
+    result.detail = service.hasConflicts ? "Sync conflicts detected"
+      : outOfSync ? "Check the affected folders in the Web UI" : "Check the folder errors below"
     return result
   }
   if (!rows.length) {

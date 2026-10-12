@@ -80,6 +80,90 @@ test("native snapshots feed the original folder cards without losing health", ()
   assert.equal(panel.total(rows, "globalFiles"), 12);
 });
 
+test("idle outstanding items stay critical through the native adapter and both presentations", () => {
+  const facade = model("hosts/omarchy/models/FacadeModel.js");
+  const panel = model("models/PanelModel.js");
+  const overview = model("models/OverviewModel.js");
+  const translations = model("Translations.js");
+  const raw = [{id: "work", path: "/tmp/work", devices: [{id: "remote"}],
+    status: {state: "idle", needTotalItems: 2, needBytes: 0, globalBytes: 2048,
+      errors: [], pullErrors: 0}}];
+  const service = {online: true, folders: facade.folders(raw),
+    folderStatuses: facade.folderStatuses(raw),
+    devices: [{deviceID: "remote", connected: true}],
+    // The bundled core counts outstanding items as syncing, with no pull error.
+    folderProblemCount: 0, syncingFolderCount: 1,
+    syncActivityFolderId: "work", syncActivityDetail: "Earlier activity"};
+  const folders = panel.buildFolderRows(service, "/tmp");
+  assert.equal(folders[0].outOfSync, true);
+  assert.equal(folders[0].problem, true);
+  assert.equal(folders[0].syncing, false);
+  assert.equal(panel.folderState(folders[0], "work", true), "OUT OF SYNC");
+  assert.equal(panel.compactFolderState(folders[0], true, false, true), "Out of sync");
+  assert.equal(panel.folderMeta(folders[0]), "Out of sync");
+  const summary = panel.compactSummary(service, folders);
+  assert.equal(summary.title, "Out of sync");
+  assert.equal(summary.progress, -1);
+  const result = overview.rows(service, folders, key => key, String, String);
+  assert.equal(result.folders[0].state, "Out of sync");
+  assert.equal(result.folders[0].progress, -1);
+  assert.doesNotMatch(result.folders[0].detail, /Earlier activity/);
+  assert.equal(result.devices[0].state, "Out of sync");
+  assert.match(result.devices[0].detail, /locally/);
+  assert.equal(translations.text(summary.title, "nb"), "Ute av synk");
+
+  service.folderStatuses.work.needTotalItems = 0;
+  service.syncActivityDetail = "";
+  const recovered = panel.buildFolderRows(service, "/tmp");
+  assert.equal(recovered[0].problem, false);
+  assert.equal(panel.compactSummary(service, recovered).title, "Up to date");
+});
+
+test("paused, queued, scanning and unknown snapshots do not become idle out-of-sync errors", () => {
+  const panel = model("models/PanelModel.js");
+  const overview = model("models/OverviewModel.js");
+  for (const [props, expected] of [
+    [{state: "idle", paused: true}, "Paused"],
+    [{state: "sync-waiting"}, "Waiting to sync"],
+    [{state: "sync-preparing"}, "Waiting to sync"],
+    [{state: "syncing"}, "Syncing"],
+    [{state: "scanning"}, "Scanning"],
+    [{state: "unknown"}, "Waiting to sync"]
+  ]) {
+    const service = {online: true, folders: [{id: "work", paused: props.paused}],
+      folderStatuses: {work: {state: props.state, needTotalItems: 1}}};
+    const folders = panel.buildFolderRows(service, "/tmp");
+    assert.equal(folders[0].outOfSync, false, props.state);
+    assert.equal(folders[0].problem, false, props.state);
+    assert.equal(overview.rows(service, folders, key => key, String, String).folders[0].state,
+      expected, props.state);
+  }
+});
+
+test("bar icon uses urgent color for folder errors and prioritizes them over device warnings", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../Panel.qml"), "utf8");
+  const panel = model("models/PanelModel.js");
+  const health = source.match(/readonly property bool hasProblems: ([\s\S]*?)\n  readonly property/)[1];
+  const color = source.match(/readonly property color syncthingIconColor: \{([\s\S]*?)\n  \}/)[1];
+  const context = vm.createContext({PanelModel: panel, urgent: "red", foreground: "white",
+    hasTooFewDevices: true, Color: {bar: {background: {hslLightness: 0.1}}}});
+  for (const [service, folders, expected] of [
+    [{folderProblemCount: 0}, [{problem: true, outOfSync: true}], "red"],
+    [{folderProblemCount: 1}, [], "red"],
+    [{hasConflicts: true}, [], "red"],
+    [{phase: "error"}, [], "red"],
+    [{folderProblemCount: 0}, [{problem: false}], "#ebcb8b"],
+    [null, [], "#ebcb8b"]
+  ]) {
+    context.syncthing = service;
+    context.folderRows = folders;
+    context.hasProblems = vm.runInContext(health, context);
+    assert.equal(vm.runInContext(`(function() {${color}})()`, context), expected);
+  }
+  context.hasTooFewDevices = false;
+  assert.equal(vm.runInContext(`(function() {${color}})()`, context), "white");
+});
+
 test("zero-work sync preparation does not flash as activity", () => {
   const panel = model("models/PanelModel.js");
   const service = {folders: [{id: "work", path: "/work"}], folderStatuses: {work: {state: "sync-preparing", needTotalItems: 0}}};

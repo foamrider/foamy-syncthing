@@ -185,6 +185,7 @@ SyncthingPopup {
             Label {
               width: parent.width
               text: root.tr(root.controller.compactSummary.title)
+              color: root.controller.hasProblems ? root.controller.urgent : root.foreground
               font.pixelSize: Style.space(23)
               wrapMode: Text.WordWrap
             }

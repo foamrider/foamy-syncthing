@@ -28,14 +28,14 @@ ColumnLayout {
     else expandedDevices = next
   }
   function statusColor(state) {
-    if (state === "Error") return controller.urgent
+    if (state === "Error" || state === "Out of sync") return controller.urgent
     if (state === "Syncing" || state === "Scanning" || state === "Checking") return Color.accent
     if (state === "Connected" || state === "Up to date") return controller.success
     if (state === "Paused" || state === "Waiting to sync") return controller.warning
     return controller.panelMuted
   }
   function statusIcon(state) {
-    if (state === "Error") return "alert"
+    if (state === "Error" || state === "Out of sync") return "alert"
     if (state === "Connected" || state === "Up to date") return "check"
     if (state === "Paused") return "pause"
     if (state === "Disconnected" || state === "Unavailable") return "disconnected"
@@ -158,7 +158,7 @@ ColumnLayout {
             width: parent.width - x - Style.space(4)
             spacing: Style.space(8)
             Label { visible: rowName.truncated; width: parent.width; text: row.modelData.label; wrapMode: Text.WrapAnywhere }
-            Label { visible: text !== ""; width: parent.width; text: row.modelData.detail; wrapMode: Text.WrapAnywhere; font.pixelSize: Style.space(11); color: row.modelData.state === "Error" ? root.controller.urgent : root.controller.panelMuted }
+            Label { visible: text !== ""; width: parent.width; text: row.modelData.detail; wrapMode: Text.WrapAnywhere; font.pixelSize: Style.space(11); color: row.modelData.state === "Error" || row.modelData.state === "Out of sync" ? root.controller.urgent : root.controller.panelMuted }
             RowLayout {
               visible: row.modelData.progress >= 0
               width: parent.width

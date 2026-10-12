@@ -54,3 +54,16 @@ test('paused, scanning and unknown folder states remain distinct', () => {
     assert.equal(rows(service, [{...folder, ...props}]).folders[0].state, expected);
   }
 });
+
+test('out-of-sync folders preserve errors and do not turn offline peers into error states', () => {
+  const failed = {...folder, outOfSync: true, problem: true, needItems: 1,
+    errorDetails: [{path: 'report.pdf', error: 'Permission denied'}]};
+  const result = rows(service, [failed]);
+  assert.equal(result.folders[0].state, 'Out of sync');
+  assert.match(result.folders[0].detail, /report.pdf: Permission denied/);
+  assert.equal(result.devices[0].state, 'Out of sync');
+  const offline = rows(service, [{...failed, devices: [{deviceID: 'offline'}]}]);
+  assert.equal(offline.folders[0].state, 'Out of sync');
+  assert.equal(offline.devices[1].state, 'Disconnected');
+  assert.equal(rows({...service, online: false}, [failed]).folders[0].state, 'Unavailable');
+});

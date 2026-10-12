@@ -109,7 +109,8 @@ Panel {
     ? syncthing.online
     : false
   readonly property bool hasProblems: syncthing
-    ? syncthing.folderProblemCount > 0 || syncthing.hasConflicts : false
+    ? syncthing.folderProblemCount > 0 || syncthing.hasConflicts
+      || PanelModel.stateCount(folderRows, "problem") > 0 : false
   readonly property bool hasConflict: syncthing
     ? syncthing.hasConflicts : false
   readonly property bool hasTooFewDevices: syncthing
@@ -146,7 +147,7 @@ Panel {
       || syncthing.lastError || ""
   }
   readonly property color syncthingIconColor: {
-    if (hasConflict) return urgent
+    if (hasProblems || (syncthing && syncthing.phase === "error")) return urgent
     // The bar and popup can use different surfaces in the same theme.
     if (hasTooFewDevices) return Color.bar.background.hslLightness > 0.5 ? "#886000" : "#ebcb8b"
     return foreground
@@ -222,7 +223,7 @@ Panel {
     var state = folderState(folder)
     if (state === "PAUSED") return warning
     if (state === "SYNCING") return warning
-    if (state === "ERROR") return urgent
+    if (state === "ERROR" || state === "OUT OF SYNC") return urgent
     return success
   }
 

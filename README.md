@@ -35,6 +35,10 @@ omarchy plugin add https://github.com/foamrider/foamy-syncthing.git --enable
   shared folders/devices, status, and error details. Right-click refreshes.
 - Device syncing/error labels reflect local activity in shared folders; they do
   not confirm a transfer to that specific device. Open folders from their details.
+- An idle folder with outstanding items shows **Out of sync** in red. Folder
+  errors and out-of-sync folders also make the bar icon red. Use the Web UI to
+  review and resolve these states, including **Override Changes** for send-only
+  folders.
 - Open the cog for language, device warnings, and folder actions.
 - Use the globe to open Syncthing's Web UI.
 - The footer play/pause button starts or stops the local Syncthing service.
