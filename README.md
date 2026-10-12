@@ -10,7 +10,8 @@ Status colors adapt to light and dark themes. Popup corners use twice Hyprland's
 ## Install
 
 Requires Omarchy Quattro on **x86-64 Linux**, Bash, `jq`, GNU coreutils,
-`wl-clipboard` (included in Omarchy), and systemd user services. The repository
+`wl-clipboard`, system Python (`python`), `python-dbus` (included in Omarchy
+through UWSM), and systemd user services. The repository
 includes the compiled
 `bin/x86_64/syncshell-core` helper and Web UI assets. This helper connects the
 plugin to Syncthing; **Syncthing itself is not bundled**. Other CPU architectures
@@ -51,6 +52,12 @@ Add-folder clipboard paste runs outside the shell process. It accepts at most
 16 KiB of text and times out after two seconds. Oversized or stalled clipboard
 sources leave the field unchanged and show an error. Pasted line breaks become
 spaces to keep the fields on one line.
+
+Desktop notification text travels through stdin to a helper that calls D-Bus
+directly. Folder labels and other message text are never passed in subprocess
+arguments. Delivery has a four-second hard deadline and a 32 KiB input limit.
+The panel queues at most eight notifications. If delivery fails, the result remains in
+the panel and a notification-delivery error is shown there.
 
 Web UI setup and theme refresh only replace an installation whose file contents,
 paths, types, and permissions still match the recorded installation fingerprint.

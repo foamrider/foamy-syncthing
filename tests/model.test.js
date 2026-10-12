@@ -227,6 +227,33 @@ test("pause and resume preserve the folder configuration and use accurate status
   }
 });
 
+test("local-only folder notices retain private labels in the panel and stdin sender", () => {
+  const service = fs.readFileSync(path.join(__dirname, "../Service.qml"), "utf8");
+  const adapter = fs.readFileSync(path.join(__dirname, "../hosts/omarchy/OmarchyService.qml"), "utf8");
+  const notices = [];
+  const context = vm.createContext({
+    folderLabel: () => 'private-Canary-847 📁',
+    tr: (key, values) => key.replace(/\{(\w+)\}/g, (match, name) => values?.[name] ?? match),
+    UiConstants: {NOTICE_VISIBLE_MS: 1000}, folderMutationNotice: "",
+    noticeTimer: {restart() {}},
+    notificationSender: {send(message, visibleMs) { notices.push([message, visibleMs]); return true; }},
+  });
+  context.root = context;
+  context.runFolderAction = (...args) => context.publishFolderNotice(args[4]);
+  for (const [source, name] of [[service, "setFolderPaused"], [adapter, "notify"], [adapter, "publishFolderNotice"]]) {
+    const start = source.indexOf(`  function ${name}(`);
+    const end = source.indexOf("\n  }", start) + 4;
+    assert.ok(start >= 0);
+    vm.runInContext(source.slice(start, end), context);
+  }
+  context.setFolderPaused("local-only", true);
+  assert.match(context.folderMutationNotice, /Paused private-Canary-847 📁/);
+  context.setFolderPaused("local-only", false);
+  assert.match(context.folderMutationNotice, /Resumed private-Canary-847 📁/);
+  assert.equal(notices.length, 2);
+  for (const [text] of notices) assert.match(text, /private-Canary-847 📁/);
+});
+
 test("unlink pauses before removing configuration and stops safely on errors", () => {
   function fixture(paused = false) {
     const requests = [];

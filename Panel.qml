@@ -144,7 +144,7 @@ Panel {
     return syncthing.folderMutationError || syncthing.controlError
       || syncthing.folderPreparationError || syncthing.packageError
       || syncthing.conflictScanError
-      || syncthing.lastError || ""
+      || syncthing.lastError || syncthing.notificationError || ""
   }
   readonly property color syncthingIconColor: {
     if (hasProblems || (syncthing && syncthing.phase === "error")) return urgent

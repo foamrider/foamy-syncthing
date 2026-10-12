@@ -223,9 +223,11 @@ exec "$TEST_REAL_MV" "$@"
         scripts = installed / "hosts/omarchy/scripts"
         scripts.mkdir(parents=True)
         (installed / "webui").mkdir()
+        (installed / "scripts").mkdir()
         shutil.copy2(ROOT / "manifest.json", installed)
         shutil.copy2(ROOT / "hosts/omarchy/scripts/syncthing-remove.sh", scripts)
         shutil.copy2(ROOT / "webui/ownership.sh", installed / "webui")
+        shutil.copy2(ROOT / "scripts/syncthing-notify.py", installed / "scripts")
         self.env.update(TEST_INSTALLED=str(installed), TEST_ASSETS=str(self.assets),
                         TEST_DROP_MARKER="yes" if drop_marker else "no",
                         TEST_EDIT_DURING_REMOVAL="yes" if edit_during_removal else "no")
@@ -239,7 +241,22 @@ if [[ $TEST_EDIT_DURING_REMOVAL == yes ]]; then
   printf 'edited during removal' >"$TEST_ASSETS/syncshell-modern/index.html"
 fi
 """)
-        self.mock("omarchy-notification-send", 'printf "%s\\n" "$@" >"$TEST_DONE"\n')
+        (self.bin / "dbus.py").write_text('''
+import os
+from pathlib import Path
+def Byte(value): return value
+class Connection:
+    def __init__(self, address): pass
+    def call_blocking(self, *args, **kwargs):
+        values = args[5]
+        Path(os.environ["TEST_DONE"]).write_text(values[3] + "\\n" + values[4])
+        return 1
+    def close(self): pass
+class bus:
+    BusConnection = Connection
+''')
+        self.env["PYTHONPATH"] = str(self.bin)
+        self.env["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=/unused-test-bus"
         settings = Path(self.env["XDG_CONFIG_HOME"]) / "omarchy/foamy.syncthing"
         settings.mkdir(parents=True, exist_ok=True)
         (settings / "settings.toml").write_text("keep settings")

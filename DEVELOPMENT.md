@@ -29,5 +29,10 @@ Syncthing counts remote peers only; the displayed device total includes the
 local computer. Native events carry actual sync activity; ordinary refreshes
 must not look like synchronization. Do not infer network speeds from folder size.
 
+Send desktop notification text through stdin to scripts/syncthing-notify.py.
+Keep labels, paths, and message bodies out of every subprocess argument vector;
+do not relay them through omarchy-notification-send, busctl, or notify-send.
+Preserve the in-panel result and surface a generic delivery error on failure.
+
 SyncthingPopup.qml is adapted from Omarchy's Ui/KeyboardPanel.qml. Preserve
 its keyboard focus, outside-click dismissal, and multi-monitor behavior.

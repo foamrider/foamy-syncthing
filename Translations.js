@@ -1,5 +1,6 @@
 // English keys are stable translation identifiers. User names and paths are parameters.
 var nb = {
+  "Could not send desktop notification. Check the result in the panel.": "Kunne ikke sende skrivebordsvarsel. Se resultatet i panelet.",
   "Folders": "Mapper",
   "Devices": "Enheter",
   "Connected": "Tilkoblet",

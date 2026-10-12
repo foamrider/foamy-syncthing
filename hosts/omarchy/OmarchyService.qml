@@ -101,6 +101,7 @@ QtObject {
   property string folderMutationId: ""
   property string folderMutationAction: ""
   property string folderMutationError: ""
+  readonly property string notificationError: notificationSender.error
   signal folderDirectoryRequired(var args)
   property string folderMutationNotice: ""
   property int folderMutationNoticeVisibleMs: UiConstants.NOTICE_VISIBLE_MS
@@ -243,12 +244,7 @@ QtObject {
   }
 
   function notify(message, visibleMs) {
-    if (!message) return
-    var args = ["omarchy-notification-send"]
-    if (Number(visibleMs) > 0)
-      args.push("-t", String(Math.round(Number(visibleMs))))
-    args.push("Syncthing", String(message))
-    Quickshell.execDetached(args)
+    return notificationSender.send(message, visibleMs)
   }
 
   function publishFolderNotice(notice, panelVisibleMs, desktopVisibleMs) {
@@ -587,6 +583,10 @@ QtObject {
 
   property RescanTracker rescanTracker: RescanTracker {
     onCompleted: root.completeRescan()
+  }
+
+  property NotificationSender notificationSender: NotificationSender {
+    helperPath: root.pluginRoot + "/scripts/syncthing-notify.py"
   }
 
   property CoreProcess core: CoreProcess {

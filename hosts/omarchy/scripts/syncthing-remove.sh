@@ -6,8 +6,10 @@ readonly data_id="foamy.syncthing"
 
 script_dir=$(cd -- "$(dirname -- "$0")" && pwd)
 ownership_script="$script_dir/../../../webui/ownership.sh"
+notification_script="$script_dir/../../../scripts/syncthing-notify.py"
 # The detached worker must retain the ownership check after plugin removal.
 [[ ${1:-} != _worker ]] || ownership_script="$script_dir/ownership.sh"
+[[ ${1:-} != _worker ]] || notification_script="$script_dir/syncthing-notify.py"
 # shellcheck source=webui/ownership.sh
 source "$ownership_script"
 
@@ -79,9 +81,12 @@ delete_tree() {
 notify_result() {
   local title=$1
   local message=$2
-  command -v omarchy-notification-send >/dev/null 2>&1 \
-    && omarchy-notification-send "$title" "$message" >/dev/null 2>&1 \
-    || true
+  # printf is a shell builtin; jq and the sender receive private text only on stdin.
+  if ! printf '%s\0%s\0' "$title" "$message" \
+    | jq -Rsc 'split("\u0000") | {summary: .[0], body: .[1], expireTimeout: -1}' \
+    | timeout --signal=KILL 4s /usr/bin/python3 "$notification_script"; then
+    printf 'Could not deliver plugin removal notification.\n' >&2
+  fi
 }
 
 worker() {
@@ -156,6 +161,8 @@ start() {
   worker_path="$worker_dir/syncthing-remove"
   install -m 0700 -- "$0" "$worker_path"
   install -m 0600 -- "$ownership_script" "$worker_dir/ownership.sh"
+  # The notification helper must also survive native plugin removal.
+  install -m 0600 -- "$notification_script" "$worker_dir/syncthing-notify.py"
 
   setsid bash "$worker_path" _worker "$source_root" "$gui_assets" \
     "$cleanup_mode" </dev/null >/dev/null 2>&1 &
