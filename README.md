@@ -53,11 +53,14 @@ Add-folder clipboard paste runs outside the shell process. It accepts at most
 sources leave the field unchanged and show an error. Pasted line breaks become
 spaces to keep the fields on one line.
 
-Desktop notification text travels through stdin to a helper that calls D-Bus
-directly. Folder labels and other message text are never passed in subprocess
-arguments. Delivery has a four-second hard deadline and a 32 KiB input limit.
-The panel queues at most eight notifications. If delivery fails, the result remains in
-the panel and a notification-delivery error is shown there.
+Desktop notices use generic text; folder/device names, paths, and detailed
+results remain in the panel. This also protects private metadata when Omarchy's
+notification receiver persists the body in subprocess arguments. Removal
+notices report whether settings were preserved or deleted without exposing
+their path. Notification text travels through stdin to a helper that calls
+D-Bus directly. Delivery has a four-second hard deadline and a 32 KiB input
+limit. The panel queues at most eight notifications. If delivery fails, the
+result remains in the panel and a notification-delivery error is shown there.
 
 Web UI setup and theme refresh only replace an installation whose file contents,
 paths, types, and permissions still match the recorded installation fingerprint.

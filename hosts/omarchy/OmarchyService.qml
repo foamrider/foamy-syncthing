@@ -244,7 +244,11 @@ QtObject {
   }
 
   function notify(message, visibleMs) {
-    return notificationSender.send(message, visibleMs)
+    if (!message) return false
+    // Omarchy's receiver persists notification bodies in argv. Keep private
+    // results in the panel and send only this fixed, translated desktop text.
+    return notificationSender.send(Translations.text(
+      "Syncthing status changed. Open the panel for details.", settings.language), visibleMs)
   }
 
   function publishFolderNotice(notice, panelVisibleMs, desktopVisibleMs) {

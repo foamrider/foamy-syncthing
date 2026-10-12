@@ -227,7 +227,7 @@ test("pause and resume preserve the folder configuration and use accurate status
   }
 });
 
-test("local-only folder notices retain private labels in the panel and stdin sender", () => {
+test("local-only folder notices retain private labels only in the panel", () => {
   const service = fs.readFileSync(path.join(__dirname, "../Service.qml"), "utf8");
   const adapter = fs.readFileSync(path.join(__dirname, "../hosts/omarchy/OmarchyService.qml"), "utf8");
   const notices = [];
@@ -235,6 +235,7 @@ test("local-only folder notices retain private labels in the panel and stdin sen
     folderLabel: () => 'private-Canary-847 📁',
     tr: (key, values) => key.replace(/\{(\w+)\}/g, (match, name) => values?.[name] ?? match),
     UiConstants: {NOTICE_VISIBLE_MS: 1000}, folderMutationNotice: "",
+    Translations: model("Translations.js"), settings: {language: "en"},
     noticeTimer: {restart() {}},
     notificationSender: {send(message, visibleMs) { notices.push([message, visibleMs]); return true; }},
   });
@@ -251,7 +252,14 @@ test("local-only folder notices retain private labels in the panel and stdin sen
   context.setFolderPaused("local-only", false);
   assert.match(context.folderMutationNotice, /Resumed private-Canary-847 📁/);
   assert.equal(notices.length, 2);
-  for (const [text] of notices) assert.match(text, /private-Canary-847 📁/);
+  for (const [text] of notices) {
+    assert.equal(text, "Syncthing status changed. Open the panel for details.");
+    assert.doesNotMatch(text, /private-Canary-847/);
+  }
+  context.settings.language = "nb";
+  context.notify("Failed to scan /private/Canary-847 on device PrivateDevice", 12000);
+  assert.equal(notices[2][0], "Syncthing-statusen er endret. Åpne panelet for detaljer.");
+  assert.equal(notices[2][1], 12000);
 });
 
 test("unlink pauses before removing configuration and stops safely on errors", () => {

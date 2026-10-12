@@ -1,5 +1,6 @@
 // English keys are stable translation identifiers. User names and paths are parameters.
 var nb = {
+  "Syncthing status changed. Open the panel for details.": "Syncthing-statusen er endret. Åpne panelet for detaljer.",
   "Could not send desktop notification. Check the result in the panel.": "Kunne ikke sende skrivebordsvarsel. Se resultatet i panelet.",
   "Folders": "Mapper",
   "Devices": "Enheter",

@@ -273,7 +273,10 @@ class bus:
             self.fail("Removal worker did not finish")
         self.assertFalse(installed.exists())
         self.assertEqual(settings.exists(), mode == "preserve")
-        return Path(self.env["TEST_DONE"]).read_text()
+        message = Path(self.env["TEST_DONE"]).read_text()
+        self.assertNotIn(str(settings), message)
+        self.assertNotIn(str(self.assets), message)
+        return message
 
     def test_removal_preserves_unowned_paths_and_deletes_owned_paths(self):
         for mode in ("preserve", "purge"):

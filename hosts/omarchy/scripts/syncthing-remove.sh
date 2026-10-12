@@ -134,7 +134,8 @@ worker() {
   fi
   message="Plugin settings deleted"
   if [[ $cleanup_mode == preserve ]]; then
-    message="Plugin settings preserved: $config_root/settings.toml"
+    # The receiver may persist the body in argv; never include the settings path.
+    message="Plugin settings preserved"
   fi
   if [[ $preserved_themes == true ]]; then
     message+="; unowned or modified Web UI paths preserved"
