@@ -62,6 +62,12 @@ D-Bus directly. Delivery has a four-second hard deadline and a 32 KiB input
 limit. The panel queues at most eight notifications. If delivery fails, the
 result remains in the panel and a notification-delivery error is shown there.
 
+Conflict detection sends configured folder paths through stdin to a single
+Python process. It follows configured root links, but never follows links
+inside those roots. Only regular files named `*.sync-conflict-*` count as
+conflicts. Input is limited to 1 MiB and each scan has a 30-second hard deadline.
+Failed scans retain the last known conflict status and show an error in the panel.
+
 Web UI setup and theme refresh only replace an installation whose file contents,
 paths, types, and permissions still match the recorded installation fingerprint.
 Added or edited files, missing files, extra directories, and symbolic links cause

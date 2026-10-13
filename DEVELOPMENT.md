@@ -36,5 +36,10 @@ Send the generic text through stdin to scripts/syncthing-notify.py, never throug
 omarchy-notification-send, busctl, or notify-send arguments. Preserve the
 in-panel result and surface a generic delivery error on failure.
 
+Keep conflict-scan roots in stdin, never in command arguments or diagnostics.
+The Python scanner must not launch children. Preserve root-link support,
+exclude descendant links and non-regular files, and retain the last known
+status on scan failures. Keep the helper's input and runtime bounded.
+
 SyncthingPopup.qml is adapted from Omarchy's Ui/KeyboardPanel.qml. Preserve
 its keyboard focus, outside-click dismissal, and multi-monitor behavior.

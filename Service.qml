@@ -10,6 +10,7 @@ OmarchyService {
   property bool hasConflicts: false
   property string conflictScanError: ""
   property string conflictOutput: ""
+  property string conflictInput: ""
 
   function setFolderPaused(folderId, paused) {
     return runFolderAction(paused ? "folder.pause" : "folder.resume",
@@ -65,12 +66,32 @@ OmarchyService {
   }
 
   function scanConflicts() {
-    if (conflictScan.running || !online) return
+    if (conflictScan.running || conflictInput !== "" || !online) return
     var paths = folders.map(function(folder) { return folder.path }).filter(Boolean)
-    if (!paths.length) { hasConflicts = false; return }
+    if (!paths.length) { hasConflicts = false; conflictScanError = ""; return }
+    var payload = JSON.stringify(paths)
+    // Bound UTF-8 below the helper's 1 MiB limit without putting paths in argv.
+    if (payload.length > 262144) {
+      conflictScanError = root.tr("Could not check for Syncthing conflicts")
+      return
+    }
+    conflictInput = payload
     conflictOutput = ""
-    conflictScan.command = ["bash", pluginRoot + "/hosts/omarchy/scripts/syncthing-conflicts.sh"].concat(paths)
+    conflictScan.stdinEnabled = true
+    conflictDeadline.restart()
     conflictScan.running = true
+  }
+
+  function finishConflictScan(code) {
+    conflictDeadline.stop()
+    conflictInput = ""
+    var value = conflictOutput.trim()
+    if (code !== 0 || (value !== "true" && value !== "false")) {
+      conflictScanError = root.tr("Could not check for Syncthing conflicts")
+      return
+    }
+    conflictScanError = ""
+    hasConflicts = value === "true"
   }
 
   // Keep the existing-directory workflow; directory creation needs a new UI.
@@ -82,6 +103,9 @@ OmarchyService {
   onFoldersChanged: Qt.callLater(scanConflicts)
   Component.onCompleted: Plugin.ServiceRegistry.instance = root
   Component.onDestruction: {
+    conflictDeadline.stop()
+    conflictInput = ""
+    conflictScan.running = false
     if (Plugin.ServiceRegistry.instance === root) Plugin.ServiceRegistry.instance = null
   }
   property Timer conflictTimer: Timer {
@@ -91,15 +115,20 @@ OmarchyService {
     onTriggered: root.scanConflicts()
   }
   property Process conflictScan: Process {
+    command: ["/usr/bin/python3", pluginRoot + "/hosts/omarchy/scripts/syncthing-conflicts.py"]
+    onStarted: {
+      write(root.conflictInput + "\n")
+      stdinEnabled = false
+    }
     stdout: StdioCollector { onStreamFinished: root.conflictOutput = text }
-    onExited: function(code) {
-      var value = root.conflictOutput.trim()
-      if (code !== 0 || (value !== "true" && value !== "false")) {
-        root.conflictScanError = root.tr("Could not check for Syncthing conflicts")
-        return
-      }
-      root.conflictScanError = ""
-      root.hasConflicts = value === "true"
+    onExited: function(code) { root.finishConflictScan(code) }
+  }
+  property Timer conflictDeadline: Timer {
+    interval: 30000
+    onTriggered: {
+      // Bound blocked filesystem calls and helper startup failures as well.
+      if (root.conflictScan.running) root.conflictScan.signal(9)
+      else root.finishConflictScan(1)
     }
   }
   property IpcHandler diagnostics: IpcHandler {
