@@ -17,7 +17,7 @@ function fromSettings(value, locale) {
 }
 function widgetSettings(config, id) {
   var layout = config && config.bar && config.bar.layout || {}
-  for (var section of ["left", "center", "right"]) {
+  for (var section of ["left", "centerBegin", "center", "centerEnd", "tray", "right"]) {
     var entries = Array.isArray(layout[section]) ? layout[section] : []
     for (var entry of entries) if (entry && entry.id === id) return entry
   }

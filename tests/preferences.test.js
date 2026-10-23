@@ -35,6 +35,25 @@ test('settings lookup uses only the requested installed namespace', () => {
   assert.equal(Object.keys(prefs.widgetSettings(config, 'other.syncthing')).length, 0);
 });
 
+for (const section of ['left', 'centerBegin', 'center', 'centerEnd', 'tray', 'right']) {
+  test(`settings survive placement in ${section}`, () => {
+    const entry = {id:'foamy.syncthing', language:'nb', probeIntervalSec:45, serviceState:'disabled'};
+    const config = {bar:{layout:{[section]:['foamy.syncthing', {id:'other.syncthing'}, entry]}}};
+    const before = JSON.stringify(config);
+    const result = prefs.fromSettings(prefs.widgetSettings(config, entry.id), 'en_US');
+    assert.equal(result.language, 'nb');
+    assert.equal(result.probeIntervalSec, 45);
+    assert.equal(result.serviceState, 'disabled');
+    assert.equal(JSON.stringify(config), before);
+  });
+}
+
+test('missing, malformed and string-only sections keep safe defaults', () => {
+  for (const config of [null, {}, {bar:{layout:{tray:['foamy.syncthing'], centerBegin:null, centerEnd:{id:'foamy.syncthing'}}}}]) {
+    assert.equal(Object.keys(prefs.widgetSettings(config, 'foamy.syncthing')).length, 0);
+  }
+});
+
 test('translations preserve placeholders and literal user data', () => {
   const placeholders = value => [...value.matchAll(/\{(\w+)\}/g)].map(match => match[1]).sort();
   for (const [key, value] of Object.entries(translations.nb)) assert.deepEqual(placeholders(value), placeholders(key), key);

@@ -32,6 +32,10 @@ omarchy plugin add https://github.com/foamrider/foamy-syncthing.git --enable
 
 ## Use
 
+Plugin preferences follow the widget in `left`, `center`, and `right`, and in
+Omarchy 4.5's `centerBegin`, `centerEnd`, and `tray` sections. They remain stored
+in the widget's `shell.json` entry.
+
 - Left-click the widget, then use the Folders and Devices tabs. Expand a row for
   shared folders/devices, status, and error details. Right-click refreshes.
 - Device syncing/error labels reflect local activity in shared folders; they do
@@ -74,6 +78,14 @@ Added or edited files, missing files, extra directories, and symbolic links caus
 the whole theme directory to be preserved. Older installations with only an
 ownership marker or no marker are also preserved. If setup reports an unowned
 or modified path, move that directory aside manually before retrying.
+
+## Validate
+
+Run `node --test tests/preferences.test.js`, `bash tests/test-preferences.sh`,
+and `bash tests/test-layout.sh` for preference validation. The layout test uses
+temporary configuration files and the real settings controller without starting
+Syncthing or changing its service. Set `OMARCHY_PATH` to another Omarchy source
+directory to test its QML components.
 
 ## Remove
 
