@@ -1,6 +1,5 @@
 import QtQuick
 import QtQuick.Dialogs
-import "../Translations.js" as Translations
 
 Window {
   id: root
@@ -16,8 +15,8 @@ Window {
 
   FolderDialog {
     id: folderDialog
-    title: Translations.text("Choose a Syncthing folder", root.language)
-    acceptLabel: Translations.text("Choose", root.language)
+    title: language === "nb" ? "Velg en Syncthing-mappe" : "Choose a Syncthing folder"
+    acceptLabel: language === "nb" ? "Velg" : "Choose"
     onAccepted: {
       console.log("SYNCTHING_FOLDER=" + String(selectedFolder))
       Qt.quit()

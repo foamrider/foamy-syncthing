@@ -2,11 +2,10 @@ import QtQuick
 import Quickshell.Io
 import "." as Plugin
 import "hosts/omarchy"
-import "Translations.js" as Translations
 
 OmarchyService {
   id: root
-  function tr(key, values) { return Translations.text(key, settings.language, values) }
+  function tr(key, values) { return FoamyI18n.t(key, values) }
   property bool hasConflicts: false
   property string conflictScanError: ""
   property string conflictOutput: ""

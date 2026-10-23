@@ -44,7 +44,7 @@ in the widget's `shell.json` entry.
   errors and out-of-sync folders also make the bar icon red. Use the Web UI to
   review and resolve these states, including **Override Changes** for send-only
   folders.
-- Open the cog for language, device warnings, and folder actions.
+- Open the cog for device warnings, and folder actions.
 - Use the globe to open Syncthing's Web UI.
 - The footer play/pause button starts or stops the local Syncthing service.
 
@@ -113,3 +113,7 @@ Plugin code is [MIT-licensed](LICENSE), based on [Syncshell](LICENSE-SYNCSHELL)
 and [Omarchy](LICENSE-OMARCHY). Bundled assets retain their own license notices.
 
 Provided **as is**, without warranty or guaranteed support. Use at your own risk.
+
+Language follows **Omarchy → Setup → Language** on Omarchy 4.5. Plugin language overrides are no longer used. Omarchy 4.0 displays the plugin in English. Missing translations fall back to English.
+
+Translation checks: `python3 tests/i18n-runtime.py` uses the installed shell. Set `OMARCHY_PATH` to a 4.5 source tree to check live language switching against that version.

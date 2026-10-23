@@ -9,7 +9,6 @@ import "." as Plugin
 import "ui"
 import "models/PanelModel.js" as PanelModel
 import "Preferences.js" as Preferences
-import "Translations.js" as Translations
 
 Panel {
   id: root
@@ -33,9 +32,9 @@ Panel {
   property string widgetId: ""
   property string preferencesError: ""
   readonly property bool preferencesSaving: preferencesSave.running
-  readonly property var preferences: Preferences.fromSettings(settings, Qt.locale().name)
-  readonly property string language: preferences.language
-  function tr(key, values) { return Translations.text(key, language, values) }
+  readonly property var preferences: Preferences.fromSettings(settings)
+  readonly property string language: FoamyI18n.language
+  function tr(key, values) { return FoamyI18n.t(key, values) }
   function savePreference(key, value) {
     if (preferencesSave.running) return
     if (!widgetId) { preferencesError = "Could not read plugin settings"; return }
@@ -167,7 +166,7 @@ Panel {
 
   function configureService() {
     if (!syncthing) return
-    syncthing.setRefreshInterval(Preferences.fromSettings(settings, Qt.locale().name).refreshIntervalSec)
+    syncthing.setRefreshInterval(Preferences.fromSettings(settings).refreshIntervalSec)
   }
 
   function compactFolderState(folder) {
@@ -445,7 +444,7 @@ Panel {
     if (folderPickerProcess.running) return
     folderPickerOutput = ""
     folderPickerError = ""
-    folderPickerProcess.command = ["bash", folderPickerScript, language]
+    folderPickerProcess.command = ["bash", folderPickerScript, language === "no" ? "nb" : "en"]
     preserveStateForFolderPicker = true
     close()
     folderPickerProcess.running = true

@@ -1,5 +1,5 @@
+import ".." as PluginLanguage
 import QtQuick
-import "../Translations.js" as Translations
 
 Item {
   id: root
@@ -15,8 +15,8 @@ Item {
   implicitHeight: 64
   visible: progress >= 0
   Accessible.role: Accessible.Indicator
-  Accessible.name: complete ? Translations.text("Up to date", language)
-    : Translations.text("{percent}% synchronized", language, {percent: progress})
+  Accessible.name: complete ? PluginLanguage.FoamyI18n.t("Up to date")
+    : PluginLanguage.FoamyI18n.t("{percent}% synchronized", {percent: progress})
 
   Image {
     visible: !root.complete

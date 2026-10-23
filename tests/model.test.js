@@ -84,7 +84,7 @@ test("idle outstanding items stay critical through the native adapter and both p
   const facade = model("hosts/omarchy/models/FacadeModel.js");
   const panel = model("models/PanelModel.js");
   const overview = model("models/OverviewModel.js");
-  const translations = model("Translations.js");
+  const translations = require("./i18n.cjs");
   const raw = [{id: "work", path: "/tmp/work", devices: [{id: "remote"}],
     status: {state: "idle", needTotalItems: 2, needBytes: 0, globalBytes: 2048,
       errors: [], pullErrors: 0}}];
@@ -235,7 +235,7 @@ test("local-only folder notices retain private labels only in the panel", () => 
     folderLabel: () => 'private-Canary-847 📁',
     tr: (key, values) => key.replace(/\{(\w+)\}/g, (match, name) => values?.[name] ?? match),
     UiConstants: {NOTICE_VISIBLE_MS: 1000}, folderMutationNotice: "",
-    Translations: model("Translations.js"), settings: {language: "en"},
+    PluginLanguage: {FoamyI18n: {t: key => key}}, settings: {},
     noticeTimer: {restart() {}},
     notificationSender: {send(message, visibleMs) { notices.push([message, visibleMs]); return true; }},
   });
@@ -256,7 +256,7 @@ test("local-only folder notices retain private labels only in the panel", () => 
     assert.equal(text, "Syncthing status changed. Open the panel for details.");
     assert.doesNotMatch(text, /private-Canary-847/);
   }
-  context.settings.language = "nb";
+  context.PluginLanguage.FoamyI18n.t = key => require("./i18n.cjs").text(key, "no");
   context.notify("Failed to scan /private/Canary-847 on device PrivateDevice", 12000);
   assert.equal(notices[2][0], "Syncthing-statusen er endret. Åpne panelet for detaljer.");
   assert.equal(notices[2][1], 12000);

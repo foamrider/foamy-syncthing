@@ -1,10 +1,10 @@
+import "../.." as PluginLanguage
 import QtQuick
 import Quickshell
 import "../../shared"
 import "controllers"
 import "ui/UiConstants.js" as UiConstants
 import "models/FacadeModel.js" as FacadeModel
-import "../../Translations.js" as Translations
 
 QtObject {
   id: root
@@ -247,8 +247,7 @@ QtObject {
     if (!message) return false
     // Omarchy's receiver persists notification bodies in argv. Keep private
     // results in the panel and send only this fixed, translated desktop text.
-    return notificationSender.send(Translations.text(
-      "Syncthing status changed. Open the panel for details.", settings.language), visibleMs)
+    return notificationSender.send(PluginLanguage.FoamyI18n.t("Syncthing status changed. Open the panel for details."), visibleMs)
   }
 
   function publishFolderNotice(notice, panelVisibleMs, desktopVisibleMs) {
@@ -419,8 +418,8 @@ QtObject {
       deviceIds: shared,
       pendingDeviceId: pendingDeviceId
     }, shared.length > 0
-      ? Translations.text("Selected devices receive a share offer to accept.", settings.language)
-      : Translations.text("Local only — this folder will not sync with other devices.", settings.language))
+      ? PluginLanguage.FoamyI18n.t("Selected devices receive a share offer to accept.")
+      : PluginLanguage.FoamyI18n.t("Local only — this folder will not sync with other devices."))
   }
 
   function setFolderSharing(folderId, selectedDeviceIds) {
