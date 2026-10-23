@@ -18,7 +18,7 @@ QtObject {
   property bool loaded: false
   property string error: ""
   property string notice: ""
-  readonly property var preferences: Preferences.fromSettings(widgetSettings, PluginLanguage.FoamyI18n.formatLocale)
+  readonly property var preferences: Preferences.fromSettings(widgetSettings)
   readonly property string language: PluginLanguage.FoamyI18n.language
   readonly property bool settingsReady: loaded && widgetId !== ""
   readonly property bool busy: save.running
