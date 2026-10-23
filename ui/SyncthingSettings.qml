@@ -11,7 +11,7 @@ ColumnLayout {
   required property var controller
   property PanelKeyCatcher keyTarget
   readonly property var syncthing: controller.syncthing
-  readonly property bool popupOpen: offerSelector.popupOpen || languagePicker.popupOpen || minimumPicker.popupOpen
+  readonly property bool popupOpen: offerSelector.popupOpen || minimumPicker.popupOpen
   readonly property bool canManage: syncthing && syncthing.online && !syncthing.folderMutationBusy
   spacing: Style.space(12)
 
@@ -26,7 +26,7 @@ ColumnLayout {
     else if (row.y + row.height > folderFlick.contentY + folderFlick.height)
       folderFlick.contentY = row.y + row.height - folderFlick.height
   }
-  function closePopups() { offerSelector.close(); languagePicker.close(); minimumPicker.close() }
+  function closePopups() { offerSelector.close(); minimumPicker.close() }
   function focusFirstAction() {
     if (addAction.enabled) addAction.forceActiveFocus(Qt.TabFocusReason)
   }
@@ -48,20 +48,7 @@ ColumnLayout {
     Layout.fillWidth: true
     spacing: Style.space(12)
     Label { text: root.tr("Plugin preferences"); font.pixelSize: Style.space(14) }
-    SyncthingDropdown {
-      id: languagePicker
-      width: parent.width
-      label: root.tr("Language")
-      fontFamily: "sans-serif"
-      value: root.controller.preferences.languageMode
-      options: [
-        {value: "system", label: root.tr("Default (system language)")},
-        {value: "nb", label: "Norsk bokmål"},
-        {value: "en", label: "English"}
-      ]
-      enabled: !root.controller.preferencesSaving
-      onChanged: function(value) { root.controller.savePreference("language", value) }
-    }
+
     SyncthingDropdown {
       id: minimumPicker
       width: parent.width

@@ -1,5 +1,4 @@
-// English keys are stable translation identifiers. User names and paths are parameters.
-var nb = {
+{
   "Syncthing status changed. Open the panel for details.": "Syncthing-statusen er endret. Åpne panelet for detaljer.",
   "Could not send desktop notification. Check the result in the panel.": "Kunne ikke sende skrivebordsvarsel. Se resultatet i panelet.",
   "Folders": "Mapper",
@@ -103,8 +102,6 @@ var nb = {
   "Select all": "Velg alt",
   "Clipboard text is too large or contains invalid characters.": "Teksten på utklippstavlen er for stor eller inneholder ugyldige tegn.",
   "Could not paste clipboard text. Copy plain text and try again.": "Kunne ikke lime inn teksten. Kopier ren tekst og prøv igjen.",
-  "Language": "Språk",
-  "Default (system language)": "Standard (systemspråk)",
   "Plugin preferences": "Plugininnstillinger",
   "Could not read plugin settings": "Kunne ikke lese plugininnstillingene",
   "Could not save plugin settings": "Kunne ikke lagre plugininnstillingene",
@@ -146,12 +143,4 @@ var nb = {
   "Unlinked {name} from Syncthing. Local files were kept.": "Koblet {name} fra Syncthing. Lokale filer ble beholdt.",
   "The folder remains paused; its local files are unchanged.": "Mappen forblir på pause; lokale filer er uendret.",
   "Could not remove the folder from Syncthing.": "Kunne ikke fjerne mappen fra Syncthing."
-}
-
-function text(key, language, values) {
-  var value = String(key || "")
-  if (language === "nb" && Object.prototype.hasOwnProperty.call(nb, value)) value = nb[value]
-  return value.replace(/\{(\w+)\}/g, function(match, name) {
-    return values && values[name] !== undefined ? String(values[name]) : match
-  })
 }

@@ -30,13 +30,12 @@ def generic_request(language):
     source = r'''
 const fs = require('node:fs');
 const vm = require('node:vm');
-const translations = vm.createContext({});
-vm.runInContext(fs.readFileSync('Translations.js', 'utf8'), translations);
+const translations = require('./tests/i18n.cjs');
 const source = fs.readFileSync('hosts/omarchy/OmarchyService.qml', 'utf8');
 const start = source.indexOf('  function notify(');
 const end = source.indexOf('\n  }', start) + 4;
 let request;
-const context = vm.createContext({Translations: translations,
+const context = vm.createContext({PluginLanguage: {FoamyI18n: {t: key => translations.text(key, process.env.TEST_NOTIFICATION_LANGUAGE)}},
   settings: {language: process.env.TEST_NOTIFICATION_LANGUAGE},
   notificationSender: {send(body, expireTimeout) {
     request = {summary: 'Syncthing', body, expireTimeout};

@@ -9,15 +9,7 @@ function load(name) {
   return scope;
 }
 const prefs = load('Preferences.js');
-const translations = load('Translations.js');
-
-test('system language and explicit overrides follow the weather plugin', () => {
-  for (const locale of ['nb_NO', 'nn-NO', 'no']) assert.equal(prefs.fromSettings({}, locale).language, 'nb');
-  for (const locale of ['en_US', 'de_DE', 'not-a-locale', '']) assert.equal(prefs.fromSettings({}, locale).language, 'en');
-  assert.equal(prefs.fromSettings({language:'en'}, 'nb_NO').language, 'en');
-  assert.equal(prefs.fromSettings({language:'nb'}, 'en_US').language, 'nb');
-  assert.equal(prefs.fromSettings({language:'xx'}, 'en_US').languageMode, 'system');
-});
+const translations = require('./i18n.cjs');
 
 test('public defaults and bounds do not inherit personal warning settings', () => {
   assert.equal(prefs.fromSettings({}, 'en').minimumConnectedDevices, 0);
@@ -41,7 +33,7 @@ for (const section of ['left', 'centerBegin', 'center', 'centerEnd', 'tray', 'ri
     const config = {bar:{layout:{[section]:['foamy.syncthing', {id:'other.syncthing'}, entry]}}};
     const before = JSON.stringify(config);
     const result = prefs.fromSettings(prefs.widgetSettings(config, entry.id), 'en_US');
-    assert.equal(result.language, 'nb');
+    assert.equal(result.language, undefined, 'saved language overrides are ignored');
     assert.equal(result.probeIntervalSec, 45);
     assert.equal(result.serviceState, 'disabled');
     assert.equal(JSON.stringify(config), before);

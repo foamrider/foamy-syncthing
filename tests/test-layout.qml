@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "plugin/hosts/omarchy/controllers" as Controllers
+import "plugin" as Plugin
 ShellRoot {
   id: test
   property int stage: 0
@@ -31,7 +32,7 @@ ShellRoot {
         fixture.setText(JSON.stringify({bar:{layout:layout}}))
         break
       case 2:
-        test.check(controller.language === "nb" && controller.probeIntervalSeconds === 45
+        test.check(controller.language === Plugin.FoamyI18n.language && controller.probeIntervalSeconds === 45
                    && controller.serviceState === "disabled" && controller.error === "",
                    test.sections[test.index] + " preserves service settings through file watcher")
         if (++test.index < test.sections.length) test.stage = 1

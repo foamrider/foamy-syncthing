@@ -1,3 +1,4 @@
+import "../../.." as PluginLanguage
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -17,8 +18,8 @@ QtObject {
   property bool loaded: false
   property string error: ""
   property string notice: ""
-  readonly property var preferences: Preferences.fromSettings(widgetSettings, Qt.locale().name)
-  readonly property string language: preferences.language
+  readonly property var preferences: Preferences.fromSettings(widgetSettings)
+  readonly property string language: PluginLanguage.FoamyI18n.language
   readonly property bool settingsReady: loaded && widgetId !== ""
   readonly property bool busy: save.running
   readonly property string serviceState: preferences.serviceState

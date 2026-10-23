@@ -22,7 +22,6 @@
     "allowMultiple": false,
     "defaultSection": "right",
     "defaults": {
-      "language": "system",
       "minimumConnectedDevices": 0,
       "refreshIntervalSec": 60,
       "openRefreshIntervalSec": 5,
