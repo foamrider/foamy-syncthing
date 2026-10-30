@@ -80,56 +80,13 @@ function lifecyclePresentation(lifecycle) {
   }
 }
 
-function truncationWarning(truncation) {
+// True when the core truncated a list to its panel limits.
+function truncated(truncation) {
   var state = truncation || ({})
   var keys = ["devices", "folders", "folderDevices",
     "pendingFolders", "pendingOffers", "pendingDevices", "nearbyDevices"]
   for (var i = 0; i < keys.length; i++) {
-    if (Number(state[keys[i]] || 0) > 0) {
-      return "Some Syncthing items exceed panel limits; use the Web UI for "
-        + "the hidden entries"
-    }
+    if (Number(state[keys[i]] || 0) > 0) return true
   }
-  return ""
-}
-
-function driftDecision(configState, lifecycle) {
-  var config = String(configState || "")
-  var unit = String(lifecycle && lifecycle.unitFileState || "")
-  var active = String(lifecycle && lifecycle.activeState || "")
-  if (["enabled", "disabled"].indexOf(config) < 0) {
-    return { status: "unsupported",
-      reason: "Configured service state is unsupported: " + (config || "empty") }
-  }
-  if (["enabled", "disabled"].indexOf(unit) < 0) {
-    return { status: "unsupported",
-      reason: "Systemd unit-file state is unsupported: " + (unit || "empty") }
-  }
-  if (config === unit) return { status: "aligned" }
-  if (["active", "inactive"].indexOf(active) < 0) {
-    return { status: "unsupported",
-      reason: "Systemd runtime state is not settled: " + (active || "empty") }
-  }
-  var preferred = active === "active" ? "enabled" : "disabled"
-  var system = {
-    side: "system",
-    value: config,
-    label: config === "enabled"
-      ? "Enable systemd autostart" : "Disable systemd autostart"
-  }
-  var host = {
-    side: "config",
-    value: unit,
-    label: "Set Syncthing config to " + unit
-  }
-  system.label += system.value === preferred ? " (preferred)" : ""
-  host.label += host.value === preferred ? " (preferred)" : ""
-  return {
-    status: "drift",
-    message: "Syncthing config (" + config
-      + ") differs from its systemd autostart setting (" + unit
-      + ").\n\nPlease choose:",
-    first: system.value === preferred ? system : host,
-    second: system.value === preferred ? host : system
-  }
+  return false
 }

@@ -77,8 +77,14 @@ test('every static UI translation key has Norwegian text', () => {
 test('localized summary translates counts without translating folder names', () => {
   const panel = load('models/PanelModel.js');
   const tr = (key, args) => translations.text(key, 'nb', args);
+  const tn = (key, count, args) => translations.plural(key, count, 'nb', args);
   const ready = {online: true, serviceActive: true};
-  assert.equal(panel.compactSummary(ready, [{state: 'idle'}], tr).detail, '1 delt mappe');
-  assert.equal(panel.compactSummary(ready, [{state: 'idle', paused: true}], tr).detail, '1 av 1 mapper er satt på pause');
-  assert.equal(panel.compactSummary(ready, [{state: 'syncing', label: 'Settings', syncing: true, needBytes: 1024, globalBytes: 2048}], tr).detail, 'Settings · 1.0 KiB gjenstår');
+  assert.equal(panel.compactSummary(ready, [{state: 'idle'}], tr, tn).detail, '1 delt mappe');
+  assert.equal(panel.compactSummary(ready, [{state: 'idle'}, {state: 'idle'}], tr, tn).detail, '2 delte mapper');
+  assert.equal(panel.compactSummary(ready, [{state: 'idle', paused: true}], tr, tn).detail, '1 av 1 mapper er satt på pause');
+  assert.equal(panel.compactSummary(ready, [{state: 'syncing', label: 'Settings', syncing: true, needBytes: 1024, globalBytes: 2048}], tr, tn).detail, 'Settings · 1.0 KiB gjenstår');
+  assert.equal(panel.compactSummary({...ready, hasConflicts: true}, [{state: 'idle', conflict: true}], tr, tn).detail, 'Synkroniseringskonflikter i 1 mappe');
+  // Decimals follow the language once the service registers FoamyI18n.number.
+  panel.setNumberFormat((value, decimals) => Number(value).toFixed(decimals).replace('.', ','));
+  assert.equal(panel.formatBytes(1536), '1,5 KiB');
 });

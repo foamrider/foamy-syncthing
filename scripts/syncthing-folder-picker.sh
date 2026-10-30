@@ -4,9 +4,9 @@ set -euo pipefail
 
 script_dir="$(dirname -- "$(realpath -- "${BASH_SOURCE[0]}")")"
 picker_qml="$script_dir/folder-picker.qml"
-picker_language=${1:-en}
-picker_title="Choose a Syncthing folder"
-[[ "$picker_language" != nb ]] || picker_title="Velg en Syncthing-mappe"
+# Translated by the caller: syncthing-folder-picker.sh TITLE ACCEPT_LABEL
+picker_title="${1:-Choose a Syncthing folder}"
+picker_accept="${2:-Choose}"
 
 float_picker() {
   local address attempt client float_command floating place_command selector
@@ -68,7 +68,7 @@ main() {
   if output="$(
     cd "$HOME"
     env -u QT_QPA_PLATFORMTHEME QT_FORCE_STDERR_LOGGING=1 \
-      qml6 -f "$picker_qml" -- "--$picker_language" 2>&1
+      qml6 -f "$picker_qml" -- "$picker_title" "$picker_accept" 2>&1
   )"; then
     status=0
   else

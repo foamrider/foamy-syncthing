@@ -50,7 +50,7 @@ QtObject {
   readonly property string lastError: core.lastError
     || String(connection.error && connection.error.message || "")
   readonly property string recoveryWarning: core.starting ? root.tr("Starting the native core")
-    : Facade.truncationWarning(truncation) ? root.tr("Some Syncthing items exceed panel limits; use the Web UI for the hidden entries") : ""
+    : Facade.truncated(truncation) ? root.tr("Some Syncthing items exceed panel limits; use the Web UI for the hidden entries") : ""
   readonly property string baseUrl: String(webUi.url || "")
   readonly property string localDeviceId: String(identity.deviceId || "")
   readonly property var devices: Facade.devices(state.devices)
@@ -64,8 +64,20 @@ QtObject {
   readonly property int folderProblemCount: Number(counts.folderProblems || 0)
   readonly property int syncingFolderCount: Number(counts.syncingFolders || 0)
   readonly property string summaryText: summary()
-  // One projection per snapshot for every bar and popup.
+  // One projection per snapshot for every bar and popup (bars are per monitor).
   readonly property var folderRows: PanelModel.buildFolderRows(root, homePath)
+  readonly property var deviceCounts: PanelModel.deviceCounts(root)
+  readonly property bool tooFewDevices: preferences.minimumConnectedDevices > 0
+    && deviceCounts.connected < preferences.minimumConnectedDevices
+  readonly property bool hasProblems: folderProblemCount > 0 || hasConflicts
+    || PanelModel.stateCount(folderRows, "problem") > 0
+  readonly property bool syncInProgress: syncingFolderCount > 0
+    || PanelModel.stateCount(folderRows, "scanning") > 0 || syncingFiles.length > 0
+  // title is a catalog key (translated where shown); detail is translated.
+  readonly property var compactSummary: PanelModel.compactSummary(root, folderRows, root.tr,
+    function(key, count, values) { return FoamyI18n.tn(key, count, values) })
+  readonly property var pendingOfferRows: PanelModel.pendingOfferOptions(root, root.tr)
+  readonly property int encryptedPendingOfferCount: PanelModel.encryptedPendingOfferCount(root)
 
   readonly property string installationState: online ? "existing" : packageController.state
   readonly property bool canInstall: !online && packageController.canInstall
@@ -397,7 +409,10 @@ QtObject {
     settingsReady = true
     configureCore()
   }
-  Component.onCompleted: Plugin.ServiceRegistry.instance = root
+  Component.onCompleted: {
+    PanelModel.setNumberFormat(function(value, decimals) { return FoamyI18n.number(value, decimals) })
+    Plugin.ServiceRegistry.instance = root
+  }
   Component.onDestruction: {
     conflictDeadline.stop()
     conflictInput = ""

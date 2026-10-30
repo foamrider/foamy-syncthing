@@ -1,5 +1,6 @@
 import QtQuick
 import Quickshell.Io
+import "../kit"
 
 QtObject {
   id: root
@@ -216,7 +217,7 @@ QtObject {
     if (ids.length === 0) return
     var failure = {
       code: "core_unavailable",
-      message: String(message || "Native core became unavailable")
+      message: String(message || FoamyI18n.t("The native core became unavailable"))
     }
     for (var index = 0; index < ids.length; index++) {
       var id = ids[index]
@@ -244,8 +245,8 @@ QtObject {
     protocolReady = false
     var unexpected = !_restartRequested && !_expectedStop && desiredRunning
     var message = unexpected
-      ? "core exited unexpectedly with status " + exitCode
-      : "Native core stopped before the request completed"
+      ? FoamyI18n.t("The native core exited unexpectedly (status %1)", [exitCode])
+      : FoamyI18n.t("The native core stopped before the request completed")
     failPending(message)
     if (_restartRequested) {
       _restartRequested = false
@@ -293,7 +294,7 @@ QtObject {
     }
 
     onStarted: {
-      root.failPending("Native core restarted before the request completed")
+      root.failPending(FoamyI18n.t("The native core restarted before the request completed"))
       root.generation++
       root.protocolReady = false
       root.unavailable = false
@@ -320,8 +321,8 @@ QtObject {
         root.starting = false
         root.unavailable = true
         root.lastError = root.architecture
-          ? "unsupported architecture: " + root.architecture
-          : "could not determine system architecture"
+          ? FoamyI18n.t("Unsupported architecture: %1 (the bundled core is x86_64 only)", [root.architecture])
+          : FoamyI18n.t("Could not determine the system architecture")
         return
       }
       root.inspectExecutable()
@@ -342,7 +343,7 @@ QtObject {
       if (exitCode !== 0
           || String(root._executableOutput || "").trim() !== root.corePath) {
         root.unavailable = true
-        root.lastError = "bundled native core is unavailable"
+        root.lastError = FoamyI18n.t("The bundled native core is unavailable")
         return
       }
       root.executableReady = true

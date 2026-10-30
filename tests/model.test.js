@@ -53,8 +53,12 @@ test("native snapshots feed the original folder cards without losing health", ()
     devices: [{id: "local"}, {id: "remote"}],
     status: {state: "error", errors: ["Permission denied"], globalFiles: 12, globalBytes: 2048}}];
   const rows = panel.buildFolderRows({folders: facade.folders(raw), folderStatuses: facade.folderStatuses(raw), localDeviceId: "local"}, "/home/user");
-  assert.equal(rows[0].label, "work");
+  // Syncthing's configured label comes first, like its Web UI; the path stays the subtitle.
+  assert.equal(rows[0].label, "Work");
   assert.equal(rows[0].configuredLabel, "Work");
+  assert.equal(rows[0].pathName, "work");
+  const unlabeled = panel.buildFolderRows({folders: facade.folders([{id: "abc", path: "~/Docs"}]), folderStatuses: {}}, "/home/user");
+  assert.equal(unlabeled[0].label, "Docs");
   assert.equal(panel.folderState(rows[0], "", false), "ERROR");
   assert.equal(panel.total(rows, "globalFiles"), 12);
 });
@@ -121,25 +125,26 @@ test("paused, queued, scanning and unknown snapshots do not become idle out-of-s
 
 test("bar icon uses urgent color for folder errors and prioritizes them over device warnings", () => {
   const source = fs.readFileSync(path.join(__dirname, "../Panel.qml"), "utf8");
+  const color = source.match(/readonly property color iconColor: \{([\s\S]*?)\n  \}/)[1];
+  const service = fs.readFileSync(path.join(__dirname, "../Service.qml"), "utf8");
+  const health = service.match(/readonly property bool hasProblems: ([\s\S]*?)\n  readonly property/)[1];
   const panel = model("models/PanelModel.js");
-  const health = source.match(/readonly property bool hasProblems: ([\s\S]*?)\n  readonly property/)[1];
-  const color = source.match(/readonly property color syncthingIconColor: \{([\s\S]*?)\n  \}/)[1];
-  const context = vm.createContext({PanelModel: panel, urgent: "red", foreground: "white",
-    hasTooFewDevices: true, Color: {bar: {background: {hslLightness: 0.1}}}});
-  for (const [service, folders, expected] of [
+  const context = vm.createContext({PanelModel: panel, bar: {urgent: "red", foreground: "white"},
+    FoamyPalette: {warning: "yellow"}, Commons: {Color: {}}});
+  for (const [state, folders, expected] of [
     [{folderProblemCount: 0}, [{problem: true, outOfSync: true}], "red"],
     [{folderProblemCount: 1}, [], "red"],
     [{hasConflicts: true}, [], "red"],
     [{phase: "error"}, [], "red"],
-    [{folderProblemCount: 0}, [{problem: false}], "#ebcb8b"],
-    [null, [], "#ebcb8b"]
+    [{folderProblemCount: 0}, [{problem: false}], "yellow"],
   ]) {
-    context.syncthing = service;
-    context.folderRows = folders;
-    context.hasProblems = vm.runInContext(health, context);
-    assert.equal(vm.runInContext(`(function() {${color}})()`, context), expected);
+    const syncthing = Object.assign({folderProblemCount: 0, hasConflicts: false, tooFewDevices: true}, state);
+    syncthing.folderRows = folders;
+    syncthing.hasProblems = vm.runInContext(health, vm.createContext(Object.assign({PanelModel: panel}, syncthing)));
+    context.syncthing = syncthing;
+    assert.equal(vm.runInContext(`(function() {${color}})()`, context), expected, JSON.stringify(state));
   }
-  context.hasTooFewDevices = false;
+  context.syncthing = {hasProblems: false, tooFewDevices: false};
   assert.equal(vm.runInContext(`(function() {${color}})()`, context), "white");
 });
 
@@ -307,6 +312,7 @@ test("the core keeps retrying with backoff instead of staying down", () => {
     restartAttempts: 0, protocolReady: true, unavailable: false, lastError: "",
     _restartRequested: false, _expectedStop: false, desiredRunning: true,
     failPending() {}, shutdownTimer: {stop() {}}, stableTimer: {stop() {}},
+    FoamyI18n: {t: (key, values) => key.replace("%1", values?.[0])},
     restartTimer: {interval: 0, restart() { timers.push(this.interval); }},
   });
   for (const name of ["restartDelay", "handleExit"]) {

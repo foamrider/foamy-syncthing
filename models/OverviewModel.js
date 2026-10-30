@@ -4,6 +4,7 @@ function folderState(folder, service, peers) {
   if (!service || !service.online) return "Unavailable"
   if (folder.outOfSync) return "Out of sync"
   if (folder.problem) return "Error"
+  if (folder.conflict) return "Conflicts"
   if (folder.paused) return "Paused"
   if (folder.scanning) return "Scanning"
   if (folder.state === "syncing" || (service.syncActivityFolderId === folder.id && service.syncActivityDetail)) return "Syncing"
@@ -25,8 +26,9 @@ function errorText(folder) {
   return lines.join("\n")
 }
 
-function rows(service, folders, translate, formatBytes, formatCount) {
+function rows(service, folders, translate, formatBytes, formatCount, translatePlural) {
   var tr = translate
+  var tn = translatePlural || function(key, count, values) { return tr(key, values) }
   var devices = service && service.devices ? service.devices : []
   var byId = Object.create(null)
   var deviceRows = []
@@ -58,10 +60,11 @@ function rows(service, folders, translate, formatBytes, formatCount) {
     var detail = folder.path
     if (state === "Error" || (state === "Out of sync" && errorText(folder)))
       detail += "\n" + (errorText(folder) || tr("Check the folder errors in the Web UI"))
+    if (folder.conflict) detail += "\n" + tr("This folder has sync conflict files (*.sync-conflict-*). Open it to compare and keep one version.")
     if (state === "Unavailable") detail += "\n" + tr("Current status is unavailable.")
     if (!peers.length) detail += "\n" + tr("Local only")
     if (state === "Syncing" || state === "Waiting to sync" || state === "Out of sync") {
-      detail += "\n" + tr("{count} items remaining", {count: formatCount(folder.needItems)})
+      detail += "\n" + tn("{count} items remaining", folder.needItems, {count: formatCount(folder.needItems)})
       if (state !== "Out of sync" && service.syncActivityFolderId === folder.id && service.syncActivityDetail) detail += "\n" + service.syncActivityDetail
     }
     var progress = -1
@@ -84,7 +87,7 @@ function rows(service, folders, translate, formatBytes, formatCount) {
       else if (row.related.some(function(folder) { return folder.state === "Out of sync" })) row.state = "Out of sync"
       else if (row.related.some(function(folder) { return folder.state === "Syncing" })) row.state = "Syncing"
     }
-    row.subtitle = tr(row.related.length === 1 ? "{count} shared folder" : "{count} shared folders", {count: row.related.length})
+    row.subtitle = tn("{count} shared folders", row.related.length, {count: row.related.length})
     row.detail = row.state === "Error" ? tr("Connected. A shared folder has a local error.")
       : row.state === "Out of sync" ? tr("Connected. A shared folder is out of sync locally.")
       : row.state === "Syncing" ? tr("Connected. A shared folder is syncing locally.")
