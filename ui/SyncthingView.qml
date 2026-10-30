@@ -753,85 +753,92 @@ PanelKeyCatcher {
         }
       }
 
-      Column {
+      Item {
         visible: rowItem.isExpanded
-        x: FoamyStyle.iconSize + FoamyStyle.rowPadding
-        width: parent.width - x
-        spacing: FoamyStyle.gap
-        bottomPadding: FoamyStyle.gapSmall
-        Label {
-          visible: rowName.truncated
-          width: parent.width
-          text: String(rowItem.row.label || "")
-          wrapMode: Text.WrapAnywhere
-        }
-        Label {
-          visible: text !== ""
-          width: parent.width
-          text: String(rowItem.row.detail || "")
-          wrapMode: Text.WrapAnywhere
-          color: rowItem.row.state === "Error" || rowItem.row.state === "Out of sync" || rowItem.row.state === "Conflicts"
-            ? Commons.Color.urgent : FoamyPalette.secondaryText
-          font.pixelSize: FoamyStyle.font.bodySmall
-        }
-        RowLayout {
-          visible: Number(rowItem.row.progress) >= 0
-          width: parent.width
+        width: parent.width
+        height: visible ? details.implicitHeight : 0
+        Column {
+          id: details
+          // Anchored (not x) so right-to-left layouts mirror the indent.
+          anchors.left: parent.left
+          anchors.right: parent.right
+          anchors.leftMargin: FoamyStyle.iconSize + FoamyStyle.rowPadding
           spacing: FoamyStyle.gap
-          Rectangle {
-            Layout.fillWidth: true
-            implicitHeight: Style.space(3)
-            radius: FoamyStyle.pillRadius(height)
-            color: FoamyPalette.fieldFill
-            Rectangle {
-              height: parent.height
-              radius: parent.radius
-              width: parent.width * Math.max(0, Number(rowItem.row.progress)) / 100
-              color: Commons.Color.accent
-            }
+          bottomPadding: FoamyStyle.gapSmall
+          Label {
+            visible: rowName.truncated
+            width: parent.width
+            text: String(rowItem.row.label || "")
+            wrapMode: Text.WrapAnywhere
           }
-          Text {
-            text: FoamyI18n.t("{percent}%", { percent: FoamyI18n.number(Math.max(0, Number(rowItem.row.progress))) })
-            textFormat: Text.PlainText
-            color: Commons.Color.accent
-            font.family: FoamyStyle.fontFamily
+          Label {
+            visible: text !== ""
+            width: parent.width
+            text: String(rowItem.row.detail || "")
+            wrapMode: Text.WrapAnywhere
+            color: rowItem.row.state === "Error" || rowItem.row.state === "Out of sync" || rowItem.row.state === "Conflicts"
+              ? Commons.Color.urgent : FoamyPalette.secondaryText
             font.pixelSize: FoamyStyle.font.bodySmall
           }
-        }
-        Repeater {
-          model: rowItem.isExpanded ? rowItem.row.related : []
-          delegate: RowLayout {
-            id: related
-            required property var modelData
-            width: parent ? parent.width : 0
+          RowLayout {
+            visible: Number(rowItem.row.progress) >= 0
+            width: parent.width
             spacing: FoamyStyle.gap
-            FoamyIcon {
-              Layout.preferredWidth: Style.space(13)
-              Layout.preferredHeight: Style.space(13)
-              name: rowItem.isFolder ? "devices" : "folder"
-              color: FoamyPalette.secondaryText
-            }
-            Label {
+            Rectangle {
               Layout.fillWidth: true
-              text: String(related.modelData.label || "")
-              elide: Text.ElideRight
-              font.pixelSize: FoamyStyle.font.bodySmall
+              implicitHeight: Style.space(3)
+              radius: FoamyStyle.pillRadius(height)
+              color: FoamyPalette.fieldFill
+              Rectangle {
+                height: parent.height
+                radius: parent.radius
+                width: parent.width * Math.max(0, Number(rowItem.row.progress)) / 100
+                color: Commons.Color.accent
+              }
             }
-            Label {
-              text: FoamyI18n.t(String(related.modelData.state || ""))
-              color: root.statusColor(String(related.modelData.state || ""))
+            Text {
+              text: FoamyI18n.t("{percent}%", { percent: FoamyI18n.number(Math.max(0, Number(rowItem.row.progress))) })
+              textFormat: Text.PlainText
+              color: Commons.Color.accent
+              font.family: FoamyStyle.fontFamily
               font.pixelSize: FoamyStyle.font.bodySmall
             }
           }
-        }
-        FoamyAction {
-          visible: rowItem.isFolder
-          anchors.right: parent.right
-          iconName: "external-link"
-          label: FoamyI18n.t("Open folder")
-          tooltipText: FoamyI18n.t("Open in the file manager") + " · O"
-          foreground: FoamyPalette.secondaryText
-          onClicked: if (rowItem.row.folder) root.openFolderRequested(rowItem.row.folder)
+          Repeater {
+            model: rowItem.isExpanded ? rowItem.row.related : []
+            delegate: RowLayout {
+              id: related
+              required property var modelData
+              width: parent ? parent.width : 0
+              spacing: FoamyStyle.gap
+              FoamyIcon {
+                Layout.preferredWidth: Style.space(13)
+                Layout.preferredHeight: Style.space(13)
+                name: rowItem.isFolder ? "devices" : "folder"
+                color: FoamyPalette.secondaryText
+              }
+              Label {
+                Layout.fillWidth: true
+                text: String(related.modelData.label || "")
+                elide: Text.ElideRight
+                font.pixelSize: FoamyStyle.font.bodySmall
+              }
+              Label {
+                text: FoamyI18n.t(String(related.modelData.state || ""))
+                color: root.statusColor(String(related.modelData.state || ""))
+                font.pixelSize: FoamyStyle.font.bodySmall
+              }
+            }
+          }
+          FoamyAction {
+            visible: rowItem.isFolder
+            anchors.right: parent.right
+            iconName: "external-link"
+            label: FoamyI18n.t("Open folder")
+            tooltipText: FoamyI18n.t("Open in the file manager") + " · O"
+            foreground: FoamyPalette.secondaryText
+            onClicked: if (rowItem.row.folder) root.openFolderRequested(rowItem.row.folder)
+          }
         }
       }
     }
