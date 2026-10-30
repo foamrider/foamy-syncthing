@@ -271,7 +271,10 @@ PanelKeyCatcher {
     visible: !root.editingSettings
     spacing: 0
 
-    FoamyHeader {
+    // The foamy hero band: title row (devices online, start/stop, Web UI,
+    // Settings) and the sync summary with its progress ring as the hero.
+    FoamyHeroBand {
+      id: band
       Layout.fillWidth: true
       iconName: "sync"
       title: FoamyI18n.t("Syncthing")
@@ -279,71 +282,70 @@ PanelKeyCatcher {
       settingsHasCursor: cursor.at(root.settingsStop)
       onSettingsClicked: root.settingsRequested()
       onSettingsHovered: function(hovered) { if (hovered) cursor.hover(root.settingsStop) }
-      FoamyAction {
-        iconName: root.service && root.service.canInstall ? "download"
-          : root.service && root.service.serviceActive ? "pause" : "play"
-        tooltipText: root.service && root.service.canInstall ? FoamyI18n.t("Install Syncthing")
-          : FoamyI18n.t(root.service && root.service.serviceActive ? "Stop syncing" : "Start syncing") + " · P"
-        spinning: root.opened && !!root.service && root.service.serviceActionRunning
-        actionEnabled: !!root.service && (root.service.canInstall || root.service.canControlService)
-          && !root.service.serviceActionRunning && !root.service.folderMutationBusy
-        hasCursor: cursor.at(root.toggleStop)
-        foreground: FoamyPalette.secondaryText
-        onHoveredChanged: if (hovered) cursor.hover(root.toggleStop)
-        onClicked: root.toggleService()
-      }
-      FoamyAction {
-        iconName: "globe"
-        tooltipText: FoamyI18n.t("Open the Syncthing Web UI") + " · W"
-        actionEnabled: root.online
-        hasCursor: cursor.at(root.webStop)
-        foreground: FoamyPalette.secondaryText
-        onHoveredChanged: if (hovered) cursor.hover(root.webStop)
-        onClicked: root.openWebUiRequested()
-      }
-    }
+      trailing: [
+        FoamyAction {
+          iconName: root.service && root.service.canInstall ? "download"
+            : root.service && root.service.serviceActive ? "pause" : "play"
+          tooltipText: root.service && root.service.canInstall ? FoamyI18n.t("Install Syncthing")
+            : FoamyI18n.t(root.service && root.service.serviceActive ? "Stop syncing" : "Start syncing") + " · P"
+          spinning: root.opened && !!root.service && root.service.serviceActionRunning
+          actionEnabled: !!root.service && (root.service.canInstall || root.service.canControlService)
+            && !root.service.serviceActionRunning && !root.service.folderMutationBusy
+          hasCursor: cursor.at(root.toggleStop)
+          foreground: FoamyPalette.secondaryText
+          onHoveredChanged: if (hovered) cursor.hover(root.toggleStop)
+          onClicked: root.toggleService()
+        },
+        FoamyAction {
+          iconName: "globe"
+          tooltipText: FoamyI18n.t("Open the Syncthing Web UI") + " · W"
+          actionEnabled: root.online
+          hasCursor: cursor.at(root.webStop)
+          foreground: FoamyPalette.secondaryText
+          onHoveredChanged: if (hovered) cursor.hover(root.webStop)
+          onClicked: root.openWebUiRequested()
+        }
+      ]
 
-    // Summary: state, detail, progress ring and the tracked totals.
-    RowLayout {
-      Layout.fillWidth: true
-      Layout.leftMargin: FoamyStyle.padding
-      Layout.rightMargin: FoamyStyle.padding
-      Layout.bottomMargin: FoamyStyle.gapLarge
-      spacing: FoamyStyle.gapLarge
-      ColumnLayout {
+      // Hero: state, detail, progress ring and the tracked totals.
+      RowLayout {
         Layout.fillWidth: true
-        Layout.minimumWidth: 0
-        spacing: FoamyStyle.gapSmall
-        Label {
+        spacing: FoamyStyle.gapLarge
+        ColumnLayout {
           Layout.fillWidth: true
-          text: FoamyI18n.t(root.summary.title)
-          wrapMode: Text.WordWrap
-          color: root.service && root.service.hasProblems ? Commons.Color.urgent : FoamyPalette.text
-          font.pixelSize: FoamyStyle.font.display
+          Layout.minimumWidth: 0
+          spacing: FoamyStyle.gapSmall
+          Label {
+            Layout.fillWidth: true
+            text: FoamyI18n.t(root.summary.title)
+            wrapMode: Text.WordWrap
+            color: root.service && root.service.hasProblems ? Commons.Color.urgent : FoamyPalette.text
+            font.pixelSize: FoamyStyle.font.display
+          }
+          Label {
+            Layout.fillWidth: true
+            visible: text !== ""
+            text: FoamyI18n.t(root.summary.detail)
+            wrapMode: Text.WordWrap
+            color: FoamyPalette.secondaryText
+            font.pixelSize: FoamyStyle.font.bodySmall
+          }
+          Label {
+            Layout.fillWidth: true
+            visible: root.online && root.folderRows.length > 0
+            text: FoamyI18n.t("{count} files · {size}", {
+              count: PanelModel.formatCount(PanelModel.total(root.folderRows, "globalFiles")),
+              size: PanelModel.formatBytes(PanelModel.total(root.folderRows, "globalBytes")) })
+            color: FoamyPalette.secondaryText
+            font.pixelSize: FoamyStyle.font.body
+          }
         }
-        Label {
-          Layout.fillWidth: true
-          visible: text !== ""
-          text: FoamyI18n.t(root.summary.detail)
-          wrapMode: Text.WordWrap
-          color: FoamyPalette.secondaryText
-          font.pixelSize: FoamyStyle.font.bodySmall
+        SyncthingProgress {
+          Layout.preferredWidth: Style.space(64)
+          Layout.preferredHeight: Style.space(64)
+          Layout.alignment: Qt.AlignVCenter
+          progress: root.summary.progress
         }
-        Label {
-          Layout.fillWidth: true
-          visible: root.online && root.folderRows.length > 0
-          text: FoamyI18n.t("{count} files · {size}", {
-            count: PanelModel.formatCount(PanelModel.total(root.folderRows, "globalFiles")),
-            size: PanelModel.formatBytes(PanelModel.total(root.folderRows, "globalBytes")) })
-          color: FoamyPalette.secondaryText
-          font.pixelSize: FoamyStyle.font.body
-        }
-      }
-      SyncthingProgress {
-        Layout.preferredWidth: Style.space(64)
-        Layout.preferredHeight: Style.space(64)
-        Layout.alignment: Qt.AlignVCenter
-        progress: root.summary.progress
       }
     }
 
@@ -352,7 +354,7 @@ PanelKeyCatcher {
       Layout.fillWidth: true
       Layout.leftMargin: FoamyStyle.padding
       Layout.rightMargin: FoamyStyle.padding
-      Layout.bottomMargin: visibleChildren.length > 0 ? FoamyStyle.gapLarge : 0
+      Layout.topMargin: visibleChildren.length > 0 ? FoamyStyle.gapLarge : 0
       spacing: FoamyStyle.gapSmall
       Label {
         Layout.fillWidth: true
@@ -403,6 +405,7 @@ PanelKeyCatcher {
     // Tabs
     RowLayout {
       Layout.fillWidth: true
+      Layout.topMargin: FoamyStyle.gapLarge
       Layout.leftMargin: FoamyStyle.gapLarge
       Layout.rightMargin: FoamyStyle.gapLarge
       spacing: FoamyStyle.gapSmall

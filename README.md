@@ -32,9 +32,9 @@ not supported.
   conflict files. Yellow when fewer devices than your warning threshold are
   connected. Dimmed while Syncthing is unreachable. Left-click opens the
   popup; right-click refreshes (and restarts a stopped core).
-- **Popup:** the header shows how many devices are online and has
-  start/stop (or install) and Web UI buttons. Below it are the overall state
-  with a progress ring, and **Folders** and **Devices** tabs. Expand a row for
+- **Popup:** the tinted header band shows how many devices are online, has
+  start/stop (or install) and Web UI buttons, and holds the overall state with
+  its progress ring. Below it are the **Folders** and **Devices** tabs. Expand a row for
   its path, errors, remaining items, progress and the devices or folders it
   is shared with. Folder rows have **Open folder**.
 - Folder names are Syncthing's own folder labels (as in its Web UI), or the
