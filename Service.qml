@@ -143,6 +143,12 @@ QtObject {
     return !!request
   }
 
+  // Popup open and right-click refresh: start a stopped core right away
+  // instead of waiting for the next slow retry.
+  function recover() {
+    if (!core.running) core.retry()
+  }
+
   function recoverCoreIfNeeded() {
     if (packageController.state !== "existing" || core.running
         || core.protocolReady || core.incompatible || !core.executableReady

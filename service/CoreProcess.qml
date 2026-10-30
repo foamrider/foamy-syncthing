@@ -23,7 +23,13 @@ QtObject {
   property int restartAttempts: 0
   readonly property bool running: coreProcess.running
   readonly property int maxLineLength: 8388607
+  // Fast retries for a crash (250 ms, 500 ms, 1 s), then slow ones (30 s,
+  // doubling to 5 min) for as long as it keeps failing. A core that stays up
+  // for a minute starts over with fast retries.
   readonly property int maxRestartAttempts: 3
+  readonly property int slowRestartBaseMs: 30000
+  readonly property int maxRestartDelayMs: 300000
+  readonly property int stableAfterMs: 60000
 
   property int _nextId: 0
   property var _pending: ({})
@@ -43,6 +49,20 @@ QtObject {
     return true
   }
 
+  function restartDelay(attempt) {
+    if (attempt <= maxRestartAttempts) return Math.min(4000, 250 * Math.pow(2, attempt - 1))
+    return Math.min(maxRestartDelayMs, slowRestartBaseMs * Math.pow(2, attempt - maxRestartAttempts - 1))
+  }
+
+  // A user-driven retry (popup opened, right-click refresh): start a stopped
+  // or failed core now, including after a protocol failure.
+  function retry() {
+    if (!executableReady || coreProcess.running || starting) return false
+    incompatible = false
+    desiredRunning = true
+    return restart()
+  }
+
   function terminate() {
     _restartRequested = false
     _expectedStop = true
@@ -55,7 +75,10 @@ QtObject {
     restartAttempts = 0
     _restartRequested = true
     _expectedStop = true
+    // The next start follows the shutdown (or comes now), not a pending slow retry.
+    restartTimer.interval = 100
     if (coreProcess.running) {
+      restartTimer.stop()
       send("shutdown", {})
       shutdownTimer.restart()
     } else {
@@ -146,6 +169,7 @@ QtObject {
     }
     protocolReady = true
     everProtocolReady = true
+    stableTimer.restart()
     incompatible = false
     unavailable = false
     lastError = ""
@@ -216,6 +240,7 @@ QtObject {
 
   function handleExit(exitCode) {
     shutdownTimer.stop()
+    stableTimer.stop()
     protocolReady = false
     var unexpected = !_restartRequested && !_expectedStop && desiredRunning
     var message = unexpected
@@ -230,14 +255,9 @@ QtObject {
     if (_expectedStop || !desiredRunning) return
     unavailable = true
     lastError = message
-    if (restartAttempts < maxRestartAttempts) {
-      restartAttempts++
-      restartTimer.interval = Math.min(4000, 250 * Math.pow(2,
-        restartAttempts - 1))
-      restartTimer.restart()
-    } else {
-      desiredRunning = false
-    }
+    restartAttempts++
+    restartTimer.interval = restartDelay(restartAttempts)
+    restartTimer.restart()
   }
 
   function inspectExecutable() {
@@ -340,6 +360,12 @@ QtObject {
       root.desiredRunning = false
       Qt.callLater(function() { root.desiredRunning = true })
     }
+  }
+
+  property Timer stableTimer: Timer {
+    interval: root.stableAfterMs
+    repeat: false
+    onTriggered: if (root.protocolReady) root.restartAttempts = 0
   }
 
   property Timer shutdownTimer: Timer {

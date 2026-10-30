@@ -491,7 +491,7 @@ Panel {
   }
   onOpenedChanged: {
     if (opened) {
-      if (syncthing) syncthing.refresh()
+      if (syncthing) { syncthing.recover(); syncthing.refresh() }
       ensureFolderSelection()
       selectActiveFolder()
       popup.scrollToTop()
@@ -618,7 +618,7 @@ Panel {
     active: root.hasProblems
     tooltipText: root.tooltip
     onPressed: function(buttonCode) {
-      if (buttonCode === Qt.RightButton && root.syncthing) root.syncthing.refresh()
+      if (buttonCode === Qt.RightButton && root.syncthing) { root.syncthing.recover(); root.syncthing.refresh() }
       else root.toggle()
     }
   }

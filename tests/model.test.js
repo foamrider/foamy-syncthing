@@ -298,3 +298,27 @@ test("unlink pauses before removing configuration and stops safely on errors", (
   assert.equal(offline.context.unlinkFolder("work"), false);
   assert.equal(offline.requests.length, 0);
 });
+
+test("the core keeps retrying with backoff instead of staying down", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../service/CoreProcess.qml"), "utf8");
+  const timers = [];
+  const context = vm.createContext({
+    maxRestartAttempts: 3, slowRestartBaseMs: 30000, maxRestartDelayMs: 300000,
+    restartAttempts: 0, protocolReady: true, unavailable: false, lastError: "",
+    _restartRequested: false, _expectedStop: false, desiredRunning: true,
+    failPending() {}, shutdownTimer: {stop() {}}, stableTimer: {stop() {}},
+    restartTimer: {interval: 0, restart() { timers.push(this.interval); }},
+  });
+  for (const name of ["restartDelay", "handleExit"]) {
+    const start = source.indexOf(`  function ${name}(`);
+    const end = source.indexOf("\n  }", start) + 4;
+    assert.ok(start >= 0, name);
+    vm.runInContext(source.slice(start, end), context);
+  }
+  for (let i = 0; i < 9; i++) context.handleExit(1);
+  assert.deepEqual(timers, [250, 500, 1000, 30000, 60000, 120000, 240000, 300000, 300000]);
+  assert.equal(context.desiredRunning, true, "never gives up");
+  assert.equal(context.unavailable, true);
+  assert.match(source, /onTriggered: if \(root\.protocolReady\) root\.restartAttempts = 0/);
+  assert.match(source, /function retry\(\)[\s\S]*incompatible = false/);
+});
