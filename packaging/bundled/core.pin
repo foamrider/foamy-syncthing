@@ -1,0 +1,11 @@
+# Provenance of bin/x86_64/syncshell-core (read by build-core.sh, verify-core.sh
+# and tests/test_core.py). The binary is byte-identical to the file committed
+# at this upstream tag; see README.md, "Native core".
+upstream=https://github.com/omarchy-QOL/syncshell.git
+tag=v0.1.9
+commit=7318f1404e765f274df3d079e35d0ad32b5c1701
+version=0.1.9
+go=go1.27.1
+module=github.com/omarchy-QOL/syncshell/core
+package=./cmd/syncshell-core
+xsys=v0.31.0 h1:ioabZlmFYtWhL+TRYpcnNlLwhyxaM9kWTDEmfnprqik=
