@@ -9,7 +9,7 @@ function load(name) {
   return scope;
 }
 const schema = require('../Preferences.js');
-const prefs = load('kit/FoamyPrefs.js');
+const prefs = require('../kit/node-loader.cjs').load('FoamyPrefs');
 const manifest = require('../manifest.json');
 const translations = require('./i18n.cjs');
 const value = (settings, key) => prefs.value(schema.fields, settings, key);

@@ -113,7 +113,9 @@ PanelKeyCatcher {
   onActivateRequested: root.activate(cursor.index)
   onCloseRequested: root.closeRequestedByView()
   onTabRequested: function(direction) { root.switchPanelRequested(direction) }
-  onTextKey: function(text) {
+  onTextKey: function(text, modifiers) {
+    // Ctrl/Alt/Meta shortcuts belong to the shell (modifiers is undefined on 4.0).
+    if (!cursor.plain(modifiers)) return
     var key = text.toLowerCase()
     if (key === "s") root.settingsRequested()
     else if (key === "r" && root.service) { root.service.recover(); root.service.refresh(true) }

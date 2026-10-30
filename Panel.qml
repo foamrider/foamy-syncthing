@@ -7,7 +7,6 @@ import qs.Commons as Commons
 import qs.Ui
 import "." as Plugin
 import "kit"
-import "kit/FoamyPrefs.js" as Prefs
 import "Preferences.js" as Schema
 import "ui"
 
@@ -21,21 +20,31 @@ Panel {
   ipcTarget: "foamy.syncthing"
   manageIpc: false
 
-  property bool editingSettings: false
-  property bool saving: false
-  property string settingsError: ""
-  property var lastSave: null
+  readonly property bool editingSettings: settingsState.editing
+  property string pickerError: ""
   property bool returningFromBrowser: false
   readonly property alias popup: popup
   readonly property var view: popup.bodyItem
   readonly property var syncthing: Plugin.ServiceRegistry.instance
-  readonly property int openRefreshIntervalSec: Prefs.value(Schema.fields, root.settings, "openRefreshIntervalSec")
+  readonly property int openRefreshIntervalSec: prefs.value("openRefreshIntervalSec")
+
+  // Settings saves (inline, else omarchy bar set), serialised; values saved
+  // but not yet reflected in `settings` show through effectiveSettings.
+  FoamyPrefsQueue {
+    id: prefs
+    bar: root.bar
+    moduleName: root.moduleName
+    fields: Schema.fields
+    settings: root.settings
+  }
+  // Settings page state: resets on close only; held across the folder chooser.
+  FoamySettingsState { id: settingsState; panel: root; holdOnClose: root.returningFromBrowser }
 
   FoamyMember { id: member; scope: "syncthing"; demanding: root.opened }
   Binding {
     target: root.syncthing
     property: "widgetSettings"
-    value: root.settings
+    value: prefs.effectiveSettings
     when: member.isLeader && !!root.syncthing
     restoreMode: Binding.RestoreNone
   }
@@ -60,7 +69,7 @@ Panel {
     if (syncthing.syncInProgress) return "sync"
     return "default"
   }
-  readonly property string barIcon: iconVariant === "sync" ? "󰘿" : iconVariant === "default" ? "󰅠" : "󰧠"
+  readonly property string barIcon: iconVariant === "sync" ? "\u{f063f}" : iconVariant === "default" ? "\u{f0160}" : "\u{f09e0}"
   readonly property color iconColor: {
     if (syncthing && (syncthing.hasProblems || syncthing.phase === "error")) return bar ? bar.urgent : Commons.Color.urgent
     if (syncthing && syncthing.tooFewDevices) return FoamyPalette.warning
@@ -72,42 +81,19 @@ Panel {
 
   // ---- popup lifecycle -----------------------------------------------------------
   onOpenedChanged: {
-    if (returningFromBrowser) return
-    // Reset on close, so a later open (or the settings IPC) starts cleanly.
-    if (!opened) editingSettings = false
-    else if (syncthing) {
-      syncthing.recover()
-      syncthing.refresh()
-    }
+    if (!opened || returningFromBrowser || !syncthing) return
+    syncthing.recover()
+    syncthing.refresh()
   }
 
   function openSettings() {
-    settingsError = ""
-    lastSave = null
-    editingSettings = true
-    if (!opened) open()
+    pickerError = ""
+    settingsState.show()
   }
-  function closeSettings() { editingSettings = false }
-
+  function closeSettings() { settingsState.hide() }
   function save(key, value) {
-    settingsError = ""
-    var result = Prefs.save(root.bar, root.moduleName, Schema.fields, root.settings, key, value)
-    lastSave = { key: key, value: value }
-    if (!result.ok) { lastSave = null; settingsError = FoamyI18n.t(result.error); return }
-    if (result.command.length === 0) return
-    saving = true
-    saveProcess.command = result.command
-    saveProcess.running = true
-  }
-  function retrySave() { if (lastSave) save(lastSave.key, lastSave.value) }
-
-  Process {
-    id: saveProcess
-    stderr: StdioCollector { id: saveError; waitForEnd: true }
-    onExited: function(code) {
-      root.saving = false
-      root.settingsError = code === 0 ? "" : (String(saveError.text || "").trim().slice(0, 240) || FoamyI18n.t("Couldn't save the setting."))
-    }
+    pickerError = ""
+    prefs.save(key, value)
   }
 
   function openWebUi() {
@@ -142,7 +128,7 @@ Panel {
     onExited: function(exitCode) {
       var match = String(folderPickerOutput.text).match(/(file:\/\/[^\r\n]*)/)
       root.open()
-      if (exitCode !== 0) root.settingsError = FoamyI18n.t("The folder chooser failed; enter the path manually.")
+      if (exitCode !== 0) root.pickerError = FoamyI18n.t("The folder chooser failed; enter the path manually.")
       else if (match && root.view) root.view.setAddPath(decodeURIComponent(match[1].replace(/^file:\/\//, "")))
       Qt.callLater(function() { root.returningFromBrowser = false })
     }
@@ -195,18 +181,18 @@ Panel {
     body: Component {
       SyncthingView {
         service: root.syncthing
-        settings: root.settings
+        settings: prefs.effectiveSettings
         opened: root.opened
         editingSettings: root.editingSettings
-        saving: root.saving
-        settingsError: root.settingsError
-        retryable: root.settingsError !== "" && root.lastSave !== null
+        saving: prefs.saving
+        settingsError: root.pickerError || (prefs.error ? FoamyI18n.t(prefs.error) : "")
+        retryable: root.pickerError === "" && prefs.canRetry
         browsing: folderPicker.running || root.returningFromBrowser
         onCloseRequestedByView: root.close()
         onSettingsRequested: root.openSettings()
         onSettingsClosed: root.closeSettings()
         onSaveRequested: function(key, value) { root.save(key, value) }
-        onRetryRequested: root.retrySave()
+        onRetryRequested: prefs.retry()
         onSwitchPanelRequested: function(direction) { root.switchPanel(direction) }
         onOpenWebUiRequested: root.openWebUi()
         onOpenFolderRequested: function(folder) { root.openFolder(folder) }

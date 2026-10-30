@@ -90,6 +90,8 @@ ShellRoot {
         check(shell.probes() >= 1, "install probe ran while offline")
         check(JSON.stringify(service.conflictFolderIds) === JSON.stringify({ docs: true }), "per-folder conflicts, .stversions ignored: " + JSON.stringify(service.conflictFolderIds))
         check(service.folderRows.length === 2 && service.folderRows[0].label === "Documents", "configured label first")
+        // Escaped icon-font glyphs (\u{…}) still decode: conflicts → the "notify" glyph.
+        check(panels[0].barIcon.codePointAt(0) === 0xf09e0 && panels[0].barIcon.length === 2, "bar glyph decodes: " + panels[0].barIcon.codePointAt(0))
         check(service.tooFewDevices === false && service.deviceCounts.connected === 2, "device counts include this computer")
         step.probesOnline = shell.probes()
         shell.scans = 0
@@ -107,6 +109,10 @@ ShellRoot {
         service.refresh()
       } else if (n === 2) {
         check(panels[1].popup.bodyItem.rowItem(0) === savedRow, "row delegate survives a snapshot (keyed model)")
+        // FoamyPrefsQueue: an inline save shows at once in the view, before the host reflects it.
+        panels[1].save("refreshIntervalSec", 300)
+        check(panels[1].popup.bodyItem.settings.refreshIntervalSec === 300, "saved value shows before it is reflected")
+        check(panels[1].bar.saved.length === 1 && panels[1].bar.saved[0].settings.refreshIntervalSec === 300, "saved inline through the bar")
         check(shell.scans === 0, "no conflict walk for unchanged folders (" + shell.scans + ")")
         check(shell.probes() === step.probesOnline, "install probe idle while online (" + step.probesOnline + " -> " + shell.probes() + ")")
         panels[1].openSettings()

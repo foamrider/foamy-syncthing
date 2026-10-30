@@ -26,7 +26,8 @@ feature detection only.
   counts through `FoamyI18n.tn` (plural entries), decimals through
   `FoamyI18n.number`. Pass names and paths as `{name}` values, never as keys.
 - Never store user paths, API keys, Syncthing configuration or machine
-  preferences in the repository. Settings go through `FoamyPrefs.save`.
+  preferences in the repository. Settings go through `FoamyPrefsQueue`;
+  the settings page state through `FoamySettingsState`.
 - Keep conflict-scan roots on stdin, never in arguments or diagnostics; the
   scanner launches no children, follows root links only, ignores
   `.stversions`/`.stfolder`, and returns index-aligned booleans.
