@@ -1,5 +1,5 @@
 pragma Singleton
-// foamy-kit 0.3.1 d32e7f3196ff3fbe26556a521078830a01e99fc523c0ab89dd12a87f5d48d47a — do not edit; change foamy-kit and run sync
+// foamy-kit 0.3.3 d32e7f3196ff3fbe26556a521078830a01e99fc523c0ab89dd12a87f5d48d47a — do not edit; change foamy-kit and run sync
 import QtQuick
 
 // Once-per-shell coordination for one plugin.
