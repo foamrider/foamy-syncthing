@@ -9,6 +9,7 @@ import "." as Plugin
 import "ui"
 import "models/PanelModel.js" as PanelModel
 import "Preferences.js" as Preferences
+import "kit/FoamyPrefs.js" as Prefs
 
 Panel {
   id: root
@@ -32,7 +33,7 @@ Panel {
   property string widgetId: ""
   property string preferencesError: ""
   readonly property bool preferencesSaving: preferencesSave.running
-  readonly property var preferences: Preferences.fromSettings(settings)
+  readonly property var preferences: Prefs.values(Preferences.fields, settings)
   readonly property string language: FoamyI18n.language
   function tr(key, values) { return FoamyI18n.t(key, values) }
   function savePreference(key, value) {
@@ -143,7 +144,7 @@ Panel {
     return syncthing.folderMutationError || syncthing.controlError
       || syncthing.folderPreparationError || syncthing.packageError
       || syncthing.conflictScanError
-      || syncthing.lastError || syncthing.notificationError || ""
+      || syncthing.lastError || ""
   }
   readonly property color syncthingIconColor: {
     if (hasProblems || (syncthing && syncthing.phase === "error")) return urgent
@@ -156,17 +157,19 @@ Panel {
   readonly property string visibleWarning: syncthing
     ? syncthing.recoveryWarning : ""
   readonly property string visibleSyncActivity: syncthing
-    ? syncthing.syncActivity : ""
-  readonly property string visibleSyncDots: syncthing
-    ? syncthing.syncActivityDots : ""
+    ? syncthing.syncActivityDetail : ""
   readonly property string visibleSyncAction: syncthing
     ? syncthing.syncActivityAction : ""
   readonly property string visibleSyncDetail: syncthing
     ? syncthing.syncActivityDetail : ""
 
-  function configureService() {
-    if (!syncthing) return
-    syncthing.setRefreshInterval(Preferences.fromSettings(settings).refreshIntervalSec)
+  // The service is shared by every bar; hand it this widget's settings.
+  Binding {
+    target: root.syncthing
+    property: "widgetSettings"
+    value: root.settings
+    when: !!root.syncthing
+    restoreMode: Binding.RestoreNone
   }
 
   function compactFolderState(folder) {
@@ -189,7 +192,7 @@ Panel {
   }
 
   function buildFolderRows() {
-    return PanelModel.buildFolderRows(syncthing, homePath)
+    return syncthing ? syncthing.folderRows : []
   }
 
   function folderTotal(key) {
@@ -214,7 +217,7 @@ Panel {
 
   function folderState(folder) {
     return PanelModel.folderState(folder,
-      syncthing ? syncthing.recentlyLinkedFolderId : "",
+      "",
       folderHasActivity(folder))
   }
 
@@ -469,8 +472,6 @@ Panel {
     }
   }
 
-  onSyncthingChanged: configureService()
-  onSettingsChanged: configureService()
   onFolderRowsChanged: {
     ensureFolderSelection()
     selectActiveFolder()
@@ -499,7 +500,6 @@ Panel {
       resetTransientState()
     }
   }
-  Component.onCompleted: configureService()
 
   // Native events update folders live; refresh service health while the panel is open.
   Timer {

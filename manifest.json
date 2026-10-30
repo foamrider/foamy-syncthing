@@ -25,7 +25,8 @@
       "minimumConnectedDevices": 0,
       "refreshIntervalSec": 60,
       "openRefreshIntervalSec": 5,
-      "probeIntervalSec": 15
+      "probeIntervalSec": 15,
+      "serviceState": "enabled"
     }
   }
 }

@@ -10,7 +10,7 @@ function model(file) {
 }
 
 test("native folder snapshots preserve paused state, sharing and errors", () => {
-  const facade = model("hosts/omarchy/models/FacadeModel.js");
+  const facade = model("service/Facade.js");
   const folders = [{ id: "work", path: "/tmp/work", paused: true,
     devices: [{ id: "remote" }], status: { state: "error", errors: ["offline"], pullErrors: 1 } }];
   assert.equal(facade.folders(folders)[0].paused, true);
@@ -20,7 +20,7 @@ test("native folder snapshots preserve paused state, sharing and errors", () => 
 });
 
 test("native protocol fails closed on malformed input or wrong major version", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../shared/CoreProcess.qml"), "utf8");
+  const source = fs.readFileSync(path.join(__dirname, "../service/CoreProcess.qml"), "utf8");
   const context = vm.createContext({ protocolReady: false, maxLineLength: 8388607,
     error: "",
     acceptHello() { throw new Error("invalid input must not reach hello"); } });
@@ -47,7 +47,7 @@ test("original panel totals include this computer", () => {
 });
 
 test("native snapshots feed the original folder cards without losing health", () => {
-  const facade = model("hosts/omarchy/models/FacadeModel.js");
+  const facade = model("service/Facade.js");
   const panel = model("models/PanelModel.js");
   const raw = [{id: "work", label: "Work", path: "/home/user/work", paused: false,
     devices: [{id: "local"}, {id: "remote"}],
@@ -60,7 +60,7 @@ test("native snapshots feed the original folder cards without losing health", ()
 });
 
 test("idle outstanding items stay critical through the native adapter and both presentations", () => {
-  const facade = model("hosts/omarchy/models/FacadeModel.js");
+  const facade = model("service/Facade.js");
   const panel = model("models/PanelModel.js");
   const overview = model("models/OverviewModel.js");
   const translations = require("./i18n.cjs");
@@ -206,39 +206,27 @@ test("pause and resume preserve the folder configuration and use accurate status
   }
 });
 
-test("local-only folder notices retain private labels only in the panel", () => {
-  const service = fs.readFileSync(path.join(__dirname, "../Service.qml"), "utf8");
-  const adapter = fs.readFileSync(path.join(__dirname, "../hosts/omarchy/OmarchyService.qml"), "utf8");
-  const notices = [];
+test("folder notices stay in the panel; no desktop notification is sent", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../Service.qml"), "utf8");
+  assert.doesNotMatch(source, /notificationSender|notify-send|syncthing-notify/);
   const context = vm.createContext({
     folderLabel: () => 'private-Canary-847 📁',
     tr: (key, values) => key.replace(/\{(\w+)\}/g, (match, name) => values?.[name] ?? match),
-    UiConstants: {NOTICE_VISIBLE_MS: 1000}, folderMutationNotice: "",
-    PluginLanguage: {FoamyI18n: {t: key => key}}, settings: {},
-    noticeTimer: {restart() {}},
-    notificationSender: {send(message, visibleMs) { notices.push([message, visibleMs]); return true; }},
+    folderMutationNotice: "", noticeTimer: {restarted: 0, restart() { this.restarted++; }},
   });
   context.root = context;
   context.runFolderAction = (...args) => context.publishFolderNotice(args[4]);
-  for (const [source, name] of [[service, "setFolderPaused"], [adapter, "notify"], [adapter, "publishFolderNotice"]]) {
+  for (const name of ["setFolderPaused", "publishFolderNotice"]) {
     const start = source.indexOf(`  function ${name}(`);
     const end = source.indexOf("\n  }", start) + 4;
-    assert.ok(start >= 0);
+    assert.ok(start >= 0, name);
     vm.runInContext(source.slice(start, end), context);
   }
   context.setFolderPaused("local-only", true);
   assert.match(context.folderMutationNotice, /Paused private-Canary-847 📁/);
   context.setFolderPaused("local-only", false);
   assert.match(context.folderMutationNotice, /Resumed private-Canary-847 📁/);
-  assert.equal(notices.length, 2);
-  for (const [text] of notices) {
-    assert.equal(text, "Syncthing status changed. Open the panel for details.");
-    assert.doesNotMatch(text, /private-Canary-847/);
-  }
-  context.PluginLanguage.FoamyI18n.t = key => require("./i18n.cjs").text(key, "no");
-  context.notify("Failed to scan /private/Canary-847 on device PrivateDevice", 12000);
-  assert.equal(notices[2][0], "Syncthing-statusen er endret. Åpne panelet for detaljer.");
-  assert.equal(notices[2][1], 12000);
+  assert.equal(context.noticeTimer.restarted, 2);
 });
 
 test("unlink pauses before removing configuration and stops safely on errors", () => {

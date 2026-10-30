@@ -14,7 +14,7 @@ import unittest
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER = ROOT / "hosts/omarchy/scripts/syncthing-conflicts.py"
+HELPER = ROOT / "scripts/syncthing-conflicts.py"
 spec = importlib.util.spec_from_file_location("syncthing_conflicts", HELPER)
 helper = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(helper)
@@ -187,12 +187,12 @@ class ConflictTests(unittest.TestCase):
             start = source.index("  function " + name + "(")
             methods.append(source[start:source.index("\n  }", start) + 4])
         start = source.index("  property Process conflictScan:")
-        process = source[start:source.index("  property IpcHandler diagnostics:", start)]
+        process = source[start:source.index("  // One diagnostics target per shell", start)]
         start = source.index("  Component.onDestruction:")
         cleanup = source[start:source.index("    if (Plugin.ServiceRegistry", start)] + "  }"
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
-            helper_dir = base / "hosts/omarchy/scripts"
+            helper_dir = base / "scripts"
             helper_dir.mkdir(parents=True)
             state = base / "delivered.jsonl"
             (helper_dir / HELPER.name).write_text('''import json, os, sys, time

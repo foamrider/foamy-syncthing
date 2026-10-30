@@ -142,5 +142,23 @@
   "Resumed {name}. Folder configuration, sharing, and local files are unchanged.": "Gjenopptok {name}. Mappekonfigurasjon, deling og lokale filer er uendret.",
   "Unlinked {name} from Syncthing. Local files were kept.": "Koblet {name} fra Syncthing. Lokale filer ble beholdt.",
   "The folder remains paused; its local files are unchanged.": "Mappen forblir på pause; lokale filer er uendret.",
-  "Could not remove the folder from Syncthing.": "Kunne ikke fjerne mappen fra Syncthing."
+  "Could not remove the folder from Syncthing.": "Kunne ikke fjerne mappen fra Syncthing.",
+  "Starting the native core": "Starter den lokale kjernen",
+  "Some Syncthing items exceed panel limits; use the Web UI for the hidden entries": "Noen Syncthing-elementer overskrider panelets grenser; bruk webgrensesnittet for de skjulte oppføringene",
+  "%1 folder problems": {
+    "one": "%1 mappeproblem",
+    "other": "%1 mappeproblemer"
+  },
+  "%1 folders syncing": {
+    "one": "%1 mappe synkroniseres",
+    "other": "%1 mapper synkroniseres"
+  },
+  "Could not recheck Syncthing errors": "Kunne ikke sjekke Syncthing-feilene på nytt",
+  "Action failed": "Handlingen mislyktes",
+  "Syncthing must be online to manage folders": "Syncthing må være tilkoblet for å administrere mapper",
+  "Could not complete the folder operation": "Kunne ikke fullføre mappeoperasjonen",
+  "The native core is not ready": "Den lokale kjernen er ikke klar",
+  "Could not generate a folder ID": "Kunne ikke lage en mappe-ID",
+  "Could not update the Syncthing service": "Kunne ikke oppdatere Syncthing-tjenesten",
+  "Folder operation stopped because the native core became unavailable": "Mappeoperasjonen stoppet fordi den lokale kjernen ble utilgjengelig"
 }

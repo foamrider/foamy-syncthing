@@ -143,5 +143,23 @@
   "Unlinked {name} from Syncthing. Local files were kept.": "Unlinked {name} from Syncthing. Local files were kept.",
   "The folder remains paused; its local files are unchanged.": "The folder remains paused; its local files are unchanged.",
   "Could not remove the folder from Syncthing.": "Could not remove the folder from Syncthing.",
-  "Syncthing": "Syncthing"
+  "Syncthing": "Syncthing",
+  "Starting the native core": "Starting the native core",
+  "Some Syncthing items exceed panel limits; use the Web UI for the hidden entries": "Some Syncthing items exceed panel limits; use the Web UI for the hidden entries",
+  "%1 folder problems": {
+    "one": "%1 folder problem",
+    "other": "%1 folder problems"
+  },
+  "%1 folders syncing": {
+    "one": "%1 folder syncing",
+    "other": "%1 folders syncing"
+  },
+  "Could not recheck Syncthing errors": "Could not recheck Syncthing errors",
+  "Action failed": "Action failed",
+  "Syncthing must be online to manage folders": "Syncthing must be online to manage folders",
+  "Could not complete the folder operation": "Could not complete the folder operation",
+  "The native core is not ready": "The native core is not ready",
+  "Could not generate a folder ID": "Could not generate a folder ID",
+  "Could not update the Syncthing service": "Could not update the Syncthing service",
+  "Folder operation stopped because the native core became unavailable": "Folder operation stopped because the native core became unavailable"
 }
