@@ -7,6 +7,9 @@ QtObject {
 
   required property string helperPath
   property int probeIntervalSeconds: 15
+  // Probe periodically only while it matters (Syncthing offline or missing);
+  // the owner turns this off while Syncthing is online.
+  property bool probing: true
   property string state: "checking"
   property string label: "Checking"
   property string executablePath: ""
@@ -82,7 +85,7 @@ QtObject {
   property Timer statusTimer: Timer {
     interval: Math.max(1, root.probeIntervalSeconds) * 1000
     repeat: true
-    running: true
+    running: root.probing
     triggeredOnStart: true
     onTriggered: root.updateStatus()
   }

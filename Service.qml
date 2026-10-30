@@ -126,7 +126,8 @@ QtObject {
   }
 
   function refresh(recheckErrors) {
-    packageController.updateStatus()
+    // The install state only matters while Syncthing is not reachable.
+    if (!online) packageController.updateStatus()
     if (!core.protocolReady || refreshing) return false
     refreshing = true
     if (recheckErrors === true) folderMutationError = ""
@@ -418,6 +419,7 @@ QtObject {
   property PackageController packageController: PackageController {
     helperPath: root.pluginRoot + "/scripts/syncthing-install.sh"
     probeIntervalSeconds: root.probeIntervalSeconds
+    probing: !root.online
     onStatusApplied: root.recoverCoreIfNeeded()
   }
 
