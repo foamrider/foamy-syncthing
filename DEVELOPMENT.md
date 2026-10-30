@@ -1,45 +1,54 @@
 # Development
 
-Target Omarchy Quattro only. The root Panel.qml, Service.qml, models/, ui/,
-Preferences.js, Translations.js and scripts/ implement Foamy's presentation.
-The hosts/omarchy/ and shared/ directories contain the Syncshell adapter.
-SettingsController.qml is intentionally adapted to read the widget in shell.json,
-and adapter add-folder notices use Translations.js. Keep these changes when
-updating Syncshell. The native binary and bundled Web UI GUI assets remain
-unmodified. Foamy's Web UI installer and theme/removal adapters share
-webui/ownership.sh; compare the full installation fingerprint before replacing
-or deleting a theme directory. A directory marker alone does not authorize
-deleting its contents. Render refreshes in staging and record their fingerprint
-only after generation finishes; never re-record an existing user tree to adopt it.
+Targets Omarchy 4.5 and keeps loading on 4.0.6 (English there), with runtime
+feature detection only.
 
-Never store user paths, API keys, Syncthing configuration, or machine preferences
-in this repository. Use Omarchy's bar settings API for plugin preferences.
-Keep English keys and Norwegian translations in Translations.js; substitute
-user names and paths as parameters, never translate them as keys.
+## Layout
 
-Run node --test tests/*.test.js, bash tests/test-preferences.sh,
-python3 -m unittest discover -s tests -p 'test_*.py', and
-omarchy plugin validate from this checkout. Verify the native binary with
-sha256sum -c packaging/bundled/SHA256SUMS. Restart the shell before checking
-both languages, overview/settings/add-folder views, narrow layouts, offline
-and error states, and keyboard navigation. Do not unlink a user's real folder
-to validate removal: tests exercise the native pause/forget contract with mocks.
+| Path | What |
+|---|---|
+| `Service.qml` | The `service` entry point: one per shell. Owns the native core, the install probe and the conflict scan; registers itself in `ServiceRegistry` |
+| `service/` | `CoreProcess.qml` (JSON-lines protocol v2, restart backoff), `PackageController.qml` (install probe/terminal), `Facade.js` (snapshot projection) |
+| `Panel.qml` | The bar widget, one per bar (per monitor on 4.5). A `FoamyMember` leader feeds the service its settings and owns the `foamy.syncthing` IPC target |
+| `ui/` | `SyncthingView.qml` (lazy popup body), `AddFolderForm.qml`, `UnlinkDialog.qml`, `SyncthingProgress.qml` |
+| `models/` | Pure JS: `PanelModel.js` (folder rows, summary, formatting), `OverviewModel.js` (tab rows), `Keyed.js` (in-place ListModel sync) |
+| `scripts/` | `syncthing-conflicts.py`, `syncthing-install.sh`, the folder chooser |
+| `kit/` | foamy-kit copies. Never edit them here: change foamy-kit and run its `sync.sh` (`tests/kit-check.sh` fails on local edits) |
+| `bin/`, `packaging/bundled/` | The native core, its checksum, provenance pin, build and verify scripts |
+| `preview/Preview.qml` | Mock states for foamy-kit's preview harness (not loaded at runtime) |
 
-Syncthing counts remote peers only; the displayed device total includes the
-local computer. Native events carry actual sync activity; ordinary refreshes
-must not look like synchronization. Do not infer network speeds from folder size.
+## Rules
 
-Keep desktop notifications generic: Omarchy's receiver can persist their full
-body in subprocess arguments. Keep folder/device labels, paths, and detailed
-results in the panel; removal notices must not include private settings paths.
-Send the generic text through stdin to scripts/syncthing-notify.py, never through
-omarchy-notification-send, busctl, or notify-send arguments. Preserve the
-in-panel result and surface a generic delivery error on failure.
+- Follow foamy-kit's DESIGN.md: kit components, `FoamyStyle`/`FoamyPalette`/
+  `FoamyMotion` tokens, qualified `Commons.Color`, one keyboard cursor, lazy
+  popup body. `foamy-kit/check.sh .` lints this.
+- Strings: English keys in `i18n/en.json` with Norwegian in `i18n/no.json`;
+  counts through `FoamyI18n.tn` (plural entries), decimals through
+  `FoamyI18n.number`. Pass names and paths as `{name}` values, never as keys.
+- Never store user paths, API keys, Syncthing configuration or machine
+  preferences in the repository. Settings go through `FoamyPrefs.save`.
+- Keep conflict-scan roots on stdin, never in arguments or diagnostics; the
+  scanner launches no children, follows root links only, ignores
+  `.stversions`/`.stfolder`, and returns index-aligned booleans.
+- Nothing polls for the UI while the popup is closed; the install probe runs
+  only while Syncthing is offline; the conflict scan runs on folder-set
+  changes and the 5-minute timer.
+- Don't unlink a user's real folder to test removal: the tests exercise the
+  native pause/forget contract with mocks and `tests/fake-core.py`.
 
-Keep conflict-scan roots in stdin, never in command arguments or diagnostics.
-The Python scanner must not launch children. Preserve root-link support,
-exclude descendant links and non-regular files, and retain the last known
-status on scan failures. Keep the helper's input and runtime bounded.
+## Updating the native core
 
-SyncthingPopup.qml is adapted from Omarchy's Ui/KeyboardPanel.qml. Preserve
-its keyboard focus, outside-click dismissal, and multi-monitor behavior.
+1. Pick an upstream Syncshell tag; read its `core/` diff (protocol v2 must
+   stay compatible with `service/CoreProcess.qml`).
+2. Update `packaging/bundled/core.pin` (tag, commit, Go release, x/sys pin).
+3. `packaging/bundled/build-core.sh --install` with the pinned Go release,
+   then `packaging/bundled/verify-core.sh`. Compare the result with the
+   upstream release binary.
+4. Update README "Native core", CHANGELOG and `LICENSE-SYNCSHELL`.
+
+## Tests
+
+See README "Validate". `tests/runtime.py` and `tests/i18n-runtime.py` load
+the real QML offscreen in temporary directories; set `FOAMY_KIT` if foamy-kit
+isn't at `~/GitHub/Personal/foamy-kit`. Screenshots:
+`foamy-kit/preview/render.py . --host both`.

@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "foamy.syncthing",
   "name": "Foamy Syncthing",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "foamrider",
-  "license": "MIT AND MPL-2.0 AND OFL-1.1 AND BSD-3-Clause",
-  "description": "A Syncthing plugin with a bundled native core for monitoring file activity, safely managing folders, controlling the user service, and following the Omarchy theme.",
+  "license": "MIT AND BSD-3-Clause",
+  "description": "Syncthing folder and device status in the Omarchy bar, with pause, unlink and add-folder controls and Syncthing service start/stop, through a bundled native core (Syncshell 0.1.9).",
   "kinds": [
     "service",
     "bar-widget"
@@ -17,7 +17,7 @@
   },
   "barWidget": {
     "displayName": "Syncthing",
-    "description": "Monitor Syncthing file activity, safely manage folders, control the user service, and follow the Omarchy theme through one bundled native core.",
+    "description": "Monitor Syncthing folders and devices, pause, unlink or add folders, and start or stop the Syncthing user service.",
     "category": "Files",
     "allowMultiple": false,
     "defaultSection": "right",

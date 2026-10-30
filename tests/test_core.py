@@ -27,6 +27,12 @@ class CoreProvenanceTests(unittest.TestCase):
         self.assertEqual(sums[1], "bin/x86_64/syncshell-core")
         self.assertRegex(sums[0], r"^[0-9a-f]{64}$")
 
+    def test_readme_documents_the_pin(self):
+        readme = (ROOT / "README.md").read_text()
+        sha = (ROOT / "packaging/bundled/SHA256SUMS").read_text().split()[0]
+        for value in (PIN["commit"], PIN["tag"], PIN["go"], sha, "-trimpath", "-buildvcs=false"):
+            self.assertIn(value, readme)
+
     def test_core_is_started_without_the_desktop_bridge(self):
         service = (ROOT / "Service.qml").read_text()
         arguments = service[service.index("startupArguments: ["):service.index("]", service.index("startupArguments: ["))]
