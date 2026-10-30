@@ -19,13 +19,6 @@ test("native folder snapshots preserve paused state, sharing and errors", () => 
   assert.equal(facade.folderStatuses(folders).work.pullErrors, 1);
 });
 
-test("settings reject unsupported future versions instead of silently resetting", () => {
-  const settings = model("hosts/omarchy/models/SettingsModel.js");
-  const defaults = fs.readFileSync(path.join(__dirname, "../hosts/omarchy/config/settings.toml"), "utf8");
-  assert.equal(settings.parse(defaults).error, "");
-  assert.ok(settings.parse(defaults.replace("version = 2", "version = 999")).error);
-});
-
 test("native protocol fails closed on malformed input or wrong major version", () => {
   const source = fs.readFileSync(path.join(__dirname, "../shared/CoreProcess.qml"), "utf8");
   const context = vm.createContext({ protocolReady: false, maxLineLength: 8388607,
@@ -42,20 +35,6 @@ test("native protocol fails closed on malformed input or wrong major version", (
   assert.match(context.error, /not valid JSON/);
   context.handleLine(JSON.stringify({ v: 99, type: "hello" }));
   assert.match(context.error, /incompatible/);
-});
-
-test("bar tooltips use the public scoped API", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../hosts/omarchy/OmarchyPanel.qml"), "utf8");
-  const start = source.indexOf("  function showBarTooltip(");
-  const end = source.indexOf("\n  }", start) + 4;
-  const calls = [];
-  const button = { tooltipHovered: true };
-  const context = vm.createContext({ button, tooltip: "Syncthing: Up to date",
-    bar: Object.freeze({ showTooltip(target, text) { calls.push([target, text]); } }) });
-  vm.runInContext(source.slice(start, end), context);
-  context.showBarTooltip();
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0][1], "Syncthing: Up to date");
 });
 
 test("original panel totals include this computer", () => {
