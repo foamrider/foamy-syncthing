@@ -1,5 +1,6 @@
 #!/usr/bin/python3
-"""Check configured roots from stdin without exposing paths in process arguments."""
+"""Report which configured roots (stdin JSON list) contain Syncthing conflict
+files, as a JSON list of booleans, without exposing paths in arguments."""
 
 import fnmatch
 import json
@@ -25,37 +26,51 @@ def read_paths(stream):
     return paths
 
 
-def has_conflicts(paths):
-    for folder in paths:
-        try:
-            mode = os.stat(folder).st_mode
-        except (FileNotFoundError, NotADirectoryError):
-            continue
-        if not stat.S_ISDIR(mode):
-            continue
-        # Follow configured root links, but no descendant links, like find -H.
-        # Stream depth first so wide directories do not require an entry list.
-        stack = [os.scandir(folder)]
-        try:
-            while stack:
-                try:
-                    entry = next(stack[-1])
-                except StopIteration:
-                    stack.pop().close()
-                    continue
-                try:
-                    if entry.is_dir(follow_symlinks=False):
+# Syncthing's own bookkeeping, not user data: versioned copies of resolved
+# conflicts keep the .sync-conflict- stem, so they would match forever.
+SKIPPED_DIRECTORIES = frozenset((".stversions", ".stfolder"))
+
+
+def folder_has_conflict(folder):
+    try:
+        mode = os.stat(folder).st_mode
+    except (FileNotFoundError, NotADirectoryError):
+        return False
+    if not stat.S_ISDIR(mode):
+        return False
+    # Follow configured root links, but no descendant links, like find -H.
+    # Stream depth first so wide directories do not require an entry list.
+    stack = [os.scandir(folder)]
+    try:
+        while stack:
+            try:
+                entry = next(stack[-1])
+            except StopIteration:
+                stack.pop().close()
+                continue
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    if entry.name not in SKIPPED_DIRECTORIES:
                         stack.append(os.scandir(entry.path))
-                    elif (fnmatch.fnmatchcase(entry.name, "*.sync-conflict-*")
-                          and entry.is_file(follow_symlinks=False)):
-                        return True
-                except FileNotFoundError:
-                    # A concurrent sync can remove an entry while it is scanned.
-                    continue
-        finally:
-            for entries in stack:
-                entries.close()
+                elif (fnmatch.fnmatchcase(entry.name, "*.sync-conflict-*")
+                      and entry.is_file(follow_symlinks=False)):
+                    return True
+            except FileNotFoundError:
+                # A concurrent sync can remove an entry while it is scanned.
+                continue
+    finally:
+        for entries in stack:
+            entries.close()
     return False
+
+
+def conflict_flags(paths):
+    """One flag per configured root, in input order."""
+    return [folder_has_conflict(folder) for folder in paths]
+
+
+def has_conflicts(paths):
+    return any(folder_has_conflict(folder) for folder in paths)
 
 
 def deadline(_signal, _frame):
@@ -70,14 +85,15 @@ def main():
     signal.signal(signal.SIGALRM, deadline)
     signal.alarm(25)
     try:
-        found = has_conflicts(read_paths(sys.stdin.buffer))
+        flags = conflict_flags(read_paths(sys.stdin.buffer))
     except Exception:
         # Filesystem exceptions contain private paths; keep diagnostics constant.
         print("Could not check for Syncthing conflicts.", file=sys.stderr)
         return 1
     finally:
         signal.alarm(0)
-    print("true" if found else "false")
+    # Index-aligned booleans only: no paths leave the helper.
+    print(json.dumps(flags))
     return 0
 
 

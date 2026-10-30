@@ -32,6 +32,31 @@ class ConflictTests(unittest.TestCase):
             (root / "nested" / '.private 📁 "quote"\n.sync-conflict-test').touch()
             self.assertTrue(helper.has_conflicts([directory]))
 
+    def test_versioned_copies_and_the_folder_marker_are_ignored(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            # Syncthing's file versioning keeps resolved conflicts as
+            # name.sync-conflict-…~timestamp in .stversions.
+            for internal in (".stversions/nested", ".stfolder"):
+                (root / internal).mkdir(parents=True)
+                (root / internal / "a.sync-conflict-20260101-000000-ABCDEFG~20260102-000000.txt").touch()
+            self.assertFalse(helper.has_conflicts([directory]))
+            (root / "docs").mkdir()
+            (root / "docs" / "a.sync-conflict-20260101-000000-ABCDEFG.txt").touch()
+            self.assertTrue(helper.has_conflicts([directory]))
+
+    def test_flags_are_per_folder_and_in_order(self):
+        with tempfile.TemporaryDirectory() as directory:
+            base = Path(directory)
+            for name in ("clean", "conflicted", "also-clean"):
+                (base / name).mkdir()
+            (base / "conflicted" / "b.sync-conflict-x").touch()
+            paths = [str(base / name) for name in ("clean", "conflicted", "missing", "also-clean")]
+            self.assertEqual(helper.conflict_flags(paths), [False, True, False, False])
+            result = subprocess.run(["/usr/bin/python3", str(HELPER)], input=json.dumps(paths).encode(),
+                                    capture_output=True, timeout=3)
+            self.assertEqual((result.returncode, result.stdout), (0, b"[false, true, false, false]\n"))
+
     def test_root_links_are_followed_but_descendant_links_are_not(self):
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
@@ -118,7 +143,7 @@ class ConflictTests(unittest.TestCase):
                 patch.object(sys, "stdin", type("Input", (), {"buffer": io.BytesIO(b'["/private-Canary-847"]')})()), \
                 patch.object(sys, "stdout", io.StringIO()) as output, \
                 patch.object(sys, "stderr", io.StringIO()) as error, \
-                patch.object(helper, "has_conflicts", side_effect=PermissionError(private)):
+                patch.object(helper, "conflict_flags", side_effect=PermissionError(private)):
             self.assertEqual(helper.main(), 1)
             self.assertEqual(output.getvalue(), "")
             self.assertEqual(error.getvalue(), "Could not check for Syncthing conflicts.\n")
@@ -147,12 +172,12 @@ class ConflictTests(unittest.TestCase):
                 process.stdin = None
                 output, error = process.communicate(timeout=3)
                 self.assertEqual(process.returncode, 0, error)
-                self.assertEqual(output, b"true\n")
+                self.assertEqual(output, b"[true]\n")
                 self.assertEqual(error, b"")
             result = subprocess.run(["/usr/bin/python3", str(HELPER)],
                                     input=json.dumps([directory + "/missing"]).encode(),
                                     capture_output=True, timeout=3)
-            self.assertEqual((result.returncode, result.stdout, result.stderr), (0, b"false\n", b""))
+            self.assertEqual((result.returncode, result.stdout, result.stderr), (0, b"[false]\n", b""))
 
     def test_arguments_and_malformed_input_fail_without_disclosure(self):
         for args, request in [(["private-Canary-847"], b"[]"), ([], b'["private-Canary-847", 7]')]:
@@ -186,6 +211,8 @@ class ConflictTests(unittest.TestCase):
         for name in ("scanConflicts", "finishConflictScan"):
             start = source.index("  function " + name + "(")
             methods.append(source[start:source.index("\n  }", start) + 4])
+        start = source.index("  // Folder ids whose directory holds")
+        state_block = source[start:source.index("\n\n", start)]
         start = source.index("  property Process conflictScan:")
         process = source[start:source.index("  // One diagnostics target per shell", start)]
         start = source.index("  Component.onDestruction:")
@@ -203,10 +230,11 @@ with Path(os.environ["TEST_CONFLICT_STATE"]).open("a") as output:
 if paths in (["stall"], ["destroy"]): time.sleep(30)
 if paths == ["fail"]: sys.exit(1)
 if paths == ["invalid"]: print("unexpected")
-else: print("true" if paths == ["found"] else "false")
+elif paths == ["short"]: print("[]")
+else: print(json.dumps([path == "found" for path in paths]))
 ''')
             # Isolate the host adapter, while exercising the actual QML functions,
-            # Process, deadline and destruction handler from Service.qml unchanged.
+            # state, Process, deadline and destruction handler from Service.qml unchanged.
             (base / "Scanner.qml").write_text('''import QtQuick
 import Quickshell.Io
 QtObject {
@@ -214,16 +242,13 @@ QtObject {
   property string pluginRoot: %s
   property bool online: true
   property var folders: []
-  property bool hasConflicts: false
-  property string conflictScanError: ""
-  property string conflictOutput: ""
-  property string conflictInput: ""
   function tr(key) { return key }
 %s
 %s
 %s
+%s
 }
-''' % (json.dumps(str(base)), "\n".join(methods), process, cleanup))
+''' % (json.dumps(str(base)), state_block, "\n".join(methods), process, cleanup))
             (base / "shell.qml").write_text('''import QtQuick
 import QtTest
 import Quickshell
@@ -243,23 +268,27 @@ ShellRoot {
       TestCase {
         name: "PrivateConflictScan"; when: root.ready
         function scan(paths) {
-          scanner.folders = paths.map(function(path) { return {path:path} })
-          scanner.scanConflicts()
+          scanner.folders = paths.map(function(path, index) { return {id:"f" + index, path:path} })
+          scanner.scanConflicts(true)
           tryCompare(scanner, "conflictInput", "", 3000)
         }
-        function test_1_stdin_results() {
+        function test_1_stdin_results_per_folder() {
           scan(['private-Canary-847 📁 "quote"\\n--exec', '-leading-dash'])
           compare(scanner.conflictScanError, "")
           compare(scanner.hasConflicts, false)
           scan(["found"])
           compare(scanner.hasConflicts, true)
+          scan(["clean", "found", "other"])
+          compare(JSON.stringify(scanner.conflictFolderIds), JSON.stringify({f1: true}))
         }
         function test_2_failure_retains_status_and_recovery() {
-          scanner.hasConflicts = true
+          scanner.conflictFolderIds = {f0: true}
           scan(["fail"])
           verify(scanner.conflictScanError !== "")
           compare(scanner.hasConflicts, true)
           scan(["invalid"])
+          verify(scanner.conflictScanError !== "")
+          scan(["short"])
           verify(scanner.conflictScanError !== "")
           compare(scanner.hasConflicts, true)
           scan(["clear"])
@@ -268,19 +297,21 @@ ShellRoot {
         }
         function test_3_deadline_and_busy() {
           scanner.conflictDeadline.interval = 250
-          scanner.hasConflicts = true
-          scanner.folders = [{path:"stall"}]
+          scanner.conflictFolderIds = {f0: true}
+          scanner.folders = [{id:"f0", path:"stall"}]
           scanner.scanConflicts()
           scanner.scanConflicts()
           tryCompare(scanner, "conflictInput", "", 3000)
           verify(scanner.conflictScanError !== "")
           compare(scanner.hasConflicts, true)
+          wait(100)
+          compare(scanner.conflictScan.running, false)
           scanner.conflictDeadline.interval = 30000
           scan(["clear"])
           compare(scanner.conflictScanError, "")
         }
         function test_4_limits_empty_and_offline() {
-          scanner.hasConflicts = true
+          scanner.conflictFolderIds = {f0: true}
           scan(["x".repeat(262145)])
           verify(scanner.conflictScanError !== "")
           compare(scanner.hasConflicts, true)
@@ -294,7 +325,7 @@ ShellRoot {
         }
         function test_5_destruction_stops_worker() {
           var worker = factory.createObject(root)
-          worker.folders = [{path:"destroy"}]
+          worker.folders = [{id:"f0", path:"destroy"}]
           worker.scanConflicts()
           tryVerify(function() { return Number(worker.conflictScan.processId) > 0 }, 1000)
           var pid = worker.conflictScan.processId
@@ -304,6 +335,22 @@ ShellRoot {
           root.probeFinished = false; probe.running = true
           tryCompare(root, "probeFinished", true, 1000)
           compare(root.probeExit, 0)
+        }
+        function test_6_snapshots_with_the_same_folders_skip_the_walk() {
+          scanner.folders = [{id:"a", path:"counted"}]
+          scanner.scanConflicts()
+          tryCompare(scanner, "conflictInput", "", 3000)
+          // A new snapshot rebuilds the array with the same folders: no walk.
+          scanner.folders = [{id:"a", path:"counted"}]
+          scanner.scanConflicts()
+          compare(scanner.conflictInput, "")
+          compare(scanner.conflictScan.running, false)
+          // A changed folder set and the periodic timer (force) do walk.
+          scanner.folders = [{id:"a", path:"counted"}, {id:"b", path:"counted"}]
+          scanner.scanConflicts()
+          tryCompare(scanner, "conflictInput", "", 3000)
+          scanner.scanConflicts(true)
+          tryCompare(scanner, "conflictInput", "", 3000)
         }
         onCompletedChanged: if (completed) {
           console.log("CONFLICT_SCAN passed=" + qtest_results.passCount + " failed=" + qtest_results.failCount)
@@ -322,13 +369,15 @@ ShellRoot {
                                     text=True, capture_output=True, timeout=15)
             output = result.stdout + result.stderr
             self.assertEqual(result.returncode, 0, output)
-            self.assertIn("CONFLICT_SCAN passed=6 failed=0", output)
+            self.assertIn("CONFLICT_SCAN passed=7 failed=0", output)
             records = [json.loads(line) for line in state.read_text().splitlines()]
             self.assertEqual(records[0]["paths"], ['private-Canary-847 📁 "quote"\n--exec', '-leading-dash'])
             for record in records:
                 self.assertEqual(record["cmdline"].split("\x00")[:-1], ["/usr/bin/python3", str(helper_dir / HELPER.name)])
             self.assertEqual(sum(record["paths"] == ["stall"] for record in records), 1)
-            print("CONFLICT_SCAN passed=6 failed=0")
+            self.assertEqual(sum(record["paths"] == ["counted"] for record in records), 1)
+            self.assertEqual(sum(record["paths"] == ["counted", "counted"] for record in records), 2)
+            print("CONFLICT_SCAN passed=7 failed=0")
 
 
 if __name__ == "__main__":

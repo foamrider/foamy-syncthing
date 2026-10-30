@@ -90,10 +90,19 @@ QtObject {
   readonly property string syncActivityAction: String(currentActivity.action || "")
   readonly property string syncActivityDetail: String(currentActivity.detail || "")
 
-  property bool hasConflicts: false
+  // Folder ids whose directory holds *.sync-conflict-* files ({id: true}).
+  property var conflictFolderIds: ({})
+  readonly property bool hasConflicts: Object.keys(conflictFolderIds).length > 0
   property string conflictScanError: ""
   property string conflictOutput: ""
   property string conflictInput: ""
+  // The folder set the last scan covered; snapshots that keep it skip the walk.
+  property string scannedFolderKey: ""
+  property var conflictScanFolders: []
+  property bool conflictRescan: false
+  readonly property string folderKey: folders.map(function(folder) {
+    return String(folder.id || "") + "\u0001" + String(folder.path || "")
+  }).join("\u0000")
 
   function localPath(url) {
     var value = String(url || "")
@@ -333,37 +342,50 @@ QtObject {
   function installSyncthing() { packageController.install() }
 
   // ---- conflict scan ------------------------------------------------------------
-  function scanConflicts() {
-    if (conflictScan.running || conflictInput !== "" || !online) return
-    var paths = folders.map(function(folder) { return folder.path }).filter(Boolean)
-    if (!paths.length) { hasConflicts = false; conflictScanError = ""; return }
-    var payload = JSON.stringify(paths)
+  // Walks every folder, so it runs when the folder set changes (not on every
+  // snapshot: those arrive per sync event), plus every five minutes.
+  function scanConflicts(force) {
+    if (!online) return
+    if (force !== true && folderKey === scannedFolderKey) return
+    if (conflictScan.running || conflictInput !== "") { conflictRescan = true; return }
+    var scanned = folders.filter(function(folder) { return !!folder.path })
+    scannedFolderKey = folderKey
+    if (!scanned.length) { conflictFolderIds = ({}); conflictScanError = ""; return }
+    var payload = JSON.stringify(scanned.map(function(folder) { return folder.path }))
     // Bound UTF-8 below the helper's 1 MiB limit without putting paths in argv.
     if (payload.length > 262144) {
       conflictScanError = root.tr("Could not check for Syncthing conflicts")
       return
     }
+    conflictScanFolders = scanned.map(function(folder) { return String(folder.id || "") })
     conflictInput = payload
     conflictOutput = ""
     conflictScan.stdinEnabled = true
     conflictDeadline.restart()
     conflictScan.running = true
   }
-
   function finishConflictScan(code) {
     conflictDeadline.stop()
     conflictInput = ""
-    var value = conflictOutput.trim()
-    if (code !== 0 || (value !== "true" && value !== "false")) {
+    var flags = null
+    try { flags = JSON.parse(conflictOutput.trim()) } catch (error) { flags = null }
+    if (code !== 0 || !Array.isArray(flags) || flags.length !== conflictScanFolders.length) {
+      // Keep the last known result; retry on the next folder change or timer.
       conflictScanError = root.tr("Could not check for Syncthing conflicts")
-      return
+    } else {
+      var next = ({})
+      for (var i = 0; i < flags.length; i++) if (flags[i] === true) next[conflictScanFolders[i]] = true
+      conflictScanError = ""
+      conflictFolderIds = next
     }
-    conflictScanError = ""
-    hasConflicts = value === "true"
+    if (conflictRescan) {
+      conflictRescan = false
+      Qt.callLater(scanConflicts)
+    }
   }
 
-  onOnlineChanged: if (online) Qt.callLater(scanConflicts)
-  onFoldersChanged: Qt.callLater(scanConflicts)
+  onOnlineChanged: if (online) Qt.callLater(function() { root.scanConflicts(true) })
+  onFolderKeyChanged: Qt.callLater(scanConflicts)
   onWidgetSettingsChanged: {
     settingsReady = true
     configureCore()
@@ -408,7 +430,7 @@ QtObject {
     interval: 300000
     running: root.online
     repeat: true
-    onTriggered: root.scanConflicts()
+    onTriggered: root.scanConflicts(true)
   }
   property Process conflictScan: Process {
     command: ["/usr/bin/python3", root.pluginRoot + "/scripts/syncthing-conflicts.py"]

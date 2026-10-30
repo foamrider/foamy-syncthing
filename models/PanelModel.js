@@ -30,6 +30,8 @@ function buildFolderRows(syncthing, homePath) {
   var source = syncthing && syncthing.folders ? syncthing.folders : []
   var statuses = syncthing && syncthing.folderStatuses
     ? syncthing.folderStatuses : ({})
+  var conflicts = syncthing && syncthing.conflictFolderIds
+    ? syncthing.conflictFolderIds : ({})
   for (var i = 0; i < source.length; i++) {
     var folder = source[i] || ({})
     var id = String(folder.id || "")
@@ -59,6 +61,8 @@ function buildFolderRows(syncthing, homePath) {
       error: String(status.error || ""),
       outOfSync: outOfSync,
       problem: outOfSync || state === "error" || !!status.error || errors > 0,
+      // Holds *.sync-conflict-* files (see scripts/syncthing-conflicts.py).
+      conflict: conflicts[id] === true,
       // Preparing without queued work is not active synchronization.
       syncing: !outOfSync && (needItems > 0 || state === "syncing"),
       scanning: state.indexOf("scan") === 0,
