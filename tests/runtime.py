@@ -113,8 +113,15 @@ ShellRoot {
       } else if (n === 3) {
         check(panels[1].editingSettings, "settings open")
         panels[1].close()
-        panels[0].destroy()
       } else if (n === 4) {
+        check(!panels[1].opened && !panels[1].editingSettings, "closing leaves settings")
+        // The settings IPC opens a closed popup straight into Settings.
+        panels[2].openSettings()
+      } else if (n === 5) {
+        check(panels[2].opened && panels[2].editingSettings, "openSettings() on a closed popup shows Settings")
+        panels[2].close()
+        panels[0].destroy()
+      } else if (n === 6) {
         check(Kit.FoamyShared.memberCount("syncthing") === 2, "leader left, re-elected")
         console.log("FOAMY CHECKS " + checks)
         console.log("FOAMY DONE")

@@ -73,8 +73,9 @@ Panel {
   // ---- popup lifecycle -----------------------------------------------------------
   onOpenedChanged: {
     if (returningFromBrowser) return
-    editingSettings = false
-    if (opened && syncthing) {
+    // Reset on close, so a later open (or the settings IPC) starts cleanly.
+    if (!opened) editingSettings = false
+    else if (syncthing) {
       syncthing.recover()
       syncthing.refresh()
     }
