@@ -407,8 +407,10 @@ QtObject {
 
   property CoreProcess core: CoreProcess {
     pluginRoot: root.pluginRoot
+    // No --desktop-authorized: that enables the core's local HTTP desktop
+    // bridge (open/rename files for its Web UI theme), which this plugin never
+    // uses; the Web UI opens with Qt.openUrlExternally.
     startupArguments: [
-      "--desktop-authorized",
       "--probe-interval-seconds", String(root.probeIntervalSeconds),
       "--desired-service-state", root.configuredServiceState,
       "--lifecycle-kind", "systemd-user",
