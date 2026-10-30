@@ -1,4 +1,4 @@
-# foamy-kit 0.1.0 dab60ffa759984791873bcc462dbc73e86d3bbcc985b7534610c01b5e73a6ad1 — do not edit; change foamy-kit and run sync
+# foamy-kit 0.2.0 f3455ea1300289151e2e0db8ab3290e097e586c0878fd52487b35a7de4df3008 — do not edit; change foamy-kit and run sync
 FoamyAction 1.0 FoamyAction.qml
 FoamyCursor 1.0 FoamyCursor.qml
 FoamyCursorSurface 1.0 FoamyCursorSurface.qml
@@ -7,15 +7,18 @@ FoamyHeader 1.0 FoamyHeader.qml
 singleton FoamyI18n 1.0 FoamyI18n.qml
 FoamyIcon 1.0 FoamyIcon.qml
 FoamyIpc 1.0 FoamyIpc.qml
+FoamyIpcPreference 1.0 FoamyIpcPreference.qml
 FoamyMember 1.0 FoamyMember.qml
 singleton FoamyMotion 1.0 FoamyMotion.qml
 singleton FoamyPalette 1.0 FoamyPalette.qml
 FoamyPopup 1.0 FoamyPopup.qml
 FoamyPopupCard 1.0 FoamyPopupCard.qml
+FoamyPrefsQueue 1.0 FoamyPrefsQueue.qml
 FoamySettingsError 1.0 FoamySettingsError.qml
 FoamySettingsHeader 1.0 FoamySettingsHeader.qml
 FoamySettingsPage 1.0 FoamySettingsPage.qml
 FoamySettingsSection 1.0 FoamySettingsSection.qml
+FoamySettingsState 1.0 FoamySettingsState.qml
 singleton FoamyShared 1.0 FoamyShared.qml
 singleton FoamyStyle 1.0 FoamyStyle.qml
 FoamyToggle 1.0 FoamyToggle.qml

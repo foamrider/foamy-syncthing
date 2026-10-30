@@ -1,4 +1,4 @@
-// foamy-kit 0.1.0 33f64bc493fb141480a496812151a80bc5fbf0010ff23e1fb7afe9087717b687 — do not edit; change foamy-kit and run sync
+// foamy-kit 0.2.0 7ec6ca4c2c38c8750c88de29b7bb979251d97a7e7327a154fc8d9be5a38216a7 — do not edit; change foamy-kit and run sync
 import QtQuick
 import qs.Commons
 import qs.Commons as Commons
@@ -13,7 +13,8 @@ import qs.Ui
 // triggerMode "click"|"hover", containsMouse, fittedContentWidth/Height()), plus:
 //   body: Component, bodyItem, bodyImplicitHeight, ensureBody()   lazy content
 //   cornerRadius, surfaceColor, cardItem
-// Defaults: contentWidth FoamyStyle.menuWidth, height fitted to the body.
+// Defaults: contentWidth FoamyStyle.menuWidth, padding FoamyStyle.menuPadding,
+// height fitted to the body.
 PopupCard {
   id: root
 
@@ -32,6 +33,7 @@ PopupCard {
   }
 
   borderSpec: FoamyStyle.popupBorderSpec
+  padding: FoamyStyle.menuPadding
   contentWidth: fittedContentWidth(FoamyStyle.menuWidth)
   contentHeight: fittedContentHeight(bodyImplicitHeight)
 
