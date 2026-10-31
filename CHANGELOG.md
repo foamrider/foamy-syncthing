@@ -1,10 +1,36 @@
 # Changelog
 
-## Foamy Syncthing 1.0.0 - Unreleased
+## Foamy Syncthing 1.1.0 - Unreleased
+
+- Use foamy-kit for the popup. The forked 4.0 KeyboardPanel landed at the
+  wrong edge on Omarchy 4.5, and its bare `Color.` references showed a white
+  card with invisible text under Qt 6.12. The content is now built on first
+  open, with one keyboard cursor, Tab to switch bar panels, and theme status
+  colours instead of Nord hexes.
+- Show Syncthing's folder labels; mark folders that contain sync-conflict
+  files.
+- Scan for conflicts only when the folder set changes (and every 5 minutes),
+  and ignore `.stversions`/`.stfolder`. Check the Syncthing installation only
+  while Syncthing is offline.
+- Keep restarting a crashed native core with backoff instead of giving up
+  after three tries; opening the popup or right-click restarts it at once.
+- Start the native core without the unused desktop bridge
+  (`--desktop-authorized`).
+- Stop sending desktop notices for actions taken in the popup.
+- Add `barWidget.schema` for the interval and warning settings, and refresh
+  intervals on the Settings page; save settings in place.
+- Translate service and core messages, with plurals and localized decimals.
+- Pin the native core's provenance (Syncshell v0.1.9, commit 7318f140,
+  go1.27.1) and add `packaging/bundled/build-core.sh` and `verify-core.sh`.
+- Remove the unused Syncshell panel, Web UI theme files and assets (about
+  7,000 lines of QML/JS); flatten the adapter into `Service.qml` and
+  `service/`.
+
+## Foamy Syncthing 1.0.0
 
 - Add the themed overview, folder settings, and existing-directory form.
 - Separate pause/resume from confirmed unlink, preserving local files.
-- Support English and Norwegian Bokmål with system-language selection.
+- Support English and Norwegian Bokmål, following Omarchy 4.5's language.
 - Store plugin preferences through Omarchy shell.json under `foamy.syncthing`.
 - Bundle the unmodified Syncshell 0.1.9 native core and retain upstream licenses.
 

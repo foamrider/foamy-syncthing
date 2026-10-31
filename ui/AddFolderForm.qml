@@ -1,42 +1,54 @@
 pragma ComponentBehavior: Bound
 import QtQuick
-import QtQuick.Controls as Controls
 import QtQuick.Layouts
-import qs.Commons
+import qs.Commons as Commons
 import qs.Ui
+import "../kit"
+import "../models/PanelModel.js" as PanelModel
 
+// Add an existing directory: optional incoming share, path (typed or chosen),
+// label, folder ID and the devices that receive a share offer. Lives inside a
+// FoamySettingsPage (Tab walks the controls; Esc goes back).
 Column {
   id: root
-  function tr(key, values) { return controller.tr(key, values) }
-  property var controller
-  property var syncthing
-  property bool folderPickerRunning: false
-  property color foreground: Color.foreground
-  property color dim: Qt.darker(foreground, 1.5)
-  property color urgent: Color.urgent
-  property color warning: "#ebcb8b"
-  property color success: "#a3be8c"
-  property string fontFamily: "sans-serif"
-  property alias pathText: addPathField.text
-  property alias labelText: addLabelField.text
-  property alias idText: addIdField.text
+
+  property QtObject service: null
+  property bool browsing: false
   property var selectedDeviceIds: []
-  property alias pendingFolderValue: pendingFolderPicker.value
-  readonly property bool busy: syncthing && syncthing.folderMutationBusy
-  readonly property var devices: controller.deviceOptions()
-  width: parent ? parent.width : implicitWidth
-  spacing: Style.space(14)
+  property string pendingFolderValue: ""
+  property bool idEdited: false
+  property bool labelFromOffer: false
+  property bool submitted: false
+
+  signal browseRequested()
+  signal added()
+
+  readonly property bool busy: !!service && service.folderMutationBusy
+  readonly property var devices: service ? PanelModel.deviceOptions(service, FoamyI18n.t) : []
+  readonly property var pendingOffers: service ? service.pendingOfferRows : []
+  readonly property int encryptedCount: service ? service.encryptedPendingOfferCount : 0
+  readonly property string pasteError: pathField.pasteError || labelField.pasteError || idField.pasteError
+  readonly property bool canSubmit: !!service && service.online && !busy
+    && pathField.text.trim() !== "" && idField.text.trim() !== ""
+
+  spacing: FoamyStyle.sectionGap
 
   function reset() {
-    addPathField.text = ""
-    addLabelField.text = ""
-    addIdField.text = ""
+    pathField.text = ""
+    labelField.text = ""
+    idField.text = ""
     selectedDeviceIds = []
-    pendingFolderPicker.value = ""
-    closePopups()
+    pendingFolderValue = ""
+    idEdited = false
+    labelFromOffer = false
+    submitted = false
   }
-  function closePopups() { pendingFolderPicker.close() }
-  function focusPath() { addPathField.forceActiveFocus() }
+  function focusPath() { pathField.focusInput() }
+  function setPath(path) {
+    pathField.text = path
+    if (labelField.text === "") labelField.text = PanelModel.pathLabel(path)
+    Qt.callLater(focusPath)
+  }
   function toggleDevice(value) {
     if (busy) return
     // Assign a new list so selection and pending-offer bindings update together.
@@ -46,251 +58,212 @@ Column {
     else next.splice(index, 1)
     selectedDeviceIds = next
   }
-  Keys.onEscapePressed: controller.closeAddFolder()
+  function applyPendingFolder(value) {
+    pendingFolderValue = String(value || "")
+    selectedDeviceIds = []
+    if (!pendingFolderValue) {
+      idEdited = false
+      idField.text = ""
+      if (labelFromOffer) labelField.text = ""
+      labelFromOffer = false
+      if (service) service.requestFolderIdSuggestion()
+      return
+    }
+    var choice = null
+    try { choice = JSON.parse(pendingFolderValue) } catch (error) { return }
+    if (!(choice instanceof Array) || choice.length !== 2) return
+    var id = String(choice[0] || "")
+    var deviceId = String(choice[1] || "")
+    var pending = service && service.pendingFolders ? service.pendingFolders[id] || ({}) : ({})
+    var offer = (pending.offeredBy || ({}))[deviceId] || ({})
+    idEdited = true
+    idField.text = id
+    labelField.text = String(offer.label || id)
+    labelFromOffer = true
+    selectedDeviceIds = deviceId ? [deviceId] : []
+  }
+  function pendingDeviceId() {
+    if (!pendingFolderValue) return ""
+    try {
+      var choice = JSON.parse(pendingFolderValue)
+      var deviceId = choice instanceof Array && choice.length === 2 ? String(choice[1] || "") : ""
+      return selectedDeviceIds.indexOf(deviceId) >= 0 ? deviceId : ""
+    } catch (error) {
+      return ""
+    }
+  }
+  function submit() {
+    if (!canSubmit) return
+    var label = labelField.text.trim() || PanelModel.pathLabel(pathField.text)
+    submitted = service.addFolder(pathField.text, label, idField.text.trim(), selectedDeviceIds, pendingDeviceId())
+  }
+
+  Connections {
+    target: root.service
+    function onFolderIdSuggestionChanged() {
+      if (!root.idEdited && root.pendingFolderValue === "") idField.text = root.service.folderIdSuggestion
+    }
+    function onFolderMutationNoticeChanged() {
+      if (root.submitted && root.service.folderMutationNotice !== "") {
+        root.submitted = false
+        root.added()
+      }
+    }
+    function onFolderMutationErrorChanged() {
+      if (root.service.folderMutationError !== "") root.submitted = false
+    }
+  }
 
   component Label: Text {
     textFormat: Text.PlainText
-    font.family: root.fontFamily
-    font.pixelSize: Style.space(12)
-    color: root.foreground
+    horizontalAlignment: Text.AlignLeft
+    color: FoamyPalette.text
+    font.family: FoamyStyle.fontFamily
+    font.pixelSize: FoamyStyle.font.body
   }
   component Hint: Label {
-    font.pixelSize: Style.space(11)
-    color: root.dim
+    color: FoamyPalette.mutedText
+    font.pixelSize: FoamyStyle.font.bodySmall
     wrapMode: Text.WordWrap
   }
   component Field: SafeTextField {
-    id: field
-    translate: root.tr
+    implicitHeight: FoamyStyle.controlHeight
     enabled: !root.busy
-    implicitHeight: Style.space(36)
-    font.family: root.fontFamily
-    font.pixelSize: Style.space(12)
-    color: root.foreground
-    placeholderTextColor: root.dim
-    selectionColor: Color.accent
-    selectedTextColor: Color.popups.background
-    leftPadding: Style.space(10); rightPadding: Style.space(10)
-    background: Rectangle {
-      radius: Style.cornerRadius * 2
-      color: root.controller.panelFill
-      border.width: 1
-      border.color: field.inputActiveFocus ? Color.accent : "transparent"
+    translate: FoamyI18n.t
+    font.family: FoamyStyle.fontFamily
+    font.pixelSize: FoamyStyle.font.body
+  }
+
+  FoamySettingsSection {
+    visible: root.pendingOffers.length > 0 || root.encryptedCount > 0
+    width: parent.width
+    title: FoamyI18n.t("Incoming share")
+    FoamyDropdown {
+      visible: root.pendingOffers.length > 0
+      width: parent.width
+      showLabel: false
+      label: FoamyI18n.t("Incoming share")
+      enabled: !root.busy
+      value: root.pendingFolderValue
+      options: [{ value: "", label: FoamyI18n.t("Create a new folder identity") }].concat(root.pendingOffers.map(function(offer) {
+        return { value: offer.value, label: FoamyI18n.t("Accept {name}", { name: offer.label }) }
+      }))
+      onChanged: function(value) { root.applyPendingFolder(value) }
+    }
+    Hint {
+      visible: root.encryptedCount > 0
+      width: parent.width
+      text: FoamyI18n.tn("%1 encrypted folder offers require the Syncthing Web UI.", root.encryptedCount)
+      color: FoamyPalette.onSurface(FoamyPalette.warning)
     }
   }
-  component Action: SyncthingAction {
-    foreground: root.dim
-    Keys.onEscapePressed: root.controller.closeAddFolder()
-  }
 
-  SyncthingDropdown {
-    id: pendingFolderPicker
-    visible: options.length > 1
+  FoamySettingsSection {
     width: parent.width
-    showLabel: false
-    value: ""
-    options: root.controller.pendingFolderOptions()
-    foreground: root.foreground
-    fontFamily: root.fontFamily
-    enabled: !root.busy
-    onChanged: function(value) { root.controller.applyPendingFolder(value) }
-  }
-  Hint {
-    readonly property int encryptedCount: root.controller.encryptedPendingOfferCount()
-    visible: encryptedCount > 0
-    width: parent.width
-    text: root.tr(encryptedCount === 1 ? "1 encrypted folder offer requires the Syncthing Web UI."
-      : "{count} encrypted folder offers require the Syncthing Web UI.", {count: encryptedCount})
-    color: root.warning
-  }
-
-  Column {
-    width: parent.width
-    spacing: Style.space(7)
-    Label { text: root.tr("Directory") }
+    title: FoamyI18n.t("Directory")
     RowLayout {
       width: parent.width
-      spacing: Style.space(8)
+      spacing: FoamyStyle.gap
       Field {
-        id: addPathField
+        id: pathField
         Layout.fillWidth: true
-        placeholderText: "/path/to/existing/folder"
-        Accessible.name: root.tr("Existing directory")
+        Layout.minimumWidth: 0
+        placeholderText: "~/Documents"
+        Accessible.name: FoamyI18n.t("Existing directory")
       }
-      Action {
+      FoamyAction {
         iconName: "folder"
-        tooltipText: root.tr("Choose an existing directory")
-        enabled: !root.busy && !root.folderPickerRunning
-        onClicked: root.controller.browseForFolder()
+        focusable: true
+        tooltipText: FoamyI18n.t("Choose an existing directory")
+        actionEnabled: !root.busy && !root.browsing
+        foreground: FoamyPalette.secondaryText
+        onClicked: root.browseRequested()
       }
     }
-  }
-  Column {
-    width: parent.width
-    spacing: Style.space(7)
-    Label { text: root.tr("Label") }
+    Label { width: parent.width; text: FoamyI18n.t("Label"); color: FoamyPalette.secondaryText; font.pixelSize: FoamyStyle.font.bodySmall }
     Field {
-      id: addLabelField
+      id: labelField
       width: parent.width
-      placeholderText: root.tr("Directory name if left blank")
-      Accessible.name: root.tr("Folder label, optional")
-      onTextEdited: root.controller.addLabelFromOffer = false
+      placeholderText: FoamyI18n.t("Directory name if left blank")
+      Accessible.name: FoamyI18n.t("Folder label, optional")
+      onTextEdited: root.labelFromOffer = false
     }
-  }
-  Column {
-    width: parent.width
-    spacing: Style.space(7)
-    Label { text: root.tr("Folder ID") }
+    Label { width: parent.width; text: FoamyI18n.t("Folder ID"); color: FoamyPalette.secondaryText; font.pixelSize: FoamyStyle.font.bodySmall }
     RowLayout {
       width: parent.width
-      spacing: Style.space(8)
+      spacing: FoamyStyle.gap
       Field {
-        id: addIdField
+        id: idField
         Layout.fillWidth: true
-        placeholderText: root.syncthing && root.syncthing.folderPreparationBusy ? root.tr("Generating…") : root.tr("Folder identity")
-        Accessible.name: root.tr("Folder ID")
-        onTextEdited: root.controller.addIdEdited = true
-        onAccepted: if (submitButton.enabled) root.controller.submitAddFolder()
+        Layout.minimumWidth: 0
+        placeholderText: root.service && root.service.folderPreparationBusy ? FoamyI18n.t("Generating…") : FoamyI18n.t("Folder identity")
+        Accessible.name: FoamyI18n.t("Folder ID")
+        onTextEdited: root.idEdited = true
+        onAccepted: root.submit()
       }
-      Action {
-        iconName: "sync"
-        tooltipText: root.tr("Generate a new folder ID")
-        enabled: root.syncthing && !root.syncthing.folderPreparationBusy && !root.busy
+      FoamyAction {
+        iconName: "refresh-cw"
+        focusable: true
+        tooltipText: FoamyI18n.t("Generate a new folder ID")
+        actionEnabled: !!root.service && !root.service.folderPreparationBusy && !root.busy
+        spinning: !!root.service && root.service.folderPreparationBusy
+        foreground: FoamyPalette.secondaryText
         onClicked: {
-          root.controller.addIdEdited = false
-          addIdField.text = ""
-          pendingFolderPicker.value = ""
-          root.syncthing.requestFolderIdSuggestion()
+          root.idEdited = false
+          idField.text = ""
+          root.pendingFolderValue = ""
+          root.service.requestFolderIdSuggestion()
         }
       }
     }
-    Hint {
-      width: parent.width
-      text: root.tr("Use the same ID to rejoin an existing shared folder.")
-    }
+    Hint { width: parent.width; text: FoamyI18n.t("Use the same ID to rejoin an existing shared folder.") }
   }
 
-  Rectangle { width: parent.width; height: 1; color: root.controller.panelOutline }
+  FoamySettingsSection {
+    width: parent.width
+    title: FoamyI18n.t("Share with devices")
+    description: root.selectedDeviceIds.length === 0
+      ? FoamyI18n.t("Local only — this folder will not sync with other devices.")
+      : FoamyI18n.t("Selected devices receive a share offer to accept.")
+    Hint {
+      visible: root.devices.length === 0
+      width: parent.width
+      text: FoamyI18n.t("No remote devices configured.")
+    }
+    Repeater {
+      model: root.devices
+      delegate: FoamyToggle {
+        id: deviceToggle
+        required property var modelData
+        width: parent ? parent.width : 0
+        label: String(modelData.label)
+        description: String(modelData.description || "")
+        enabled: !root.busy
+        checked: root.selectedDeviceIds.indexOf(String(modelData.value)) >= 0
+        onClicked: root.toggleDevice(String(deviceToggle.modelData.value))
+      }
+    }
+  }
 
   Column {
     width: parent.width
-    spacing: Style.space(8)
-    RowLayout {
-      width: parent.width
-      Label { Layout.fillWidth: true; text: root.tr("Share with devices") }
-      Hint { text: root.selectedDeviceIds.length ? root.tr("{count} selected", {count: root.selectedDeviceIds.length}) : root.tr("Local only") }
-    }
-    Flickable {
-      id: deviceFlick
-      width: parent.width
-      height: Math.min(deviceList.implicitHeight, Style.space(170))
-      contentHeight: deviceList.implicitHeight
-      contentWidth: width
-      clip: true
-      boundsBehavior: Flickable.StopAtBounds
-      interactive: contentHeight > height
-      Controls.ScrollBar.vertical: Controls.ScrollBar { policy: Controls.ScrollBar.AsNeeded }
-      Column {
-        id: deviceList
-        width: parent.width
-        Repeater {
-          model: root.devices
-          delegate: Rectangle {
-            id: deviceRow
-            required property var modelData
-            readonly property bool selected: root.selectedDeviceIds.indexOf(String(modelData.value)) >= 0
-            width: parent.width
-            height: Style.space(34)
-            radius: Style.cornerRadius * 2
-            enabled: !root.busy
-            color: deviceMouse.containsMouse || activeFocus ? root.controller.panelFill : "transparent"
-            border.width: activeFocus ? 1 : 0
-            border.color: Color.accent
-            activeFocusOnTab: true
-            Accessible.role: Accessible.CheckBox
-            Accessible.name: modelData.label + ". " + (modelData.description || "")
-            Accessible.checked: selected
-            Accessible.onToggleAction: root.toggleDevice(String(modelData.value))
-            Keys.onReturnPressed: root.toggleDevice(String(modelData.value))
-            Keys.onSpacePressed: root.toggleDevice(String(modelData.value))
-            onActiveFocusChanged: if (activeFocus) {
-              var view = deviceFlick
-              view.contentY = Math.max(0, Math.min(view.contentHeight - view.height,
-                Math.max(y + height - view.height, Math.min(y, view.contentY))))
-            }
-            Label {
-              anchors.left: parent.left; anchors.leftMargin: Style.space(8)
-              anchors.right: deviceCheck.left; anchors.rightMargin: Style.space(8)
-              anchors.verticalCenter: parent.verticalCenter
-              text: deviceRow.modelData.label
-              elide: Text.ElideRight
-            }
-            SyncthingIcon {
-              id: deviceCheck
-              anchors.right: parent.right; anchors.rightMargin: Style.space(10)
-              anchors.verticalCenter: parent.verticalCenter
-              width: Style.space(16); height: width
-              name: deviceRow.selected ? "check" : "plus"
-              color: deviceRow.selected ? root.success : root.dim
-            }
-            MouseArea {
-              id: deviceMouse
-              anchors.fill: parent
-              hoverEnabled: true
-              cursorShape: Qt.PointingHandCursor
-              onClicked: root.toggleDevice(String(deviceRow.modelData.value))
-            }
-            PanelToolTip {
-              visible: deviceMouse.containsMouse
-              text: deviceRow.modelData.description || ""
-              fontFamily: root.fontFamily
-            }
-          }
-        }
-      }
-    }
+    spacing: FoamyStyle.gap
     Hint {
+      visible: text !== ""
       width: parent.width
-      text: root.selectedDeviceIds.length === 0
-        ? root.tr("Local only — this folder will not sync with other devices.")
-        : root.tr("Selected devices receive a share offer to accept.")
-      color: root.selectedDeviceIds.length === 0 ? root.warning : root.dim
+      text: root.pasteError !== "" ? FoamyI18n.t(root.pasteError)
+        : root.service ? root.service.folderPreparationError || root.service.folderMutationError : ""
+      color: Commons.Color.urgent
+      Accessible.role: Accessible.AlertMessage
     }
-  }
-  Hint {
-    width: parent.width
-    readonly property string error: addPathField.pasteError || addLabelField.pasteError || addIdField.pasteError
-    visible: error !== ""
-    text: root.tr(error)
-    color: root.urgent
-  }
-  Hint {
-    visible: text !== ""
-    width: parent.width
-    text: root.syncthing ? root.tr(root.syncthing.folderPreparationError) : ""
-    color: root.urgent
-  }
-  RowLayout {
-    width: parent.width
-    Item { Layout.fillWidth: true }
-    Button {
-      id: submitButton
-      text: root.busy && root.syncthing.folderMutationAction === "add" ? root.tr("Adding…") : root.tr("Add folder")
-      fontFamily: root.fontFamily
-      fontSize: Style.space(12)
-      foreground: root.foreground
-      background: Qt.rgba(Color.accent.r, Color.accent.g, Color.accent.b, 0.12)
-      radius: Style.cornerRadius * 2
-      horizontalPadding: Style.space(14)
-      verticalPadding: Style.space(8)
+    FoamyAction {
+      anchors.right: parent.right
+      iconName: "plus"
+      label: root.busy && root.service.folderMutationAction === "add" ? FoamyI18n.t("Adding…") : FoamyI18n.t("Add folder")
       focusable: true
-      enabled: root.syncthing && root.syncthing.online && !root.busy
-        && String(addPathField.text || "").trim() !== "" && String(addIdField.text || "").trim() !== ""
-      opacity: enabled ? 1 : 0.4
-      Accessible.role: Accessible.Button
-      Accessible.name: text
-      Accessible.onPressAction: if (enabled) root.controller.submitAddFolder()
-      onClicked: root.controller.submitAddFolder()
+      actionEnabled: root.canSubmit
+      foreground: FoamyPalette.text
+      onClicked: root.submit()
     }
   }
 }

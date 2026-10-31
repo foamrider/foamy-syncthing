@@ -4,63 +4,69 @@ const path = require('node:path');
 const vm = require('node:vm');
 const test = require('node:test');
 function load(name) {
-  const scope = vm.createContext({});
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', name), 'utf8').replace(/^\.pragma library\s*/, ''), scope);
+  const scope = vm.createContext({console});
+  vm.runInContext(fs.readFileSync(path.join(__dirname, '..', name), 'utf8').replace(/^\.pragma library\s*/m, ''), scope);
   return scope;
 }
-const prefs = load('Preferences.js');
+const schema = require('../Preferences.js');
+const prefs = require('../kit/node-loader.cjs').load('FoamyPrefs');
+const manifest = require('../manifest.json');
 const translations = require('./i18n.cjs');
+const value = (settings, key) => prefs.value(schema.fields, settings, key);
 
 test('public defaults and bounds do not inherit personal warning settings', () => {
-  assert.equal(prefs.fromSettings({}, 'en').minimumConnectedDevices, 0);
-  for (const value of [-1, 101, 2.5, '3', null]) assert.equal(prefs.fromSettings({minimumConnectedDevices:value}, 'en').minimumConnectedDevices, 0);
-  assert.equal(prefs.fromSettings({minimumConnectedDevices:3}, 'en').minimumConnectedDevices, 3);
-  assert.equal(prefs.fromSettings({openRefreshIntervalSec:1}, 'en').openRefreshIntervalSec, 5);
-  assert.equal(prefs.fromSettings({refreshIntervalSec:30}, 'en').refreshIntervalSec, 60);
-  assert.equal(prefs.fromSettings({refreshIntervalSec:120}, 'en').refreshIntervalSec, 120);
-  assert.equal(prefs.fromSettings({serviceState:'unexpected'}, 'en').serviceState, 'enabled');
+  assert.equal(value({}, 'minimumConnectedDevices'), 0);
+  for (const bad of [-1, 101, 2.5, '3', null]) assert.equal(value({minimumConnectedDevices: bad}, 'minimumConnectedDevices'), 0);
+  assert.equal(value({minimumConnectedDevices: 3}, 'minimumConnectedDevices'), 3);
+  assert.equal(value({openRefreshIntervalSec: 1}, 'openRefreshIntervalSec'), 5);
+  assert.equal(value({refreshIntervalSec: 30}, 'refreshIntervalSec'), 60);
+  assert.equal(value({refreshIntervalSec: 120}, 'refreshIntervalSec'), 120);
+  assert.equal(value({probeIntervalSec: 301}, 'probeIntervalSec'), 15);
+  assert.equal(value({serviceState: 'unexpected'}, 'serviceState'), 'enabled');
+  assert.equal(value({serviceState: 'disabled'}, 'serviceState'), 'disabled');
 });
 
-test('settings lookup uses only the requested installed namespace', () => {
-  const config = {bar:{layout:{left:[{id:'foamy.weather',language:'en'}],right:[{id:'foamy.syncthing',language:'nb'}]}}};
-  assert.equal(prefs.widgetSettings(config, 'foamy.syncthing').language, 'nb');
-  assert.equal(Object.keys(prefs.widgetSettings(config, 'other.syncthing')).length, 0);
-});
-
-for (const section of ['left', 'centerBegin', 'center', 'centerEnd', 'tray', 'right']) {
-  test(`settings survive placement in ${section}`, () => {
-    const entry = {id:'foamy.syncthing', language:'nb', probeIntervalSec:45, serviceState:'disabled'};
-    const config = {bar:{layout:{[section]:['foamy.syncthing', {id:'other.syncthing'}, entry]}}};
-    const before = JSON.stringify(config);
-    const result = prefs.fromSettings(prefs.widgetSettings(config, entry.id), 'en_US');
-    assert.equal(result.language, undefined, 'saved language overrides are ignored');
-    assert.equal(result.probeIntervalSec, 45);
-    assert.equal(result.serviceState, 'disabled');
-    assert.equal(JSON.stringify(config), before);
-  });
-}
-
-test('missing, malformed and string-only sections keep safe defaults', () => {
-  for (const config of [null, {}, {bar:{layout:{tray:['foamy.syncthing'], centerBegin:null, centerEnd:{id:'foamy.syncthing'}}}}]) {
-    assert.equal(Object.keys(prefs.widgetSettings(config, 'foamy.syncthing')).length, 0);
+test('the schema mirrors the manifest defaults and schema', () => {
+  const defaults = manifest.barWidget.defaults;
+  for (const field of schema.fields) assert.equal(defaults[field.key], field.defaultValue, field.key);
+  assert.deepEqual(Object.keys(defaults).sort(), schema.fields.map(f => f.key).sort());
+  for (const entry of manifest.barWidget.schema || []) {
+    const field = schema.fields.find(f => f.key === entry.key);
+    assert.ok(field, entry.key);
+    for (const key of ['type', 'min', 'max', 'defaultValue']) assert.equal(entry[key], field[key], `${entry.key}.${key}`);
   }
 });
 
+test('saving validates and uses the full entry, or the omarchy bar set fallback', () => {
+  const calls = [];
+  const bar = {shell: {updateEntryInline(id, entry) { calls.push([id, entry]); return true; }}};
+  const settings = {id: 'foamy.syncthing', minimumConnectedDevices: 0, custom: 'kept'};
+  const ok = prefs.save(bar, 'foamy.syncthing', schema.fields, settings, 'minimumConnectedDevices', 2);
+  assert.equal(ok.ok, true);
+  assert.equal(ok.inline, true);
+  assert.equal(JSON.stringify(calls[0]), JSON.stringify(['foamy.syncthing', {minimumConnectedDevices: 2, custom: 'kept'}]));
+  assert.equal(prefs.save(bar, 'foamy.syncthing', schema.fields, settings, 'minimumConnectedDevices', 101).ok, false);
+  const cli = prefs.save(null, 'foamy.syncthing', schema.fields, settings, 'refreshIntervalSec', 300);
+  assert.equal(JSON.stringify(cli.command), JSON.stringify(['omarchy', 'bar', 'set', 'foamy.syncthing', 'refreshIntervalSec', '300', '--json']));
+});
+
 test('translations preserve placeholders and literal user data', () => {
-  const placeholders = value => [...value.matchAll(/\{(\w+)\}/g)].map(match => match[1]).sort();
-  for (const [key, value] of Object.entries(translations.nb)) assert.deepEqual(placeholders(value), placeholders(key), key);
+  const placeholders = v => [...v.matchAll(/\{(\w+)\}|%(\d)/g)].map(match => match[0]).sort();
+  for (const [key, v] of Object.entries(translations.nb)) {
+    if (typeof v === 'string') assert.deepEqual(placeholders(v), placeholders(key), key);
+  }
   const name = 'Settings {name} $& <folder>';
-  assert.equal(translations.text('Unlink {name} from Syncthing; keep local files', 'nb', {name}),
-    `Koble ${name} fra Syncthing; behold lokale filer`);
+  assert.equal(translations.text('Paused {name}. Folder configuration, sharing, and local files are unchanged.', 'nb', {name}).includes(name), true);
   assert.equal(translations.text('Settings', 'en'), 'Settings');
   assert.equal(translations.text('Unknown backend error', 'nb'), 'Unknown backend error');
 });
 
-test('every static Foamy UI translation key has Norwegian text', () => {
-  const files = ['Panel.qml','Service.qml','ui/SyncthingPanelPopup.qml','ui/SyncthingOverview.qml','models/OverviewModel.js','ui/SyncthingSettings.qml','ui/AddFolderForm.qml'];
+test('every static UI translation key has Norwegian text', () => {
+  const files = fs.readdirSync(path.join(__dirname, '..'), {recursive: true})
+    .filter(f => /\.(qml|js)$/.test(f) && !/^(kit|tests|preview|node_modules)\//.test(f));
   for (const file of files) {
     const source = fs.readFileSync(path.join(__dirname, '..', file), 'utf8');
-    for (const match of source.matchAll(/\btr\(("(?:[^"\\]|\\.)*")/g)) {
+    for (const match of source.matchAll(/\b(?:tr|t|tn)\(("(?:[^"\\]|\\.)*")/g)) {
       const key = JSON.parse(match[1]);
       if (!key || key === 'Syncthing') continue;
       assert.ok(Object.hasOwn(translations.nb, key), `${file}: ${key}`);
@@ -71,8 +77,14 @@ test('every static Foamy UI translation key has Norwegian text', () => {
 test('localized summary translates counts without translating folder names', () => {
   const panel = load('models/PanelModel.js');
   const tr = (key, args) => translations.text(key, 'nb', args);
-  const ready = {online:true,serviceActive:true};
-  assert.equal(panel.compactSummary(ready,[{state:'idle'}],tr).detail,'1 delt mappe');
-  assert.equal(panel.compactSummary(ready,[{state:'idle',paused:true}],tr).detail,'1 av 1 mapper er satt på pause');
-  assert.equal(panel.compactSummary(ready,[{state:'syncing',label:'Settings',syncing:true,needBytes:1024,globalBytes:2048}],tr).detail,'Settings · 1.0 KiB gjenstår');
+  const tn = (key, count, args) => translations.plural(key, count, 'nb', args);
+  const ready = {online: true, serviceActive: true};
+  assert.equal(panel.compactSummary(ready, [{state: 'idle'}], tr, tn).detail, '1 delt mappe');
+  assert.equal(panel.compactSummary(ready, [{state: 'idle'}, {state: 'idle'}], tr, tn).detail, '2 delte mapper');
+  assert.equal(panel.compactSummary(ready, [{state: 'idle', paused: true}], tr, tn).detail, '1 av 1 mapper er satt på pause');
+  assert.equal(panel.compactSummary(ready, [{state: 'syncing', label: 'Settings', syncing: true, needBytes: 1024, globalBytes: 2048}], tr, tn).detail, 'Settings · 1.0 KiB gjenstår');
+  assert.equal(panel.compactSummary({...ready, hasConflicts: true}, [{state: 'idle', conflict: true}], tr, tn).detail, 'Synkroniseringskonflikter i 1 mappe');
+  // Decimals follow the language once the service registers FoamyI18n.number.
+  panel.setNumberFormat((value, decimals) => Number(value).toFixed(decimals).replace('.', ','));
+  assert.equal(panel.formatBytes(1536), '1,5 KiB');
 });

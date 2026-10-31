@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls as Controls
 import QtTest
 import Quickshell.Io
-import "../ui" as Plugin
+import "../kit" as Plugin
 
 Item {
     id: root
@@ -43,6 +43,11 @@ Item {
         signalName: "accepted"
         target: field
     }
+    SignalSpy {
+        id: finishes
+        signalName: "editingFinished"
+        target: field
+    }
     Process {
         id: setup
 
@@ -66,6 +71,7 @@ Item {
             source("normal");
             edits.clear();
             accepts.clear();
+            finishes.clear();
         }
         function paste(key, modifiers) {
             keyClick(key, modifiers);
@@ -228,11 +234,13 @@ Item {
             compare(field.text, "ac");
             keyClick(Qt.Key_Tab);
             tryCompare(nextButton, "activeFocus", true);
+            compare(finishes.count, 1);
             keyClick(Qt.Key_Backtab);
             tryCompare(field, "inputActiveFocus", true);
             keyClick(Qt.Key_Return);
             compare(field.text, "ac");
             compare(accepts.count, 1);
+            compare(finishes.count, 2);
         }
 
         name: "SafeClipboard"

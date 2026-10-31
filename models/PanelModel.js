@@ -1,5 +1,10 @@
 .pragma library
 
+// Decimal numbers follow the Omarchy language (FoamyI18n.number) once the
+// service registers it; plain toFixed in tests and before that.
+var formatNumber = function(value, decimals) { return Number(value).toFixed(decimals) }
+function setNumberFormat(fn) { if (typeof fn === "function") formatNumber = fn }
+
 function resolveFolderPath(value, homePath) {
   var path = String(value || "")
   if (path === "~") return homePath
@@ -16,20 +21,13 @@ function pathLabel(path) {
     ? parts[parts.length - 1] : "Folder"
 }
 
-function pathParentName(path, homePath) {
-  var value = resolveFolderPath(path, homePath).replace(/\/+$/, "")
-  if (!value || value === "/") return "/"
-  var parts = value.split("/")
-  parts.pop()
-  return parts.length > 0 && parts[parts.length - 1]
-    ? parts[parts.length - 1] : "/"
-}
-
 function buildFolderRows(syncthing, homePath) {
   var rows = []
   var source = syncthing && syncthing.folders ? syncthing.folders : []
   var statuses = syncthing && syncthing.folderStatuses
     ? syncthing.folderStatuses : ({})
+  var conflicts = syncthing && syncthing.conflictFolderIds
+    ? syncthing.conflictFolderIds : ({})
   for (var i = 0; i < source.length; i++) {
     var folder = source[i] || ({})
     var id = String(folder.id || "")
@@ -48,17 +46,22 @@ function buildFolderRows(syncthing, homePath) {
         sharedDeviceCount++
       }
     }
+    var pathName = folder.path ? pathLabel(resolveFolderPath(folder.path, homePath)) : ""
     rows.push({
       id: id,
-      label: pathLabel(resolveFolderPath(folder.path, homePath))
-        || configuredLabel || id || "Unnamed folder",
+      // Syncthing's own label first, as in its Web UI; two "Docs" folders in
+      // different places stay distinguishable by their path line.
+      label: configuredLabel || pathName || id || "Unnamed folder",
       configuredLabel: configuredLabel,
+      pathName: pathName,
       markerName: String(folder.markerName || ".stfolder"),
       path: String(folder.path || ""),
       state: state,
       error: String(status.error || ""),
       outOfSync: outOfSync,
       problem: outOfSync || state === "error" || !!status.error || errors > 0,
+      // Holds *.sync-conflict-* files (see scripts/syncthing-conflicts.py).
+      conflict: conflicts[id] === true,
       // Preparing without queued work is not active synchronization.
       syncing: !outOfSync && (needItems > 0 || state === "syncing"),
       scanning: state.indexOf("scan") === 0,
@@ -91,8 +94,8 @@ function stateCount(rows, key) {
 
 function formatCount(value) {
   var count = Math.max(0, Number(value || 0))
-  if (count >= 1000000) return (count / 1000000).toFixed(1) + "m"
-  if (count >= 1000) return (count / 1000).toFixed(count >= 10000 ? 0 : 1) + "k"
+  if (count >= 1000000) return formatNumber(count / 1000000, 1) + "m"
+  if (count >= 1000) return formatNumber(count / 1000, count >= 10000 ? 0 : 1) + "k"
   return String(Math.round(count))
 }
 
@@ -105,22 +108,23 @@ function formatBytes(value) {
     unit++
   }
   return (unit === 0 ? String(Math.round(bytes))
-    : bytes.toFixed(bytes >= 10 ? 0 : 1)) + " " + units[unit]
+    : formatNumber(bytes, bytes >= 10 ? 0 : 1)) + " " + units[unit]
 }
 
-function folderMeta(folder, translate) {
+function folderMeta(folder, translate, translatePlural) {
   var tr = translate || function(key, values) { return key.replace(/\{(\w+)\}/g, function(m, k) { return values && values[k] !== undefined ? values[k] : m }) }
-  var suffix = folder.configuredLabel && folder.configuredLabel !== folder.label ? " · " + folder.configuredLabel : ""
-  if (folder.outOfSync) return tr("Out of sync") + suffix
-  if (folder.problem) return (folder.error || tr("Needs attention")) + suffix
-  if (folder.paused) return tr("Syncing paused") + suffix
-  if (folder.scanning) return tr("Checking local changes") + suffix
+  var tn = translatePlural || function(key, count, values) { return tr(key, values) }
+  if (folder.outOfSync) return tr("Out of sync")
+  if (folder.problem) return folder.error || tr("Needs attention")
+  if (folder.conflict) return tr("Sync conflicts")
+  if (folder.paused) return tr("Syncing paused")
+  if (folder.scanning) return tr("Checking local changes")
   if (folder.syncing) {
-    var remaining = tr("{count} items remaining", {count: formatCount(folder.needItems)})
-    return remaining + (folder.needBytes > 0 ? " · " + formatBytes(folder.needBytes) : "") + suffix
+    var remaining = tn("{count} items remaining", folder.needItems, {count: formatCount(folder.needItems)})
+    return remaining + (folder.needBytes > 0 ? " · " + formatBytes(folder.needBytes) : "")
   }
   return tr("{count} files · {size}", {count: formatCount(folder.globalFiles),
-    size: folder.sharedDeviceCount === 0 ? tr("Local only") : formatBytes(folder.globalBytes)}) + suffix
+    size: folder.sharedDeviceCount === 0 ? tr("Local only") : formatBytes(folder.globalBytes)})
 }
 
 function folderState(folder, recentlyLinkedFolderId, hasActivity) {
@@ -128,7 +132,6 @@ function folderState(folder, recentlyLinkedFolderId, hasActivity) {
   if (folder.paused) return "PAUSED"
   if (folder.outOfSync) return "OUT OF SYNC"
   if (folder.problem) return "ERROR"
-  if (recentlyLinkedFolderId === folder.id) return "LINKED"
   if (folder.syncing || folder.scanning || hasActivity) return "SYNCING"
   return "SYNCED"
 }
@@ -140,33 +143,19 @@ function folderById(rows, folderId) {
   return null
 }
 
-function folderOptions(rows, homePath) {
-  var options = []
-  for (var i = 0; i < rows.length; i++) {
-    var duplicate = false
-    for (var j = 0; j < rows.length; j++) {
-      if (i !== j && rows[j].label === rows[i].label) duplicate = true
-    }
-    var label = rows[i].label
-    if (duplicate) label += " (" + pathParentName(rows[i].path, homePath) + ")"
-    options.push({ value: rows[i].id, label: label })
-  }
-  return options
-}
-
-function deviceName(devices, deviceId) {
+function deviceName(devices, deviceId, translate) {
+  var tr = translate || function(key, values) { return key.replace(/\{(\w+)\}/g, function(m, k) { return values && values[k] !== undefined ? values[k] : m }) }
   for (var i = 0; i < devices.length; i++) {
     var device = devices[i] || ({})
     if (String(device.deviceID || "") === String(deviceId || "")) {
-      return String(device.name || "Device "
-        + String(device.deviceID || "").slice(0, 7))
+      return String(device.name || tr("Device {id}", {id: String(device.deviceID || "").slice(0, 7)}))
     }
   }
-  return "Unknown device"
+  return tr("Unknown device")
 }
 
 function deviceOptions(syncthing, translate) {
-  var tr = translate || function(value) { return value }
+  var tr = translate || function(key, values) { return key.replace(/\{(\w+)\}/g, function(m, k) { return values && values[k] !== undefined ? values[k] : m }) }
   var options = []
   var devices = syncthing && syncthing.devices ? syncthing.devices : []
   for (var i = 0; i < devices.length; i++) {
@@ -175,7 +164,8 @@ function deviceOptions(syncthing, translate) {
     if (!id || id === syncthing.localDeviceId) continue
     options.push({
       value: id,
-      label: String(device.name || "Device " + id.slice(0, 7)),
+      label: String(device.name || tr("Device {id}", {id: id.slice(0, 7)})),
+      encrypted: device.untrusted === true,
       description: device.untrusted
         ? tr("Encrypted sharing requires the Web UI")
         : tr("Will receive a folder share offer")
@@ -184,7 +174,8 @@ function deviceOptions(syncthing, translate) {
   return options
 }
 
-function pendingOfferOptions(syncthing) {
+function pendingOfferOptions(syncthing, translate) {
+  var tr = translate || function(key, values) { return key.replace(/\{(\w+)\}/g, function(m, k) { return values && values[k] !== undefined ? values[k] : m }) }
   var options = []
   var pending = syncthing && syncthing.pendingFolders
     ? syncthing.pendingFolders : ({})
@@ -204,8 +195,11 @@ function pendingOfferOptions(syncthing) {
       var offer = offeredBy[deviceIds[offerIndex]] || ({})
       options.push({
         value: JSON.stringify([ids[i], deviceIds[offerIndex]]),
-        label: String(offer.label || ids[i]) + " from "
-          + deviceName(devices, deviceIds[offerIndex])
+        folderId: ids[i],
+        deviceId: deviceIds[offerIndex],
+        folderLabel: String(offer.label || ids[i]),
+        label: tr("{folder} from {device}", {folder: String(offer.label || ids[i]),
+          device: deviceName(devices, deviceIds[offerIndex], tr)})
       })
     }
   }
@@ -247,6 +241,7 @@ function compactFolderState(folder, online, stopped, hasActivity) {
   if (!online) return "Unavailable"
   if (folder.outOfSync) return "Out of sync"
   if (folder.problem) return "Needs attention"
+  if (folder.conflict) return "Sync conflicts"
   if (folder.paused) return "Paused"
   if (folder.scanning) return "Scanning"
   if (folder.syncing || hasActivity) return "Syncing"
@@ -254,8 +249,9 @@ function compactFolderState(folder, online, stopped, hasActivity) {
   return "Up to date"
 }
 
-function compactSummary(service, rows, translate) {
+function compactSummary(service, rows, translate, translatePlural) {
   var tr = translate || function(key, values) { return key.replace(/\{(\w+)\}/g, function(m, k) { return values && values[k] !== undefined ? values[k] : m }) }
+  var tn = translatePlural || function(key, count, values) { return tr(key, values || {count: count}) }
   var result = { title: "Syncthing unavailable", detail: "Waiting for the local service", progress: -1 }
   if (!service) return result
   if (service.serviceAvailable && !service.serviceActive) {
@@ -269,8 +265,10 @@ function compactSummary(service, rows, translate) {
   }
   if (service.hasConflicts || stateCount(rows, "problem") > 0) {
     var outOfSync = !service.hasConflicts && stateCount(rows, "outOfSync") > 0
+    var conflicted = stateCount(rows, "conflict")
     result.title = outOfSync ? "Out of sync" : "Needs attention"
-    result.detail = service.hasConflicts ? "Sync conflicts detected"
+    result.detail = service.hasConflicts ? (conflicted > 0
+        ? tn("Sync conflicts in {count} folders", conflicted, {count: conflicted}) : "Sync conflicts detected")
       : outOfSync ? "Check the affected folders in the Web UI" : "Check the folder errors below"
     return result
   }
@@ -284,8 +282,8 @@ function compactSummary(service, rows, translate) {
     var remaining = total(active, "needBytes")
     var bytes = total(active, "globalBytes")
     result.title = "Syncing files"
-    result.detail = tr("{folder} · {amount} remaining", {folder: active.length === 1 ? active[0].label : tr("{count} folders", {count: active.length}),
-      amount: remaining > 0 ? formatBytes(remaining) : tr("{count} items", {count: formatCount(total(active, "needItems"))})})
+    result.detail = tr("{folder} · {amount} remaining", {folder: active.length === 1 ? active[0].label : tn("{count} folders", active.length, {count: active.length}),
+      amount: remaining > 0 ? formatBytes(remaining) : tn("{count} items", total(active, "needItems"), {count: formatCount(total(active, "needItems"))})})
     // Metadata/deletion work has no byte denominator. Never report completion
     // while queued work remains, even when rounding would otherwise show 100%.
     if (bytes > 0 && remaining > 0)
@@ -314,7 +312,7 @@ function compactSummary(service, rows, translate) {
     return result
   }
   result.title = "Up to date"
-  result.detail = tr(rows.length === 1 ? "{count} shared folder" : "{count} shared folders", {count: rows.length})
+  result.detail = tn("{count} shared folders", rows.length, {count: rows.length})
   result.progress = 100
   return result
 }

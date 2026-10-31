@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "foamy.syncthing",
   "name": "Foamy Syncthing",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "foamrider",
-  "license": "MIT AND MPL-2.0 AND OFL-1.1 AND BSD-3-Clause",
-  "description": "A Syncthing plugin with a bundled native core for monitoring file activity, safely managing folders, controlling the user service, and following the Omarchy theme.",
+  "license": "MIT AND BSD-3-Clause",
+  "description": "Syncthing folder and device status in the Omarchy bar, with pause, unlink and add-folder controls and Syncthing service start/stop, through a bundled native core (Syncshell 0.1.9).",
   "kinds": [
     "service",
     "bar-widget"
@@ -17,7 +17,7 @@
   },
   "barWidget": {
     "displayName": "Syncthing",
-    "description": "Monitor Syncthing file activity, safely manage folders, control the user service, and follow the Omarchy theme through one bundled native core.",
+    "description": "Monitor Syncthing folders and devices, pause, unlink or add folders, and start or stop the Syncthing user service.",
     "category": "Files",
     "allowMultiple": false,
     "defaultSection": "right",
@@ -25,7 +25,46 @@
       "minimumConnectedDevices": 0,
       "refreshIntervalSec": 60,
       "openRefreshIntervalSec": 5,
-      "probeIntervalSec": 15
-    }
+      "probeIntervalSec": 15,
+      "serviceState": "enabled"
+    },
+    "schema": [
+      {
+        "key": "minimumConnectedDevices",
+        "type": "integer",
+        "label": "Warn when fewer devices are connected (this one included; 0 turns the warning off)",
+        "min": 0,
+        "max": 100,
+        "step": 1,
+        "defaultValue": 0
+      },
+      {
+        "key": "refreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh the full status every (seconds; file activity is live)",
+        "min": 60,
+        "max": 3600,
+        "step": 60,
+        "defaultValue": 60
+      },
+      {
+        "key": "openRefreshIntervalSec",
+        "type": "integer",
+        "label": "Refresh while the popup is open every (seconds)",
+        "min": 2,
+        "max": 60,
+        "step": 1,
+        "defaultValue": 5
+      },
+      {
+        "key": "probeIntervalSec",
+        "type": "integer",
+        "label": "Check the Syncthing installation and service every (seconds; only while Syncthing is offline)",
+        "min": 5,
+        "max": 300,
+        "step": 5,
+        "defaultValue": 15
+      }
+    ]
   }
 }

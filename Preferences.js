@@ -1,22 +1,10 @@
-function integer(value, fallback, min, max) {
-  return typeof value === "number" && isFinite(value) && Math.floor(value) === value
-    && value >= min && value <= max ? value : fallback
-}
-function fromSettings(value) {
-  value = value && typeof value === "object" && !Array.isArray(value) ? value : {}
-  return {
-    minimumConnectedDevices: integer(value.minimumConnectedDevices, 0, 0, 100),
-    refreshIntervalSec: integer(value.refreshIntervalSec, 60, 60, 3600),
-    openRefreshIntervalSec: integer(value.openRefreshIntervalSec, 5, 2, 60),
-    probeIntervalSec: integer(value.probeIntervalSec, 15, 5, 300),
-    serviceState: value.serviceState === "disabled" ? "disabled" : "enabled"
-  }
-}
-function widgetSettings(config, id) {
-  var layout = config && config.bar && config.bar.layout || {}
-  for (var section of ["left", "centerBegin", "center", "centerEnd", "tray", "right"]) {
-    var entries = Array.isArray(layout[section]) ? layout[section] : []
-    for (var entry of entries) if (entry && entry.id === id) return entry
-  }
-  return {}
-}
+// Widget settings schema (mirrors manifest.json barWidget.defaults and
+// schema). Values are read and saved through kit/FoamyPrefs.js.
+var fields = [
+  { key: "minimumConnectedDevices", type: "integer", min: 0, max: 100, step: 1, defaultValue: 0 },
+  { key: "refreshIntervalSec", type: "integer", min: 60, max: 3600, step: 60, defaultValue: 60 },
+  { key: "openRefreshIntervalSec", type: "integer", min: 2, max: 60, step: 1, defaultValue: 5 },
+  { key: "probeIntervalSec", type: "integer", min: 5, max: 300, step: 5, defaultValue: 15 },
+  { key: "serviceState", type: "enum", options: ["enabled", "disabled"], defaultValue: "enabled" }
+]
+if (typeof module !== "undefined") module.exports = { fields: fields }

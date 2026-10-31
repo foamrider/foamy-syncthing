@@ -10,7 +10,7 @@ function model(file) {
 }
 
 test("native folder snapshots preserve paused state, sharing and errors", () => {
-  const facade = model("hosts/omarchy/models/FacadeModel.js");
+  const facade = model("service/Facade.js");
   const folders = [{ id: "work", path: "/tmp/work", paused: true,
     devices: [{ id: "remote" }], status: { state: "error", errors: ["offline"], pullErrors: 1 } }];
   assert.equal(facade.folders(folders)[0].paused, true);
@@ -19,15 +19,8 @@ test("native folder snapshots preserve paused state, sharing and errors", () => 
   assert.equal(facade.folderStatuses(folders).work.pullErrors, 1);
 });
 
-test("settings reject unsupported future versions instead of silently resetting", () => {
-  const settings = model("hosts/omarchy/models/SettingsModel.js");
-  const defaults = fs.readFileSync(path.join(__dirname, "../hosts/omarchy/config/settings.toml"), "utf8");
-  assert.equal(settings.parse(defaults).error, "");
-  assert.ok(settings.parse(defaults.replace("version = 2", "version = 999")).error);
-});
-
 test("native protocol fails closed on malformed input or wrong major version", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../shared/CoreProcess.qml"), "utf8");
+  const source = fs.readFileSync(path.join(__dirname, "../service/CoreProcess.qml"), "utf8");
   const context = vm.createContext({ protocolReady: false, maxLineLength: 8388607,
     error: "",
     acceptHello() { throw new Error("invalid input must not reach hello"); } });
@@ -44,20 +37,6 @@ test("native protocol fails closed on malformed input or wrong major version", (
   assert.match(context.error, /incompatible/);
 });
 
-test("bar tooltips use the public scoped API", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../hosts/omarchy/OmarchyPanel.qml"), "utf8");
-  const start = source.indexOf("  function showBarTooltip(");
-  const end = source.indexOf("\n  }", start) + 4;
-  const calls = [];
-  const button = { tooltipHovered: true };
-  const context = vm.createContext({ button, tooltip: "Syncthing: Up to date",
-    bar: Object.freeze({ showTooltip(target, text) { calls.push([target, text]); } }) });
-  vm.runInContext(source.slice(start, end), context);
-  context.showBarTooltip();
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0][1], "Syncthing: Up to date");
-});
-
 test("original panel totals include this computer", () => {
   const panel = model("models/PanelModel.js");
   assert.equal(panel.deviceCounts(null).connected, 0);
@@ -68,20 +47,24 @@ test("original panel totals include this computer", () => {
 });
 
 test("native snapshots feed the original folder cards without losing health", () => {
-  const facade = model("hosts/omarchy/models/FacadeModel.js");
+  const facade = model("service/Facade.js");
   const panel = model("models/PanelModel.js");
   const raw = [{id: "work", label: "Work", path: "/home/user/work", paused: false,
     devices: [{id: "local"}, {id: "remote"}],
     status: {state: "error", errors: ["Permission denied"], globalFiles: 12, globalBytes: 2048}}];
   const rows = panel.buildFolderRows({folders: facade.folders(raw), folderStatuses: facade.folderStatuses(raw), localDeviceId: "local"}, "/home/user");
-  assert.equal(rows[0].label, "work");
+  // Syncthing's configured label comes first, like its Web UI; the path stays the subtitle.
+  assert.equal(rows[0].label, "Work");
   assert.equal(rows[0].configuredLabel, "Work");
+  assert.equal(rows[0].pathName, "work");
+  const unlabeled = panel.buildFolderRows({folders: facade.folders([{id: "abc", path: "~/Docs"}]), folderStatuses: {}}, "/home/user");
+  assert.equal(unlabeled[0].label, "Docs");
   assert.equal(panel.folderState(rows[0], "", false), "ERROR");
   assert.equal(panel.total(rows, "globalFiles"), 12);
 });
 
 test("idle outstanding items stay critical through the native adapter and both presentations", () => {
-  const facade = model("hosts/omarchy/models/FacadeModel.js");
+  const facade = model("service/Facade.js");
   const panel = model("models/PanelModel.js");
   const overview = model("models/OverviewModel.js");
   const translations = require("./i18n.cjs");
@@ -142,25 +125,26 @@ test("paused, queued, scanning and unknown snapshots do not become idle out-of-s
 
 test("bar icon uses urgent color for folder errors and prioritizes them over device warnings", () => {
   const source = fs.readFileSync(path.join(__dirname, "../Panel.qml"), "utf8");
+  const color = source.match(/readonly property color iconColor: \{([\s\S]*?)\n  \}/)[1];
+  const service = fs.readFileSync(path.join(__dirname, "../Service.qml"), "utf8");
+  const health = service.match(/readonly property bool hasProblems: ([\s\S]*?)\n  readonly property/)[1];
   const panel = model("models/PanelModel.js");
-  const health = source.match(/readonly property bool hasProblems: ([\s\S]*?)\n  readonly property/)[1];
-  const color = source.match(/readonly property color syncthingIconColor: \{([\s\S]*?)\n  \}/)[1];
-  const context = vm.createContext({PanelModel: panel, urgent: "red", foreground: "white",
-    hasTooFewDevices: true, Color: {bar: {background: {hslLightness: 0.1}}}});
-  for (const [service, folders, expected] of [
+  const context = vm.createContext({PanelModel: panel, bar: {urgent: "red", foreground: "white"},
+    FoamyPalette: {warning: "yellow"}, Commons: {Color: {}}});
+  for (const [state, folders, expected] of [
     [{folderProblemCount: 0}, [{problem: true, outOfSync: true}], "red"],
     [{folderProblemCount: 1}, [], "red"],
     [{hasConflicts: true}, [], "red"],
     [{phase: "error"}, [], "red"],
-    [{folderProblemCount: 0}, [{problem: false}], "#ebcb8b"],
-    [null, [], "#ebcb8b"]
+    [{folderProblemCount: 0}, [{problem: false}], "yellow"],
   ]) {
-    context.syncthing = service;
-    context.folderRows = folders;
-    context.hasProblems = vm.runInContext(health, context);
-    assert.equal(vm.runInContext(`(function() {${color}})()`, context), expected);
+    const syncthing = Object.assign({folderProblemCount: 0, hasConflicts: false, tooFewDevices: true}, state);
+    syncthing.folderRows = folders;
+    syncthing.hasProblems = vm.runInContext(health, vm.createContext(Object.assign({PanelModel: panel}, syncthing)));
+    context.syncthing = syncthing;
+    assert.equal(vm.runInContext(`(function() {${color}})()`, context), expected, JSON.stringify(state));
   }
-  context.hasTooFewDevices = false;
+  context.syncthing = {hasProblems: false, tooFewDevices: false};
   assert.equal(vm.runInContext(`(function() {${color}})()`, context), "white");
 });
 
@@ -227,39 +211,27 @@ test("pause and resume preserve the folder configuration and use accurate status
   }
 });
 
-test("local-only folder notices retain private labels only in the panel", () => {
-  const service = fs.readFileSync(path.join(__dirname, "../Service.qml"), "utf8");
-  const adapter = fs.readFileSync(path.join(__dirname, "../hosts/omarchy/OmarchyService.qml"), "utf8");
-  const notices = [];
+test("folder notices stay in the panel; no desktop notification is sent", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../Service.qml"), "utf8");
+  assert.doesNotMatch(source, /notificationSender|notify-send|syncthing-notify/);
   const context = vm.createContext({
     folderLabel: () => 'private-Canary-847 📁',
     tr: (key, values) => key.replace(/\{(\w+)\}/g, (match, name) => values?.[name] ?? match),
-    UiConstants: {NOTICE_VISIBLE_MS: 1000}, folderMutationNotice: "",
-    PluginLanguage: {FoamyI18n: {t: key => key}}, settings: {},
-    noticeTimer: {restart() {}},
-    notificationSender: {send(message, visibleMs) { notices.push([message, visibleMs]); return true; }},
+    folderMutationNotice: "", noticeTimer: {restarted: 0, restart() { this.restarted++; }},
   });
   context.root = context;
   context.runFolderAction = (...args) => context.publishFolderNotice(args[4]);
-  for (const [source, name] of [[service, "setFolderPaused"], [adapter, "notify"], [adapter, "publishFolderNotice"]]) {
+  for (const name of ["setFolderPaused", "publishFolderNotice"]) {
     const start = source.indexOf(`  function ${name}(`);
     const end = source.indexOf("\n  }", start) + 4;
-    assert.ok(start >= 0);
+    assert.ok(start >= 0, name);
     vm.runInContext(source.slice(start, end), context);
   }
   context.setFolderPaused("local-only", true);
   assert.match(context.folderMutationNotice, /Paused private-Canary-847 📁/);
   context.setFolderPaused("local-only", false);
   assert.match(context.folderMutationNotice, /Resumed private-Canary-847 📁/);
-  assert.equal(notices.length, 2);
-  for (const [text] of notices) {
-    assert.equal(text, "Syncthing status changed. Open the panel for details.");
-    assert.doesNotMatch(text, /private-Canary-847/);
-  }
-  context.PluginLanguage.FoamyI18n.t = key => require("./i18n.cjs").text(key, "no");
-  context.notify("Failed to scan /private/Canary-847 on device PrivateDevice", 12000);
-  assert.equal(notices[2][0], "Syncthing-statusen er endret. Åpne panelet for detaljer.");
-  assert.equal(notices[2][1], 12000);
+  assert.equal(context.noticeTimer.restarted, 2);
 });
 
 test("unlink pauses before removing configuration and stops safely on errors", () => {
@@ -330,4 +302,29 @@ test("unlink pauses before removing configuration and stops safely on errors", (
   offline.context.online = false;
   assert.equal(offline.context.unlinkFolder("work"), false);
   assert.equal(offline.requests.length, 0);
+});
+
+test("the core keeps retrying with backoff instead of staying down", () => {
+  const source = fs.readFileSync(path.join(__dirname, "../service/CoreProcess.qml"), "utf8");
+  const timers = [];
+  const context = vm.createContext({
+    maxRestartAttempts: 3, slowRestartBaseMs: 30000, maxRestartDelayMs: 300000,
+    restartAttempts: 0, protocolReady: true, unavailable: false, lastError: "",
+    _restartRequested: false, _expectedStop: false, desiredRunning: true,
+    failPending() {}, shutdownTimer: {stop() {}}, stableTimer: {stop() {}},
+    FoamyI18n: {t: (key, values) => key.replace("%1", values?.[0])},
+    restartTimer: {interval: 0, restart() { timers.push(this.interval); }},
+  });
+  for (const name of ["restartDelay", "handleExit"]) {
+    const start = source.indexOf(`  function ${name}(`);
+    const end = source.indexOf("\n  }", start) + 4;
+    assert.ok(start >= 0, name);
+    vm.runInContext(source.slice(start, end), context);
+  }
+  for (let i = 0; i < 9; i++) context.handleExit(1);
+  assert.deepEqual(timers, [250, 500, 1000, 30000, 60000, 120000, 240000, 300000, 300000]);
+  assert.equal(context.desiredRunning, true, "never gives up");
+  assert.equal(context.unavailable, true);
+  assert.match(source, /onTriggered: if \(root\.protocolReady\) root\.restartAttempts = 0/);
+  assert.match(source, /function retry\(\)[\s\S]*incompatible = false/);
 });

@@ -11,7 +11,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER = ROOT / "scripts/syncthing-clipboard.sh"
+HELPER = ROOT / "kit/clipboard.sh"
 MOCK = '''#!/usr/bin/python3
 import json, os, signal, sys, time
 from pathlib import Path
@@ -150,6 +150,10 @@ ShellRoot {
     }
 }
 ''' % json.dumps(str(ROOT / "tests/tst_clipboard.qml")))
+        # The kit's SafeTextField imports qs.Commons and qs.Ui from the host shell (read-only links).
+        host = Path(os.environ.get("OMARCHY_SHELL_PATH", "/usr/share/omarchy/shell"))
+        for name in ("Commons", "Ui"):
+            (self.base / name).symlink_to(host / name, target_is_directory=True)
         runtime = self.base / "runtime"
         runtime.mkdir(mode=0o700)
         env = dict(self.env, QT_QPA_PLATFORM=os.environ.get("FOAMY_TEST_PLATFORM", "offscreen"),
