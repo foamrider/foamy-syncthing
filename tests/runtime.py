@@ -106,6 +106,7 @@ ShellRoot {
         check(view && view.rowCount === 2, "two folder rows")
         savedRow = view ? view.rowItem(0) : null
         check(savedRow !== null, "row delegate exists")
+        check(view && view.listWheel && view.listWheel.target !== null, "the overview list scrolls with the kit wheel handling")
         service.refresh()
       } else if (n === 2) {
         check(panels[1].popup.bodyItem.rowItem(0) === savedRow, "row delegate survives a snapshot (keyed model)")

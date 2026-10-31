@@ -155,13 +155,15 @@ PanelKeyCatcher {
     }
   }
 
+  // The overview list's wheel scrolling (tests).
+  readonly property QtObject listWheel: wheel
   // The delegate for overview row `index` (tests, scrolling).
   function rowItem(index) { return rowRepeater.itemAt(index) }
 
   function setTab(value) {
     if (tab === value) return
     tab = value
-    list.contentY = 0
+    wheel.scrollTo(0, false)
   }
   function rowKey(index) {
     var model = tab === "folders" ? folderKeys : deviceKeys
@@ -175,6 +177,15 @@ PanelKeyCatcher {
     var next = Object.assign({}, expanded)
     next[tab + ":" + key] = !next[tab + ":" + key]
     expanded = next
+    if (!next[tab + ":" + key]) return
+    // Scroll the opened row's details into view as they grow.
+    var model = tab === "folders" ? folderKeys : deviceKeys
+    for (var i = 0; i < model.count; i++) {
+      if (model.get(i).key !== key) continue
+      var item = rowItem(i)
+      if (item) Qt.callLater(function() { wheel.ensureVisible(item) })
+      return
+    }
   }
   function keepVisible(item) {
     var top = item.y
@@ -433,6 +444,9 @@ PanelKeyCatcher {
         contentItem: Rectangle { implicitWidth: FoamyStyle.gapSmall; radius: FoamyStyle.pillRadius(width); color: FoamyPalette.mutedText }
         background: Item {}
       }
+
+      // A wheel notch scrolls about three rows, however the mouse splits it.
+      FoamyWheelScroll { id: wheel; target: list }
 
       Column {
         id: rows
