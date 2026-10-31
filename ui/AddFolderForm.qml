@@ -256,13 +256,15 @@ Column {
       color: Commons.Color.urgent
       Accessible.role: Accessible.AlertMessage
     }
-    FoamyAction {
+    FoamyButton {
+      objectName: "submitButton"
       anchors.right: parent.right
       iconName: "plus"
-      label: root.busy && root.service.folderMutationAction === "add" ? FoamyI18n.t("Adding…") : FoamyI18n.t("Add folder")
+      kind: "primary"
+      text: root.busy && root.service.folderMutationAction === "add" ? FoamyI18n.t("Adding…") : FoamyI18n.t("Add folder")
       focusable: true
+      busy: root.busy && root.service.folderMutationAction === "add"
       actionEnabled: root.canSubmit
-      foreground: FoamyPalette.text
       onClicked: root.submit()
     }
   }

@@ -45,6 +45,12 @@ PanelKeyCatcher {
   property bool addOpen: false
   property string forgetFolderId: ""
   property string selectedPendingOffer: ""
+  // The picked incoming share, else the first one (never an empty dropdown).
+  readonly property string currentPendingOffer: {
+    for (var i = 0; i < pendingOffers.length; i++)
+      if (pendingOffers[i].value === selectedPendingOffer) return selectedPendingOffer
+    return pendingOffers.length ? String(pendingOffers[0].value) : ""
+  }
   property string lastNotice: ""
 
   readonly property bool online: !!service && service.online
@@ -525,13 +531,13 @@ PanelKeyCatcher {
         font.pixelSize: FoamyStyle.font.bodySmall
         Behavior on opacity { NumberAnimation { duration: FoamyMotion.slow } }
       }
-      FoamyAction {
+      FoamyButton {
+        objectName: "addFolderButton"
         iconName: "plus"
-        label: FoamyI18n.t("Add folder")
+        text: FoamyI18n.t("Add folder")
         focusable: true
         actionEnabled: root.canManage
         tooltipText: root.online ? "" : FoamyI18n.t("Connect to Syncthing to manage folders.")
-        foreground: FoamyPalette.secondaryText
         onClicked: root.openAdd("")
       }
     }
@@ -547,17 +553,18 @@ PanelKeyCatcher {
           Layout.fillWidth: true
           showLabel: false
           label: FoamyI18n.t("Incoming shares")
-          value: root.selectedPendingOffer
+          value: root.currentPendingOffer
           options: root.pendingOffers
           onChanged: function(value) { root.selectedPendingOffer = value }
         }
-        FoamyAction {
+        FoamyButton {
+          objectName: "acceptShareButton"
           iconName: "check"
+          text: FoamyI18n.t("Accept")
           focusable: true
           tooltipText: FoamyI18n.t("Accept incoming share")
-          actionEnabled: root.canManage && root.selectedPendingOffer !== ""
-          foreground: FoamyPalette.secondaryText
-          onClicked: root.openAdd(root.selectedPendingOffer)
+          actionEnabled: root.canManage && root.currentPendingOffer !== ""
+          onClicked: root.openAdd(root.currentPendingOffer)
         }
       }
     }

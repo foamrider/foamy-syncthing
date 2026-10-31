@@ -44,7 +44,9 @@ Item {
     readonly property var folderStatuses: Facade.folderStatuses(online && !empty ? preview.rawFolders : [])
     readonly property var conflictFolderIds: preview.previewState === "conflicts" ? ({ "photos-q9w3e": true }) : ({})
     readonly property bool hasConflicts: Object.keys(conflictFolderIds).length > 0
-    readonly property var pendingFolders: ({})
+    // Settings shows one incoming share (the Accept button).
+    readonly property var pendingFolders: preview.previewState === "settings"
+      ? ({ "music-4k2m9": { offeredBy: { "LAPTOP": { label: "Music" } } } }) : ({})
     readonly property string syncActivityFolderId: preview.previewState === "syncing" ? "docs-x7k2p" : ""
     readonly property string syncActivityDetail: preview.previewState === "syncing" ? "Report 2026-Q3.pdf" : ""
     readonly property var folderRows: PanelModel.buildFolderRows(mock, preview.home)
@@ -64,7 +66,7 @@ Item {
     readonly property string summaryText: missing ? FoamyI18n.t("Syncthing is not installed") : stopped ? FoamyI18n.t("Syncing stopped") : ""
     readonly property var compactSummary: PanelModel.compactSummary(mock, folderRows, FoamyI18n.t,
       function(key, count, values) { return FoamyI18n.tn(key, count, values) })
-    readonly property var pendingOfferRows: []
+    readonly property var pendingOfferRows: PanelModel.pendingOfferOptions(mock, function(key, values) { return FoamyI18n.t(key, values) })
     readonly property int encryptedPendingOfferCount: 0
     readonly property string recoveryWarning: ""
     readonly property string packageStatus: ""

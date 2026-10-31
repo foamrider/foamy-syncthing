@@ -58,6 +58,7 @@
   "No shared folders yet. Add an existing directory to get started.": "Ingen delte mapper ennå. Legg til en eksisterende mappe for å komme i gang.",
   "Connect to Syncthing to manage folders.": "Koble til Syncthing for å administrere mapper.",
   "Incoming shares": "Innkommende delinger",
+  "Accept": "Godta",
   "Accept incoming share": "Godta innkommende deling",
   "Service is not running": "Tjenesten kjører ikke",
   "Running": "Kjører",

@@ -58,6 +58,7 @@
   "No shared folders yet. Add an existing directory to get started.": "No shared folders yet. Add an existing directory to get started.",
   "Connect to Syncthing to manage folders.": "Connect to Syncthing to manage folders.",
   "Incoming shares": "Incoming shares",
+  "Accept": "Accept",
   "Accept incoming share": "Accept incoming share",
   "Service is not running": "Service is not running",
   "Running": "Running",

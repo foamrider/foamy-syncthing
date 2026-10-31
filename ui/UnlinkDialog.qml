@@ -72,20 +72,19 @@ FocusScope {
       Row {
         anchors.right: parent.right
         spacing: FoamyStyle.gap
-        FoamyAction {
-          iconName: ""
-          label: root.cancelText
+        FoamyButton {
+          objectName: "unlinkCancel"
+          text: root.cancelText
           hasCursor: root.selectedIndex === 0
-          foreground: FoamyPalette.text
           onHoveredChanged: if (hovered) root.selectedIndex = 0
           onClicked: root.canceled()
         }
-        FoamyAction {
+        FoamyButton {
+          objectName: "unlinkConfirm"
           iconName: "unlink"
-          label: root.confirmText
-          destructive: true
+          text: root.confirmText
+          kind: "destructive"
           hasCursor: root.selectedIndex === 1
-          foreground: Commons.Color.urgent
           onHoveredChanged: if (hovered) root.selectedIndex = 1
           onClicked: root.confirmed()
         }
