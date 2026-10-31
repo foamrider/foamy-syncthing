@@ -181,6 +181,8 @@ the plugin in English.
 
 ## License
 
+`kit/` holds shared components copied from [foamy-kit](https://github.com/foamrider/foamy-kit); edit them there, not here.
+
 Plugin code is [MIT](LICENSE). The native core is Syncshell's
 ([MIT](LICENSE-SYNCSHELL)) and contains the Go runtime and `golang.org/x/sys`
 ([BSD-3-Clause](packaging/bundled/LICENSE.golang)). Shared components in
