@@ -573,8 +573,11 @@ PanelKeyCatcher {
       width: parent.width
       title: FoamyI18n.t("Warnings")
       FoamyDropdown {
+        objectName: "minimumDevicesDropdown"
         width: parent.width
-        label: FoamyI18n.t("Warn when fewer devices are connected (this one included)")
+        compact: true
+        label: FoamyI18n.t("Warn when fewer devices are connected")
+        description: FoamyI18n.t("This device counts too.")
         value: String(Prefs.value(Schema.fields, root.settings, "minimumConnectedDevices"))
         options: {
           var current = Prefs.value(Schema.fields, root.settings, "minimumConnectedDevices")
@@ -592,7 +595,9 @@ PanelKeyCatcher {
       title: FoamyI18n.t("Refresh")
       description: FoamyI18n.t("File activity arrives live from Syncthing; these refresh the full status.")
       FoamyDropdown {
+        objectName: "refreshDropdown"
         width: parent.width
+        compact: true
         label: FoamyI18n.t("Refresh every")
         value: String(Prefs.value(Schema.fields, root.settings, "refreshIntervalSec"))
         options: [
@@ -604,7 +609,9 @@ PanelKeyCatcher {
         onChanged: function(value) { root.saveRequested("refreshIntervalSec", Number(value)) }
       }
       FoamyDropdown {
+        objectName: "openRefreshDropdown"
         width: parent.width
+        compact: true
         label: FoamyI18n.t("Refresh while the popup is open every")
         value: String(Prefs.value(Schema.fields, root.settings, "openRefreshIntervalSec"))
         options: [

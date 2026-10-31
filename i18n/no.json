@@ -184,7 +184,8 @@
   "No shared folders yet. Add one in Settings.": "Ingen delte mapper ennå. Legg til en i Innstillinger.",
   "Pause keeps a folder configured. Unlink removes it from Syncthing and keeps the local files.": "Pause beholder mappen i oppsettet. Koble fra fjerner den fra Syncthing og beholder de lokale filene.",
   "Warnings": "Advarsler",
-  "Warn when fewer devices are connected (this one included)": "Advar når færre enheter er tilkoblet (denne medregnet)",
+  "Warn when fewer devices are connected": "Advar når færre enheter er tilkoblet",
+  "This device counts too.": "Denne enheten teller også.",
   "%1 devices": {
     "one": "%1 enhet",
     "other": "%1 enheter"

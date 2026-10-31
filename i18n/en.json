@@ -185,7 +185,8 @@
   "No shared folders yet. Add one in Settings.": "No shared folders yet. Add one in Settings.",
   "Pause keeps a folder configured. Unlink removes it from Syncthing and keeps the local files.": "Pause keeps a folder configured. Unlink removes it from Syncthing and keeps the local files.",
   "Warnings": "Warnings",
-  "Warn when fewer devices are connected (this one included)": "Warn when fewer devices are connected (this one included)",
+  "Warn when fewer devices are connected": "Warn when fewer devices are connected",
+  "This device counts too.": "This device counts too.",
   "%1 devices": {
     "one": "%1 device",
     "other": "%1 devices"
