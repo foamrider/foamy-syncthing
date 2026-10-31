@@ -1,8 +1,8 @@
 # foamy-kit.lock: written by foamy-kit sync.sh; do not edit.
 # Hashes are of each file's body (the file without its stamp line);
 # notices are hashed whole. tests/kit-check.sh verifies them.
-version 0.3.4
-source 52394a2b0108
+version 0.3.5
+source 7049c81a1cd6
 components FoamyAction,FoamyCursor,FoamyDropdown,FoamyHeader,FoamyHeroBand,FoamyI18n,FoamyIcon,FoamyIpc,FoamyMotion,FoamyNumberField,FoamyPalette,FoamyPopup,FoamyPopupCard,FoamyPrefs,FoamySettings,FoamyShared,FoamyStyle,SafeTextField
 31637cf414fddfbc7c18c7d107b4c9a77801568fd78ebb8212791fb66de476a9  kit/FoamyAction.qml
 4488b3dbaa2b0fab78fb66dea979e57bcc0f30e76e6443bb4a0f031fffc44709  kit/FoamyCursor.qml
@@ -34,7 +34,7 @@ d32e7f3196ff3fbe26556a521078830a01e99fc523c0ab89dd12a87f5d48d47a  kit/FoamyShare
 14efba34cad6934207d57ef1dc27759eb9049cd049ec1fdf17da635487d3dd93  kit/FoamyToggle.qml
 b495047bd93a9b06913511076f504daba17d5bbeb3e0650f3bb53a4220329c57  kit/LICENSE-LUCIDE
 717ba1949502290f8e47688ae2e323acd06c8ca47aec9f7596b15f678c1af4a2  kit/LICENSE-OMARCHY
-0defffe5286c48e543e18dc79d64fb11590ff4869dd5bf1fb361728abad33f99  kit/SafeTextField.qml
+c741d6fcac65bfb155c54c3933addc244163c74642ceae4a28b68cec16367abf  kit/SafeTextField.qml
 5084c8e33fd38e0ba57b1cf2b732cd04a4985d714583f7445e45419d95ae3118  kit/clipboard.sh
 90b1a10f5f5005c94031f36fef0ad3d8e705cf4e13372dd8362ef4579e0a93df  kit/node-loader.cjs
 1de743dc81bc382551ccd13d4be5859d56d425356dd59d48eed03d6f46269e8f  kit/qmldir
