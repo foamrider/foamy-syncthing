@@ -34,7 +34,10 @@ test('the schema mirrors the manifest defaults and schema', () => {
     const field = schema.fields.find(f => f.key === entry.key);
     assert.ok(field, entry.key);
     for (const key of ['type', 'min', 'max', 'defaultValue']) assert.equal(entry[key], field[key], `${entry.key}.${key}`);
+    assert.deepEqual(entry.options, field.options, `${entry.key}.options`);
   }
+  // Every setting is in the manifest schema, also those without a control.
+  assert.deepEqual(manifest.barWidget.schema.map(e => e.key).sort(), schema.fields.map(f => f.key).sort());
 });
 
 test('saving validates and uses the full entry, or the omarchy bar set fallback', () => {

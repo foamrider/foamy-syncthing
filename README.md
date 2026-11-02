@@ -72,8 +72,8 @@ returns a JSON health summary.
 | `probeIntervalSec` | 15 | Installation check while Syncthing is offline (5–300 s); also the core's systemd probe interval |
 | `serviceState` | `enabled` | Passed to the native core as the intended autostart state; the panel doesn't act on it |
 
-The first four are in Omarchy's widget settings (`barWidget.schema`); the
-popup's Settings page has the device warning and both refresh intervals.
+All five are in Omarchy's widget settings (`barWidget.schema`); the popup's
+Settings page has the device warning and both refresh intervals.
 Settings save in place (`bar.shell.updateEntryInline`, else `omarchy bar set`).
 
 ## Resource use
