@@ -1,8 +1,8 @@
 # foamy-kit.lock: written by foamy-kit sync.sh; do not edit.
 # Hashes are of each file's body (the file without its stamp line);
 # notices are hashed whole. tests/kit-check.sh verifies them.
-version 0.4.5
-source 69b589ce3e41
+version 0.4.6
+source ca9b5fe75b9f
 components FoamyAction,FoamyButton,FoamyCursor,FoamyDropdown,FoamyHeader,FoamyHeroBand,FoamyI18n,FoamyIcon,FoamyInfoNote,FoamyIpc,FoamyMenu,FoamyMotion,FoamyNumberField,FoamyPalette,FoamyPopup,FoamyPopupCard,FoamyPrefs,FoamySettings,FoamyShared,FoamyStyle,FoamyWheelScroll,SafeTextField
 31637cf414fddfbc7c18c7d107b4c9a77801568fd78ebb8212791fb66de476a9  kit/FoamyAction.qml
 574d30ef6a5837ee493cea7a7195ca0563b456298d7ecb83f683d3380ab18760  kit/FoamyButton.qml
