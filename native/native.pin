@@ -1,0 +1,11 @@
+# native.pin: written by foamy-kit tools/build-native.sh; do not edit.
+# check.sh and tests/kit-check.sh verify bin/<arch>/<binary> against it and
+# report the binaries stale when `source` no longer matches the crate, kit/rust,
+# Cargo.toml, Cargo.lock and rust-toolchain.toml. Rebuild: foamy-kit tools/build-native.sh <plugin>.
+crate native
+binary foamy-syncthing-helper
+toolchain 1.99.1
+kit 0.5.0
+source 3708a0d3b5291a9956d312a4632aafff03f56ffe2a37ca7dcaf4dd5d5e186aab
+8350eb607acc45be2a6e3bffe9d091c2b2099da16ec854367d482e3a3a84c2a3  bin/aarch64/foamy-syncthing-helper
+01bb28b63326200110f59e4599d6a8ec9f2cee78520bd76bdf5ddf27ebd61977  bin/x86_64/foamy-syncthing-helper

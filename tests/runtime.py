@@ -15,6 +15,7 @@ crash-looping core keeps being retried and right-click/open starts it now.
 Requires ~/GitHub/Personal/foamy-kit (or FOAMY_KIT)."""
 import json
 import os
+import platform
 import shutil
 import sys
 import tempfile
@@ -190,8 +191,11 @@ ShellRoot {
 
 def prepare(work):
     plugin = work / "plugin"
-    shutil.copytree(SOURCE, plugin, ignore=shutil.ignore_patterns(".git", "__pycache__", "preview.png"))
-    core = plugin / "bin/x86_64/syncshell-core"
+    shutil.copytree(SOURCE, plugin, ignore=shutil.ignore_patterns(".git", "__pycache__", "preview.png", "target"))
+    # The fake core answers `stream`; `conflicts` goes to the real helper.
+    core = plugin / "bin" / platform.machine() / "foamy-syncthing-helper"
+    shutil.copyfile(core, work / "foamy-syncthing-helper")
+    (work / "foamy-syncthing-helper").chmod(0o755)
     shutil.copyfile(SOURCE / "tests/fake-core.py", core)
     core.chmod(0o755)
     (plugin / "scripts/syncthing-install.sh").write_text(PROBE_STUB)
@@ -230,6 +234,7 @@ def run(host, shell, crash=False):
         (work / "core.log").touch()
         runner = harness.Run(host, qml, plugin=plugin, prefix=f"foamy-syncthing-qs-{host}-")
         runner.env.update({"FAKE_CORE_SNAPSHOT": str(work / "snapshot.json"), "FAKE_CORE_LOG": str(work / "core.log"),
+                           "FAKE_CORE_HELPER": str(work / "foamy-syncthing-helper"),
                            "FOAMY_PROBE_LOG": str(work / "probe.log")})
         if crash:
             runner.env["FAKE_CORE_EXIT"] = "1"

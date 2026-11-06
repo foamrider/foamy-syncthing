@@ -1,0 +1,24 @@
+[package]
+name = "foamy-syncthing-helper"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Conflict scan and native core of Foamy Syncthing; the core is a Rust port of Syncshell's core (MIT)"
+
+[dependencies]
+# `tls`: the kit's rustls provider (Graviola: Rust and assembly only, so both
+# musl targets build with rustc alone), its CPU check and the system CA
+# store (only for an explicit HTTPS --endpoint without a pin).
+foamy-helper = { path = "../kit/rust/foamy-helper", features = ["tls"] }
+# Snapshots, requests and Syncthing's REST replies.
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+# poll(2) for idle-connection checks, errno values, and the nonblocking
+# Unix-socket connect (`net`).
+rustix = { version = "1.1", default-features = false, features = ["std", "fs", "process", "event", "net"] }
+# HTTPS to the Syncthing GUI: the pinned-certificate and insecure verifiers
+# and the client connection (the kit's version and features; no aws-lc-rs, C).
+rustls = { version = "0.23.31", default-features = false, features = ["std", "tls12"] }
+# Syncthing's config.xml (the GUI address, TLS flag and API key).
+quick-xml = { version = "0.38", default-features = false }
