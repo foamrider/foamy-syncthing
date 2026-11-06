@@ -1,4 +1,4 @@
-// foamy-kit 0.5.0 c6231252c49d7388ab5e6e8421e32d89065990aa91ba88b857e38c9dad0de759 — do not edit; change foamy-kit and run sync
+// foamy-kit 0.5.0 f8d5a3d7073844931bdf3f4263650038bfc1cf0096f54fc8b04548fb706e841b — do not edit; change foamy-kit and run sync
 //! Shared building blocks for foamy plugin helpers (`foamy-<plugin>-helper`).
 //!
 //! foamy-kit's `FoamyNative` component vendors this crate into a plugin as
@@ -15,6 +15,7 @@
 //! an output cap. Nothing here starts an async runtime or a background thread
 //! that outlives a call.
 //!
+//! - [`hash`]: SHA-256 in plain Rust (`sha256`, `sha256_hex`).
 //! - [`io`]: bounded reads (whole streams, files, lines with a maximum length).
 //! - [`json`]: JSON-lines requests and replies, and [`json::run`], the
 //!   "every failure still prints JSON" entry point.
@@ -42,6 +43,7 @@ pub mod child;
 #[cfg(feature = "favicon")]
 pub mod favicon;
 pub mod fs;
+pub mod hash;
 pub mod io;
 pub mod json;
 pub mod lock;
