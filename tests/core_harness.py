@@ -3,8 +3,9 @@ a temporary HOME, a fake Syncthing (tests/fake_syncthing.py), and fake
 `systemctl` and `syncthing` executables on a PATH that holds nothing else.
 
 FOAMY_HELPER: JSON argv prefix of the helper binary; the core runs as
-`<prefix> stream <flags>`. The default is the bundled core,
-bin/<machine>/syncshell-core."""
+`<prefix> stream <flags>`. The default is this machine's bundled helper,
+bin/<machine>/foamy-syncthing-helper (bin/aarch64/… also runs here through
+qemu binfmt)."""
 
 import json
 import os
@@ -29,7 +30,7 @@ def helper_prefix():
     if os.environ.get("FOAMY_HELPER"):
         return [str(Path(part).resolve()) if i == 0 and not os.path.isabs(part) else part
                 for i, part in enumerate(json.loads(os.environ["FOAMY_HELPER"]))]
-    return [str(ROOT / "bin" / platform.machine() / "syncshell-core")]
+    return [str(ROOT / "bin" / platform.machine() / "foamy-syncthing-helper")]
 
 
 SYSTEMCTL = r'''#!/usr/bin/python3 -I
@@ -63,6 +64,15 @@ with open(os.environ["FAKE_CALLS"], "a") as log:
 if sys.argv[1:] == ["paths"]:
     print("Configuration file:\n\t" + os.environ.get("FAKE_SYNCTHING_CONFIG", "") + "\n")
 '''
+
+
+def proc_argv(pid):
+    """/proc/<pid>/cmdline as a list, without a binfmt emulator's prefix
+    (qemu-aarch64-static <binary> <argv...>)."""
+    argv = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")[:-1]
+    if argv and os.path.basename(argv[0]).startswith(b"qemu-"):
+        argv = argv[2:]
+    return argv
 
 
 class Core:

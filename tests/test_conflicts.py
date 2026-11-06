@@ -1,11 +1,13 @@
 """Check conflict semantics and private stdin at the real process boundary.
 
 FOAMY_HELPER: JSON argv prefix of the helper binary; the scan runs as
-`<prefix> conflicts`. The default is the Python scanner."""
+`<prefix> conflicts`. The default is this machine's bundled helper,
+bin/<machine>/foamy-syncthing-helper."""
 
 import json
 import os
 from pathlib import Path
+import platform
 import shutil
 import subprocess
 import tempfile
@@ -13,7 +15,6 @@ import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER = ROOT / "scripts/syncthing-conflicts.py"
 MAX_INPUT_BYTES = 1048576
 GENERIC = b"Could not check for Syncthing conflicts.\n"
 
@@ -22,7 +23,7 @@ def scanner():
     if os.environ.get("FOAMY_HELPER"):
         prefix = json.loads(os.environ["FOAMY_HELPER"])
         return [str(Path(prefix[0]).resolve())] + prefix[1:] + ["conflicts"]
-    return ["/usr/bin/python3", str(HELPER)]
+    return [str(ROOT / "bin" / platform.machine() / "foamy-syncthing-helper"), "conflicts"]
 
 
 def scan(paths=None, raw=None, args=(), env=None, timeout=30):
@@ -168,15 +169,19 @@ class ConflictTests(unittest.TestCase):
                 # Hold stdin open so the production worker is observable on procfs.
                 process.stdin.write(json.dumps([str(folder)], ensure_ascii=False).encode())
                 process.stdin.flush()
-                until = time.monotonic() + 2
+                until = time.monotonic() + 5
                 while True:
-                    argv = Path(f"/proc/{process.pid}/cmdline").read_bytes()
-                    if argv.startswith(expected[0] + b"\x00"):
+                    raw = Path(f"/proc/{process.pid}/cmdline").read_bytes()
+                    argv = raw.split(b"\x00")[:-1]
+                    # Without a binfmt emulator's prefix (qemu-aarch64-static <binary>).
+                    if argv and os.path.basename(argv[0]).startswith(b"qemu-"):
+                        argv = argv[2:]
+                    if argv[:1] == expected[:1]:
                         break
                     self.assertLess(time.monotonic(), until)
                     time.sleep(0.01)
-                self.assertEqual(argv.split(b"\x00")[:-1], expected)
-                self.assertNotIn(b"private-Canary-847", argv)
+                self.assertEqual(argv, expected)
+                self.assertNotIn(b"private-Canary-847", raw)
                 tasks = Path(f"/proc/{process.pid}/task")
                 children = "".join((task / "children").read_text() for task in tasks.iterdir())
                 self.assertEqual(children.strip(), "")
@@ -228,11 +233,17 @@ class ConflictTests(unittest.TestCase):
         cleanup = source[start:source.index("    if (Plugin.ServiceRegistry", start)] + "  }"
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
-            helper_dir = base / "scripts"
+            # The helper as FoamyNative launches it: bin/$HOSTTYPE/<name>.
+            helper_dir = base / "bin" / platform.machine()
             helper_dir.mkdir(parents=True)
+            (base / "kit").mkdir()
+            shutil.copy(ROOT / "kit/FoamyNative.js", base / "kit/FoamyNative.js")
+            stub = helper_dir / "foamy-syncthing-helper"
             state = base / "delivered.jsonl"
-            (helper_dir / HELPER.name).write_text('''import json, os, sys, time
+            stub.write_text('''#!/usr/bin/python3
+import json, os, sys, time
 from pathlib import Path
+assert sys.argv[1:] == ["conflicts"], sys.argv
 paths = json.load(sys.stdin)
 with Path(os.environ["TEST_CONFLICT_STATE"]).open("a") as output:
     output.write(json.dumps({"paths":paths, "cmdline":Path("/proc/self/cmdline").read_bytes().decode()}) + "\\n")
@@ -244,8 +255,10 @@ else: print(json.dumps([path == "found" for path in paths]))
 ''')
             # Isolate the host adapter, while exercising the actual QML functions,
             # state, Process, deadline and destruction handler from Service.qml unchanged.
+            stub.chmod(0o755)
             (base / "Scanner.qml").write_text('''import QtQuick
 import Quickshell.Io
+import "kit/FoamyNative.js" as FoamyNative
 QtObject {
   id: root
   property string pluginRoot: %s
@@ -262,6 +275,7 @@ QtObject {
 import QtTest
 import Quickshell
 import Quickshell.Io
+import "kit/FoamyNative.js" as FoamyNative
 ShellRoot {
   FloatingWindow {
     visible: true; implicitWidth: 300; implicitHeight: 100
@@ -361,6 +375,20 @@ ShellRoot {
           scanner.scanConflicts(true)
           tryCompare(scanner, "conflictInput", "", 3000)
         }
+        function test_7_a_missing_helper_is_reported_once() {
+          probe.command = ["/usr/bin/mv", STUB, STUB + ".off"]
+          root.probeFinished = false; probe.running = true
+          tryCompare(root, "probeFinished", true, 1000)
+          scanner.conflictFolderIds = {f0: true}
+          scan(["found"])
+          compare(scanner.conflictScanError, FoamyNative.UNAVAILABLE_TEXT)
+          compare(scanner.conflictScanUnavailable, true)
+          compare(scanner.hasConflicts, true)
+          scanner.folders = [{id:"z", path:"other"}]
+          scanner.scanConflicts(true)
+          compare(scanner.conflictInput, "")
+          compare(scanner.conflictScan.running, false)
+        }
         onCompletedChanged: if (completed) {
           console.log("CONFLICT_SCAN passed=" + qtest_results.passCount + " failed=" + qtest_results.failCount)
           Qt.quit()
@@ -370,6 +398,8 @@ ShellRoot {
   }
 }
 ''')
+            shell = base / "shell.qml"
+            shell.write_text(shell.read_text().replace("STUB", json.dumps(str(stub))))
             runtime = base / "runtime"
             runtime.mkdir(mode=0o700)
             env = dict(os.environ, QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software",
@@ -378,15 +408,16 @@ ShellRoot {
                                     text=True, capture_output=True, timeout=15)
             output = result.stdout + result.stderr
             self.assertEqual(result.returncode, 0, output)
-            self.assertIn("CONFLICT_SCAN passed=7 failed=0", output)
+            self.assertIn("CONFLICT_SCAN passed=8 failed=0", output)
             records = [json.loads(line) for line in state.read_text().splitlines()]
             self.assertEqual(records[0]["paths"], ['private-Canary-847 📁 "quote"\n--exec', '-leading-dash'])
             for record in records:
-                self.assertEqual(record["cmdline"].split("\x00")[:-1], ["/usr/bin/python3", str(helper_dir / HELPER.name)])
+                # The paths travel on stdin only.
+                self.assertEqual(record["cmdline"].split("\x00")[:-1], ["/usr/bin/python3", str(stub), "conflicts"])
             self.assertEqual(sum(record["paths"] == ["stall"] for record in records), 1)
             self.assertEqual(sum(record["paths"] == ["counted"] for record in records), 1)
             self.assertEqual(sum(record["paths"] == ["counted", "counted"] for record in records), 2)
-            print("CONFLICT_SCAN passed=7 failed=0")
+            print("CONFLICT_SCAN passed=8 failed=0")
 
 
 if __name__ == "__main__":

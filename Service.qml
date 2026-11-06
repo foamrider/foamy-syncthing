@@ -4,6 +4,7 @@ import Quickshell.Io
 import "." as Plugin
 import "kit"
 import "kit/FoamyPrefs.js" as Prefs
+import "kit/FoamyNative.js" as FoamyNative
 import "Preferences.js" as Schema
 import "service"
 import "service/Facade.js" as Facade
@@ -112,6 +113,8 @@ QtObject {
   property string scannedFolderKey: ""
   property var conflictScanFolders: []
   property bool conflictRescan: false
+  // No helper for this CPU: the scan is not attempted again.
+  property bool conflictScanUnavailable: false
   readonly property string folderKey: folders.map(function(folder) {
     return String(folder.id || "") + "\u0001" + String(folder.path || "")
   }).join("\u0000")
@@ -364,7 +367,7 @@ QtObject {
   // Walks every folder, so it runs when the folder set changes (not on every
   // snapshot: those arrive per sync event), plus every five minutes.
   function scanConflicts(force) {
-    if (!online) return
+    if (!online || conflictScanUnavailable) return
     if (force !== true && folderKey === scannedFolderKey) return
     if (conflictScan.running || conflictInput !== "") { conflictRescan = true; return }
     var scanned = folders.filter(function(folder) { return !!folder.path })
@@ -388,6 +391,12 @@ QtObject {
     conflictInput = ""
     var flags = null
     try { flags = JSON.parse(conflictOutput.trim()) } catch (error) { flags = null }
+    if (FoamyNative.unavailable(code)) {
+      conflictScanUnavailable = true
+      conflictRescan = false
+      conflictScanError = root.tr(FoamyNative.UNAVAILABLE_TEXT)
+      return
+    }
     if (code !== 0 || !Array.isArray(flags) || flags.length !== conflictScanFolders.length) {
       // Keep the last known result; retry on the next folder change or timer.
       conflictScanError = root.tr("Could not check for Syncthing conflicts")
@@ -458,7 +467,8 @@ QtObject {
     onTriggered: root.scanConflicts(true)
   }
   property Process conflictScan: Process {
-    command: ["/usr/bin/python3", root.pluginRoot + "/scripts/syncthing-conflicts.py"]
+    // Roots go on stdin, never in arguments.
+    command: FoamyNative.command(root.pluginRoot, "foamy-syncthing-helper", ["conflicts"])
     onStarted: {
       write(root.conflictInput + "\n")
       stdinEnabled = false

@@ -60,7 +60,7 @@ function buildFolderRows(syncthing, homePath) {
       error: String(status.error || ""),
       outOfSync: outOfSync,
       problem: outOfSync || state === "error" || !!status.error || errors > 0,
-      // Holds *.sync-conflict-* files (see scripts/syncthing-conflicts.py).
+      // Holds *.sync-conflict-* files (the helper's `conflicts` scan).
       conflict: conflicts[id] === true,
       // Preparing without queued work is not active synchronization.
       syncing: !outOfSync && (needItems > 0 || state === "syncing"),

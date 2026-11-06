@@ -1,11 +1,16 @@
 #!/usr/bin/python3 -I
-"""Test double for bin/x86_64/syncshell-core (protocol v2 over stdin/stdout,
-no network). FAKE_CORE_SNAPSHOT: JSON state file, re-read for every snapshot.
-FAKE_CORE_LOG: append argv and requests. FAKE_CORE_EXIT=1: exit right after
-the first snapshot (a crashing core)."""
+"""Test double for bin/<arch>/foamy-syncthing-helper's `stream` (protocol v2
+over stdin/stdout, no network). FAKE_CORE_SNAPSHOT: JSON state file, re-read
+for every snapshot. FAKE_CORE_LOG: append argv and requests. FAKE_CORE_EXIT=1:
+exit right after the first snapshot (a crashing core). `conflicts` runs the
+real helper at FAKE_CORE_HELPER."""
 import json
 import os
 import sys
+
+if sys.argv[1:2] == ["conflicts"]:
+    helper = os.environ["FAKE_CORE_HELPER"]
+    os.execv(helper, [helper] + sys.argv[1:])
 
 snapshot_path = os.environ.get("FAKE_CORE_SNAPSHOT", "")
 log_path = os.environ.get("FAKE_CORE_LOG", "")
