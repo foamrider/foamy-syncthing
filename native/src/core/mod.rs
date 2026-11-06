@@ -9,13 +9,9 @@
 
 pub mod actions;
 pub mod activity;
-// The REST calls and path checks the actions use arrive with them in the
-// next commits.
-#[allow(dead_code)]
 pub mod client;
 pub mod discovery;
 pub mod events;
-#[allow(dead_code)]
 pub mod gocompat;
 pub mod http;
 pub mod protocol;

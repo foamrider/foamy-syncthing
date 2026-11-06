@@ -316,6 +316,13 @@ impl ActionResult {
             ..ActionResult::default()
         }
     }
+
+    pub fn failed(error: Error) -> ActionResult {
+        ActionResult {
+            error: Some(error),
+            ..ActionResult::default()
+        }
+    }
 }
 
 /// Syncshell's `bounded*`: trimmed, then cut to a byte length.
