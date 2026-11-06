@@ -25,6 +25,18 @@
 - Remove the unused Syncshell panel, Web UI theme files and assets (about
   7,000 lines of QML/JS); flatten the adapter into `Service.qml` and
   `service/`.
+- Replace the bundled Go core (Syncshell 0.1.9, `bin/x86_64/syncshell-core`)
+  and the Python conflict scanner with one static Rust helper,
+  `bin/<arch>/foamy-syncthing-helper`, for x86_64 and **aarch64**. Its
+  `stream` subcommand is a Rust port of Syncshell's core at commit 7318f140
+  (MIT, credited in `LICENSE-SYNCSHELL`): the same protocol v2 and, for the
+  same Syncthing replies, the same output; the API key still never leaves
+  the process, and the GUI certificate is still pinned when TLS is on. Only
+  what the panel uses is ported; the unused desktop bridge, `probe`/`status`
+  and Syncshell's other actions are gone. 2.3 to 2.8 MB instead of 11.8 MB,
+  and the Go build's ten known standard-library vulnerabilities go with it.
+  Python 3 is no longer needed at runtime. Other CPUs show "This plugin's
+  helper isn't available for this CPU." instead of an architecture error.
 
 ## Foamy Syncthing 1.0.0
 
