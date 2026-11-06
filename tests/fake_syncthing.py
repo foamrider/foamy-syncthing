@@ -5,13 +5,15 @@ The server answers the endpoints the core uses from one in-memory `state`
 dict, applies the mutations it receives (PATCH/POST/DELETE folders, scans),
 and records every request (method, raw target, whether an API key came,
 body). With `tls=True` it serves HTTPS with a throwaway certificate made by
-`openssl` (see `make_certificate`)."""
+`openssl` (see `make_certificate`); with `unix=<path>` it listens on a Unix
+socket at that path instead of a loopback port."""
 
 import copy
 import json
 import os
 import shutil
 import socket
+import socketserver
 import ssl
 import subprocess
 import threading
@@ -75,6 +77,11 @@ def make_certificate(directory, name="https"):
 class QuietServer(ThreadingHTTPServer):
     def handle_error(self, request, client_address):
         # Clients that hang up mid-reply (the core's deadlines, TLS refusals).
+        pass
+
+
+class QuietUnixServer(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
+    def handle_error(self, request, client_address):
         pass
 
 
@@ -168,7 +175,7 @@ class Trickler:
 
 
 class FakeSyncthing:
-    def __init__(self, home, api_key=API_KEY, tls=None):
+    def __init__(self, home, api_key=API_KEY, tls=None, unix=None):
         self.state = default_state(home)
         self.api_key = api_key
         self.requests = []
@@ -178,13 +185,19 @@ class FakeSyncthing:
         self.down = None
         self.next_event = 1
         handler = self._handler()
-        self.server = QuietServer(("127.0.0.1", 0), handler)
+        self.unix = unix
+        if unix:
+            # TCP_NODELAY doesn't apply to a Unix socket.
+            handler = type("UnixHandler", (handler,), {"disable_nagle_algorithm": False})
+            self.server = QuietUnixServer(unix, handler)
+        else:
+            self.server = QuietServer(("127.0.0.1", 0), handler)
         self.server.daemon_threads = True
         if tls:
             context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
             context.load_cert_chain(tls[0], tls[1])
             self.server.socket = context.wrap_socket(self.server.socket, server_side=True)
-        self.port = self.server.server_address[1]
+        self.port = None if unix else self.server.server_address[1]
         self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
         self.thread.start()
 
@@ -194,7 +207,8 @@ class FakeSyncthing:
 
     @property
     def address(self):
-        return f"127.0.0.1:{self.port}"
+        """`127.0.0.1:<port>`, or the socket's path."""
+        return self.unix or f"127.0.0.1:{self.port}"
 
     def add_event(self, kind, data):
         with self.lock:

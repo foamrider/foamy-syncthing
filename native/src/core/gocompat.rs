@@ -296,6 +296,38 @@ pub fn path_escape(value: &str) -> String {
     )
 }
 
+/// Go's `url` unescaping in path or fragment mode (what `url.Parse` does to
+/// `Path` and `Fragment`): each `%XX` becomes that byte, whatever it is, and
+/// every other byte stays; a `%` without two hex digits after it is a parse
+/// error (`None`).
+pub fn unescape(value: &str) -> Option<Vec<u8>> {
+    let bytes = value.as_bytes();
+    let hex = |at: usize| bytes.get(at).and_then(|&b| (b as char).to_digit(16));
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut at = 0;
+    while at < bytes.len() {
+        if bytes[at] == b'%' {
+            out.push((hex(at + 1)? * 16 + hex(at + 2)?) as u8);
+            at += 3;
+        } else {
+            out.push(bytes[at]);
+            at += 1;
+        }
+    }
+    Some(out)
+}
+
+/// A Go string's bytes as `encoding/json` writes them: every byte that isn't
+/// part of valid UTF-8 becomes one U+FFFD.
+pub fn lossy(bytes: &[u8]) -> String {
+    let mut out = String::with_capacity(bytes.len());
+    for chunk in bytes.utf8_chunks() {
+        out.push_str(chunk.valid());
+        out.extend(chunk.invalid().iter().map(|_| '\u{FFFD}'));
+    }
+    out
+}
+
 /// `encoding/json` output: compact, map keys sorted, and strings escaped
 /// like Go (`<`, `>`, `&`, U+2028 and U+2029 as `\u…`), so frames match the
 /// Go core's byte for byte.
@@ -335,6 +367,28 @@ impl serde_json::ser::Formatter for GoFormatter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unescape_and_lossy_match_go() {
+        for (input, want) in [
+            ("", &b""[..]),
+            ("/tmp/gui%20socket", b"/tmp/gui socket"),
+            ("%2f%2F%41%c3%a6+", b"//A\xc3\xa6+"),
+            ("%ff%00", b"\xff\x00"),
+        ] {
+            assert_eq!(unescape(input).as_deref(), Some(want), "{input}");
+        }
+        for bad in ["%", "%2", "%zz", "a%2g", "%%20", "/x%", "%\u{e6}0"] {
+            assert_eq!(unescape(bad), None, "{bad}");
+        }
+        assert_eq!(lossy(b"gui socket"), "gui socket");
+        assert_eq!(lossy("\u{e6}".as_bytes()), "\u{e6}");
+        // Go's DecodeRune: one U+FFFD per byte of a broken sequence.
+        assert_eq!(
+            lossy(b"a\xe2\x82b\xff\xc0\x80"),
+            "a\u{FFFD}\u{FFFD}b\u{FFFD}\u{FFFD}\u{FFFD}"
+        );
+    }
 
     #[test]
     fn clean_join_base_dir_match_go() {

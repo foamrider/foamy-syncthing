@@ -5,8 +5,10 @@
 //! else SyncThingy's Flatpak configuration. The API key is read here and
 //! handed straight to the client.
 
+use std::ffi::OsString;
 use std::fs;
 use std::io::Read;
+use std::os::unix::ffi::OsStringExt;
 use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 
@@ -41,7 +43,8 @@ pub struct Target {
     /// Found by automatic local discovery (not Flatpak, not explicit).
     pub automatic: bool,
     pub api_key: ApiKey,
-    pub unix_socket: String,
+    /// The socket path for a `unix`/`unixs` endpoint, else empty.
+    pub unix_socket: OsString,
     pub tls_certificate: String,
     pub insecure_tls: bool,
 }
@@ -431,13 +434,16 @@ fn parse_bool(value: &str) -> Option<bool> {
 }
 
 /// `normalizeEndpoint`: (endpoint, unix socket path, local).
-pub fn normalize_endpoint(value: &str, tls_enabled: bool) -> Result<(String, String, bool), Error> {
+pub fn normalize_endpoint(
+    value: &str,
+    tls_enabled: bool,
+) -> Result<(String, OsString, bool), Error> {
     let address = trim_space(value);
     if address.is_empty() {
         return Err(failure(Code::Config, "Syncthing GUI address is missing"));
     }
     if gocompat::is_abs(address) {
-        return Ok((format!("unix://{address}"), address.to_string(), true));
+        return Ok((format!("unix://{address}"), address.into(), true));
     }
     if address.contains("://") {
         return normalize_url(address);
@@ -448,43 +454,60 @@ pub fn normalize_endpoint(value: &str, tls_enabled: bool) -> Result<(String, Str
     let scheme = if tls_enabled { "https" } else { "http" };
     Ok((
         format!("{scheme}://{}", join_host_port(&host, port)),
-        String::new(),
+        OsString::new(),
         is_loopback(&host),
     ))
 }
 
-fn normalize_url(value: &str) -> Result<(String, String, bool), Error> {
+/// `normalizeURL`, with `url.Parse`'s errors (control bytes, a malformed
+/// scheme, a broken `%` escape in the path or fragment) as "invalid URL".
+/// The path is used decoded, as Go's `URL.Path` is: `unix:///tmp/gui%20socket`
+/// is the socket `/tmp/gui socket`. Unlike Go, a decoded NUL is refused
+/// (Go would hand the kernel a path that ends at the NUL).
+fn normalize_url(value: &str) -> Result<(String, OsString, bool), Error> {
     let invalid = || failure(Code::Config, "Syncthing target URL is invalid");
+    let (value, fragment) = match value.split_once('#') {
+        Some((value, fragment)) => (value, Some(fragment)),
+        None => (value, None),
+    };
+    if value.bytes().any(|b| b < b' ' || b == 0x7f) {
+        return Err(invalid());
+    }
     let (scheme, rest) = value.split_once("://").ok_or_else(invalid)?;
     let scheme = scheme.to_ascii_lowercase();
-    if scheme.is_empty()
+    if !scheme.starts_with(|c: char| c.is_ascii_alphabetic())
         || !scheme
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"+-.".contains(&b))
     {
         return Err(invalid());
     }
-    let (rest, fragment) = match rest.split_once('#') {
-        Some((rest, fragment)) => (rest, Some(fragment)),
-        None => (rest, None),
-    };
     let (rest, query) = match rest.split_once('?') {
         Some((rest, query)) => (rest, Some(query)),
         None => (rest, None),
     };
     let (authority, path) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+    let path = gocompat::unescape(path).ok_or_else(invalid)?;
+    if fragment.is_some_and(|fragment| gocompat::unescape(fragment).is_none()) {
+        return Err(invalid());
+    }
     let clean_extras = query.is_none_or(str::is_empty) && fragment.is_none_or(str::is_empty);
     match scheme.as_str() {
         "unix" | "unixs" => {
-            if !gocompat::is_abs(path) || !clean_extras || !authority.is_empty() {
+            if !path.starts_with(b"/")
+                || path.contains(&0)
+                || !clean_extras
+                || !authority.is_empty()
+            {
                 return Err(failure(Code::Config, "Syncthing Unix target is invalid"));
             }
-            Ok((format!("{scheme}://{path}"), path.to_string(), true))
+            let endpoint = format!("{scheme}://{}", gocompat::lossy(&path));
+            Ok((endpoint, OsString::from_vec(path), true))
         }
         "http" | "https" => {
             if authority.contains('@')
                 || authority.is_empty()
-                || !(path.is_empty() || path == "/")
+                || !(path.is_empty() || path == b"/")
                 || !clean_extras
             {
                 return Err(invalid());
@@ -517,7 +540,7 @@ fn normalize_url(value: &str) -> Result<(String, String, bool), Error> {
             };
             Ok((
                 format!("{scheme}://{}", join_host_port(&hostname, port)),
-                String::new(),
+                OsString::new(),
                 is_loopback(&hostname),
             ))
         }
@@ -685,16 +708,16 @@ mod tests {
         let ok = |value: &str, tls: bool| normalize_endpoint(value, tls).unwrap();
         assert_eq!(
             ok("127.0.0.1:8384", false),
-            ("http://127.0.0.1:8384".into(), String::new(), true)
+            ("http://127.0.0.1:8384".into(), OsString::new(), true)
         );
         assert_eq!(
             ok("0.0.0.0:8384", true),
-            ("https://127.0.0.1:8384".into(), String::new(), true)
+            ("https://127.0.0.1:8384".into(), OsString::new(), true)
         );
         assert_eq!(ok(":8384", false).0, "http://127.0.0.1:8384");
         assert_eq!(
             ok("[::]:8384", false),
-            ("http://[::1]:8384".into(), String::new(), true)
+            ("http://[::1]:8384".into(), OsString::new(), true)
         );
         assert_eq!(ok("[::1]:8384", false).0, "http://[::1]:8384");
         assert!(ok("localhost:8384", false).2);
@@ -710,7 +733,45 @@ mod tests {
         assert_eq!(ok("HTTPS://[::1]", false).0, "https://[::1]:443");
         assert_eq!(
             ok("http://example.org/", false),
-            ("http://example.org:80".into(), String::new(), false)
+            ("http://example.org:80".into(), OsString::new(), false)
+        );
+        // The URL path is used decoded, as Go's URL.Path (outputs checked
+        // against Syncshell's normalizeEndpoint built with Go 1.27).
+        for (value, endpoint, socket) in [
+            (
+                "unix:///tmp/gui%20socket",
+                "unix:///tmp/gui socket",
+                &b"/tmp/gui socket"[..],
+            ),
+            (
+                "unixs:///run/st%2Fx.sock",
+                "unixs:///run/st/x.sock",
+                b"/run/st/x.sock",
+            ),
+            ("UNIX:///tmp/a+b?", "unix:///tmp/a+b", b"/tmp/a+b"),
+            ("unix:///tmp/x#", "unix:///tmp/x", b"/tmp/x"),
+            ("unix:///%2e%2e/x", "unix:///../x", b"/../x"),
+            (
+                "unix:///tmp/%e6%C3%A6",
+                "unix:///tmp/\u{FFFD}\u{e6}",
+                b"/tmp/\xe6\xc3\xa6",
+            ),
+            ("unix:///tmp/%ff", "unix:///tmp/\u{FFFD}", b"/tmp/\xff"),
+        ] {
+            assert_eq!(
+                ok(value, false),
+                (endpoint.into(), OsString::from_vec(socket.to_vec()), true),
+                "{value}"
+            );
+        }
+        // A raw absolute path is taken as it is.
+        assert_eq!(
+            ok("/tmp/gui%20socket", false),
+            (
+                "unix:///tmp/gui%20socket".into(),
+                "/tmp/gui%20socket".into(),
+                true
+            )
         );
         for (value, message) in [
             ("", "Syncthing GUI address is missing"),
@@ -722,6 +783,20 @@ mod tests {
             ("http://h:1?q", "Syncthing target URL is invalid"),
             ("unix://relative", "Syncthing Unix target is invalid"),
             ("ftp://h:1", "Syncthing target scheme is unsupported"),
+            // url.Parse errors: a broken escape, a control byte, a bad scheme.
+            ("unix:///tmp/%zz", "Syncthing target URL is invalid"),
+            ("unix:///tmp/%2", "Syncthing target URL is invalid"),
+            ("unix:///tmp/x%", "Syncthing target URL is invalid"),
+            ("unix:///tmp/x#%zz", "Syncthing target URL is invalid"),
+            ("unix:///tmp/a\tb", "Syncthing target URL is invalid"),
+            ("unix:///tmp/a\x7fb", "Syncthing target URL is invalid"),
+            ("1unix:///tmp/a", "Syncthing target URL is invalid"),
+            ("http://h:1/%zz", "Syncthing target URL is invalid"),
+            ("http://h:1/%2F", "Syncthing target URL is invalid"),
+            ("http://h:1#%zz", "Syncthing target URL is invalid"),
+            ("ftp://h/%zz", "Syncthing target URL is invalid"),
+            // Refused here, unlike Go: a socket path with a NUL in it.
+            ("unix:///tmp/a%00b", "Syncthing Unix target is invalid"),
         ] {
             assert_eq!(
                 normalize_endpoint(value, false).unwrap_err().message,

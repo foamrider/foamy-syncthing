@@ -10,11 +10,12 @@ import sys
 import time
 import unittest
 from pathlib import Path
+from urllib.parse import quote
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import fake_syncthing  # noqa: E402
-from core_harness import Core, PLUGIN_FLAGS, UNIT, proc_argv  # noqa: E402
+from core_harness import Core, PLUGIN_FLAGS, UNIT, proc_argv, silent_dns_prefix  # noqa: E402
 from fake_syncthing import API_KEY, LOCAL_ID, OTHER_ID, PEER_ID  # noqa: E402
 
 SHOW = ["systemctl", "--user", "show", UNIT, "--no-pager", "--property=LoadState", "--property=ActiveState",
@@ -706,6 +707,61 @@ class DeadlineTests(CoreTest):
         self.assertLess(core.arrived - started, 1.5)
         self.assertEqual(core.finish(), 0)
         self.assert_secret_free(core)
+
+
+    def test_a_silent_dns_server_ends_at_the_dial_bound(self):
+        # The lookup of a host name counts against the dial bound: a DNS
+        # server that never answers (the resolver itself would wait 30 s)
+        # ends the first refresh at 3 s, and a shutdown sent while it
+        # waits is answered right after.
+        core = self.core(start=False)
+        prefix = silent_dns_prefix(core.home)
+        if prefix is None:
+            self.skipTest("unprivileged user and network namespaces are unavailable")
+        core.wrapper = prefix
+        core.write_config(address="syncthing-gui.example.test:8384")
+        core.start()
+        self.assertEqual(core.next_frame()["type"], "hello")
+        core.send({"v": 2, "type": "shutdown", "id": "1"})
+        state = core.snapshot(lambda s: s["connection"]["phase"] in ("ready", "error"),
+                              DIAL_BOUND + 10)["state"]
+        self.assertEqual(state["connection"]["error"], TIMEOUT)
+        self.assertFalse(state["connection"]["online"])
+        self.assert_bound(core.arrived - core.started, DIAL_BOUND, "initial snapshot")
+        snapshot_at = core.arrived
+        result = core.wait_for(lambda f: f["type"] == "result" and f["id"] == "1", 5, "shutdown")
+        self.assertTrue(result["ok"], result)
+        self.assertLess(core.arrived - snapshot_at, 1.5)
+        self.assertEqual(core.finish(), 0)
+        self.assert_secret_free(core)
+
+
+class UnixSocketTests(CoreTest):
+    def test_an_escaped_unix_url_reaches_its_socket(self):
+        # unix:///…/gui%20socket is the socket "gui socket" (Go's URL.Path is
+        # decoded); the raw absolute path is taken as it is.
+        for escaped in (True, False):
+            with self.subTest(escaped=escaped):
+                core = self.core(start=False, unix_socket="gui socket")
+                path = core.syncthing.address
+                self.assertTrue(path.endswith("/gui socket"), path)
+                core.write_config(address="unix://" + quote(path) if escaped else path)
+                core.start()
+                state = core.ready()["state"]
+                self.assertEqual(state["connection"]["phase"], "ready", state["connection"])
+                self.assertEqual(state["connection"]["endpoint"], "unix://" + path)
+                self.assertTrue(state["connection"]["online"])
+                self.assertTrue(core.syncthing.calls("GET", "/rest/system/status"))
+                self.assertEqual(core.finish(), 0)
+                self.assert_secret_free(core)
+
+    def test_a_broken_escape_is_an_invalid_url(self):
+        core = self.core(start=False, unix_socket="gui socket")
+        core.write_config(address="unix://" + quote(core.syncthing.address) + "%zz")
+        core.start()
+        self.assertEqual(core.finish(), 1)
+        self.assertEqual(core.frames, [])
+        self.assertIn(b"Syncthing target URL is invalid", core.stderr)
 
 
 class FailureTests(CoreTest):

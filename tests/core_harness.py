@@ -12,6 +12,7 @@ import os
 import unittest
 import platform
 import queue
+import shutil
 import subprocess
 import tempfile
 import threading
@@ -66,6 +67,43 @@ if sys.argv[1:] == ["paths"]:
 '''
 
 
+# Runs argv[3:] in the user, mount and network namespace `unshare -rmn` made
+# for it, where loopback is up and /etc/resolv.conf (bind-mounted from
+# argv[2]) names one DNS server, on loopback, that takes queries and never
+# answers. argv[1] is the `ip` binary. Nothing outside the namespace changes.
+SILENT_DNS = r'''#!/usr/bin/python3 -I
+import os, socket, subprocess, sys
+ip, resolv = sys.argv[1], sys.argv[2]
+subprocess.run([ip, "link", "set", "lo", "up"], check=True)
+subprocess.run(["/usr/bin/mount", "--bind", resolv, "/etc/resolv.conf"], check=True)
+server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+server.bind(("127.0.0.1", 53))
+os.set_inheritable(server.fileno(), True)
+os.execv(sys.argv[3], sys.argv[3:])
+'''
+# The resolver would wait 30 s for an answer (musl and Go read these options).
+SILENT_RESOLV = "nameserver 127.0.0.1\noptions timeout:30 attempts:1\n"
+
+
+def silent_dns_prefix(directory):
+    """The argv prefix that runs a command with a DNS server that never
+    answers (see SILENT_DNS), or None where unprivileged namespaces, `ip`,
+    `mount` or /etc/resolv.conf are missing."""
+    unshare, ip = shutil.which("unshare"), shutil.which("ip")
+    if not (unshare and ip and os.path.exists("/usr/bin/mount") and os.path.exists("/etc/resolv.conf")):
+        return None
+    directory = Path(directory)
+    (directory / "silent-dns.py").write_text(SILENT_DNS)
+    (directory / "resolv.conf").write_text(SILENT_RESOLV)
+    prefix = [unshare, "--user", "--map-root-user", "--mount", "--net", "/usr/bin/python3", "-I",
+              str(directory / "silent-dns.py"), ip, str(directory / "resolv.conf")]
+    try:
+        probe = subprocess.run(prefix + ["/usr/bin/true"], capture_output=True, timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    return prefix if probe.returncode == 0 else None
+
+
 def proc_argv(pid):
     """/proc/<pid>/cmdline as a list, without a binfmt emulator's prefix
     (qemu-aarch64-static <binary> <argv...>)."""
@@ -79,7 +117,7 @@ class Core:
     """One core process against one fake Syncthing."""
 
     def __init__(self, tls=False, api_key=fake_syncthing.API_KEY, flags=None, config=True,
-                 systemctl=None, start=True, gui_address=None):
+                 systemctl=None, start=True, gui_address=None, unix_socket=None):
         self.temp = tempfile.TemporaryDirectory(prefix="foamy-syncthing-core-")
         self.home = Path(self.temp.name)
         self.bin = self.home / "bin"
@@ -98,7 +136,9 @@ class Core:
             certificate = fake_syncthing.make_certificate(str(self.config_dir))
             if certificate is None:
                 raise unittest.SkipTest("openssl is unavailable")
-        self.syncthing = fake_syncthing.FakeSyncthing(self.home, tls=certificate)
+        # unix_socket: a file name in the temporary HOME for the fake's socket.
+        self.syncthing = fake_syncthing.FakeSyncthing(
+            self.home, tls=certificate, unix=str(self.home / unix_socket) if unix_socket else None)
         self.syncthing.state["paths"]["config"] = str(self.config_path)
         if config:
             self.write_config(tls=tls, api_key=api_key, address=gui_address or self.syncthing.address)
@@ -108,6 +148,8 @@ class Core:
                     "FAKE_CALLS": str(self.calls_path), "FAKE_SYSTEMCTL_STATE": str(self.systemctl_path),
                     "LANG": "C.UTF-8"}
         self.flags = PLUGIN_FLAGS if flags is None else flags
+        # An argv prefix the core runs under (silent_dns_prefix).
+        self.wrapper = []
         self.frames = []
         self.lines = queue.Queue()
         self.process = None
@@ -137,7 +179,7 @@ class Core:
         return json.loads(self.systemctl_path.read_text())
 
     def argv(self):
-        return helper_prefix() + ["stream"] + self.flags
+        return self.wrapper + helper_prefix() + ["stream"] + self.flags
 
     def start(self):
         self.process = subprocess.Popen(self.argv(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,

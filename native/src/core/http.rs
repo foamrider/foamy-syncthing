@@ -11,11 +11,16 @@
 //! so a peer that trickles bytes can't stretch a phase past its bound. The
 //! connect itself is bounded too: TCP by `connect_timeout`, a Unix socket by
 //! a nonblocking connect (`connect_unix`), since a blocking one waits for as
-//! long as the listener's backlog stays full.
+//! long as the listener's backlog stays full, and a host name's lookup by
+//! the same dial deadline (`resolve`), since the resolver has its own
+//! timeouts and can't be interrupted.
 
+use std::ffi::{OsStr, OsString};
 use std::io::{self, BufRead, BufReader, Read, Write};
-use std::net::{Shutdown, TcpStream, ToSocketAddrs};
+use std::net::{IpAddr, Shutdown, SocketAddr, TcpStream, ToSocketAddrs};
 use std::os::unix::net::UnixStream;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -32,16 +37,19 @@ const MAX_IDLE: usize = 2;
 /// races a server closing an idle connection.
 const FRESH_FOR_MUTATIONS: Duration = Duration::from_secs(2);
 const MAX_HEADER_BYTES: usize = 1 << 20;
+/// Name lookups in flight at once. A lookup the dial stopped waiting for
+/// runs on until the resolver gives up (musl: at most 60 s); past this many,
+/// a dial times out without starting another.
+const MAX_LOOKUPS: usize = 8;
 
 /// Where the endpoint is.
 #[derive(Clone, Debug)]
 pub enum Address {
     /// `host:port` as dialled (an IPv6 host without brackets).
-    Tcp {
-        host: String,
-        port: u16,
-    },
-    Unix(String),
+    Tcp { host: String, port: u16 },
+    /// The socket's path, as bytes (a decoded `unix://` URL path need not be
+    /// UTF-8; it never holds a NUL).
+    Unix(OsString),
 }
 
 /// Why a request failed, as Syncshell classified it.
@@ -221,6 +229,75 @@ fn io_failure(error: &io::Error) -> Failure {
     Failure::Connection
 }
 
+/// A blocking name lookup (`getaddrinfo` behind `ToSocketAddrs`).
+type Lookup = fn(&str, u16) -> io::Result<Vec<SocketAddr>>;
+
+fn system_lookup(host: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
+    (host, port).to_socket_addrs().map(Iterator::collect)
+}
+
+static LOOKUPS: AtomicUsize = AtomicUsize::new(0);
+
+/// One slot of `MAX_LOOKUPS`, given back when the lookup ends.
+struct LookupSlot;
+
+impl LookupSlot {
+    fn take() -> Option<LookupSlot> {
+        LOOKUPS
+            .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
+                (n < MAX_LOOKUPS).then_some(n + 1)
+            })
+            .ok()
+            .map(|_| LookupSlot)
+    }
+}
+
+impl Drop for LookupSlot {
+    fn drop(&mut self) {
+        LOOKUPS.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
+/// The addresses to dial for `host`, by `deadline` (Go's `net.Dialer`
+/// bounds the lookup by its Timeout too, and a lookup cut off there is a
+/// timeout). An IP literal needs no lookup, as in Go. Anything else,
+/// `localhost` included (Go has no shortcut for it either), is resolved on
+/// a short-lived thread, because `getaddrinfo` can't be interrupted and
+/// keeps to the resolver's own timeouts; at the deadline the dial stops
+/// waiting and the thread ends whenever the resolver returns.
+fn resolve(
+    host: &str,
+    port: u16,
+    deadline: Instant,
+    lookup: Lookup,
+) -> Result<Vec<SocketAddr>, Failure> {
+    if let Ok(ip) = host.parse::<IpAddr>() {
+        return Ok(vec![SocketAddr::new(ip, port)]);
+    }
+    let left = deadline.saturating_duration_since(Instant::now());
+    if left.is_zero() {
+        return Err(Failure::Timeout);
+    }
+    // Every slot taken means lookups are piling up behind a resolver that
+    // isn't answering, so this one would time out as well.
+    let slot = LookupSlot::take().ok_or(Failure::Timeout)?;
+    let (sender, receiver) = mpsc::sync_channel(1);
+    let name = host.to_string();
+    std::thread::Builder::new()
+        .name("lookup".into())
+        .spawn(move || {
+            let answer = lookup(&name, port);
+            drop(slot);
+            let _ = sender.send(answer);
+        })
+        .map_err(|_| Failure::Connection)?;
+    match receiver.recv_timeout(left) {
+        Ok(Ok(addresses)) if !addresses.is_empty() => Ok(addresses),
+        Ok(_) | Err(RecvTimeoutError::Disconnected) => Err(Failure::Dns),
+        Err(RecvTimeoutError::Timeout) => Err(Failure::Timeout),
+    }
+}
+
 /// How often a Unix connect retries while the listener's backlog is full.
 const UNIX_RETRY: Duration = Duration::from_millis(10);
 
@@ -233,7 +310,7 @@ const UNIX_RETRY: Duration = Duration::from_millis(10);
 /// with `EAGAIN` without queueing anything (and the unconnected socket polls
 /// as writable at once), so that case retries the connect until the
 /// deadline; `EINPROGRESS` waits for writability and reads `SO_ERROR`.
-fn connect_unix(path: &str, deadline: Instant) -> Result<UnixStream, Failure> {
+fn connect_unix(path: &OsStr, deadline: Instant) -> Result<UnixStream, Failure> {
     use rustix::event::{PollFd, PollFlags, Timespec, poll};
     use rustix::io::Errno;
     use rustix::net::{AddressFamily, SocketAddrUnix, SocketFlags, SocketType, sockopt};
@@ -319,13 +396,7 @@ impl Transport {
         let dial_deadline = Instant::now() + remaining(DIAL_TIMEOUT)?;
         let socket = match &self.address {
             Address::Tcp { host, port } => {
-                let addresses: Vec<_> = (host.as_str(), *port)
-                    .to_socket_addrs()
-                    .map_err(|_| Failure::Dns)?
-                    .collect();
-                if addresses.is_empty() {
-                    return Err(Failure::Dns);
-                }
+                let addresses = resolve(host, *port, dial_deadline, system_lookup)?;
                 let mut last = Failure::Connection;
                 let mut connected = None;
                 for (index, address) in addresses.iter().enumerate() {
@@ -748,7 +819,7 @@ mod tests {
             queued.push(socket);
             assert!(queued.len() < 10_000, "the backlog never filled");
         }
-        let transport = Transport::new(Address::Unix(path.to_str().unwrap().into()), None);
+        let transport = Transport::new(Address::Unix(path.clone().into_os_string()), None);
         let started = Instant::now();
         let result = transport.request(
             "GET",
@@ -774,7 +845,7 @@ mod tests {
         std::fs::remove_file(&path).unwrap();
         let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
-        let stream = connect_unix(path.to_str().unwrap(), deadline).unwrap();
+        let stream = connect_unix(path.as_os_str(), deadline).unwrap();
         assert!(stream.read_timeout().is_ok());
         let mut flags = rustix::fs::fcntl_getfl(&stream).unwrap();
         flags &= rustix::fs::OFlags::NONBLOCK;
@@ -782,10 +853,72 @@ mod tests {
         drop(listener);
         std::fs::remove_file(&path).unwrap();
         assert!(matches!(
-            connect_unix(path.to_str().unwrap(), deadline),
+            connect_unix(path.as_os_str(), deadline),
             Err(Failure::Connection)
         ));
         let _ = std::fs::remove_dir_all(&directory);
+    }
+
+    fn stalled(_: &str, _: u16) -> io::Result<Vec<SocketAddr>> {
+        std::thread::sleep(Duration::from_secs(6));
+        Err(io::ErrorKind::TimedOut.into())
+    }
+
+    fn answered(_: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
+        Ok(vec![SocketAddr::from(([127, 0, 0, 9], port))])
+    }
+
+    fn unanswered(_: &str, _: u16) -> io::Result<Vec<SocketAddr>> {
+        Err(io::ErrorKind::NotFound.into())
+    }
+
+    #[test]
+    fn a_name_lookup_ends_at_the_dial_deadline() {
+        // A resolver that doesn't answer (a DNS server that drops queries):
+        // the lookup gives up at the dial bound, as a timeout, like Go's.
+        let started = Instant::now();
+        let result = resolve("gui.test", 8384, started + DIAL_TIMEOUT, stalled);
+        let took = started.elapsed();
+        assert!(matches!(result, Err(Failure::Timeout)), "{result:?}");
+        assert!(
+            took >= DIAL_TIMEOUT - Duration::from_millis(50)
+                && took < DIAL_TIMEOUT + Duration::from_millis(500),
+            "{took:?}"
+        );
+        // An answer or a refusal comes back as it is.
+        let soon = || Instant::now() + Duration::from_secs(1);
+        let addresses = resolve("gui.test", 8384, soon(), answered).unwrap();
+        assert_eq!(addresses, [SocketAddr::from(([127, 0, 0, 9], 8384))]);
+        assert!(matches!(
+            resolve("gui.test", 1, soon(), unanswered),
+            Err(Failure::Dns)
+        ));
+        // IP literals need no lookup (the lookup here would refuse them).
+        for (host, ip) in [("127.0.0.1", "127.0.0.1"), ("::1", "::1")] {
+            let addresses = resolve(host, 8384, soon(), unanswered).unwrap();
+            assert_eq!(addresses, [SocketAddr::new(ip.parse().unwrap(), 8384)]);
+        }
+        // A deadline already gone never starts a lookup.
+        assert!(matches!(
+            resolve("gui.test", 1, Instant::now(), answered),
+            Err(Failure::Timeout)
+        ));
+        // Stalled lookups hold their slot until the resolver returns; once
+        // all of them are taken, a dial times out without starting one.
+        while LOOKUPS.load(Ordering::Acquire) < MAX_LOOKUPS {
+            let left = Instant::now() + Duration::from_millis(5);
+            assert!(matches!(
+                resolve("gui.test", 1, left, stalled),
+                Err(Failure::Timeout)
+            ));
+        }
+        let started = Instant::now();
+        assert!(matches!(
+            resolve("gui.test", 1, soon(), answered),
+            Err(Failure::Timeout)
+        ));
+        assert!(started.elapsed() < Duration::from_millis(100));
+        assert!(resolve("127.0.0.1", 1, soon(), answered).is_ok());
     }
 
     #[test]

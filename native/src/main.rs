@@ -58,8 +58,10 @@
 //!   endpoint (never to `/rest/noauth/health`, never across a redirect to
 //!   another origin) and never appears in argv, the environment, stdout,
 //!   stderr, snapshots or errors.
-//! - Transport: loopback (or any configured) HTTP/1.1 or a Unix socket, no
-//!   proxy; 3 s connect, 4 s TLS handshake, 8 s to the response headers,
+//! - Transport: loopback (or any configured) HTTP/1.1 or a Unix socket (a
+//!   `unix://` URL's path percent-decoded like Go's `URL.Path`), no proxy;
+//!   3 s connect (a host name's lookup included; at most 8 lookups in
+//!   flight), 4 s TLS handshake, 8 s to the response headers,
 //!   15 s per request (70 s for the event long-poll), all absolute (a peer
 //!   that trickles bytes can't stretch them), 8 MiB per response, two idle
 //!   keep-alive connections. With TLS on, the GUI certificate
