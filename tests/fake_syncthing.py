@@ -1,0 +1,265 @@
+"""A loopback stand-in for Syncthing's REST API, for the native core's
+black-box tests (tests/test_stream.py). Never touches a real Syncthing.
+
+The server answers the endpoints the core uses from one in-memory `state`
+dict, applies the mutations it receives (PATCH/POST/DELETE folders, scans),
+and records every request (method, raw target, whether an API key came,
+body). With `tls=True` it serves HTTPS with a throwaway certificate made by
+`openssl` (see `make_certificate`)."""
+
+import copy
+import json
+import os
+import shutil
+import ssl
+import subprocess
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, unquote, urlsplit
+
+API_KEY = "test-key-Canary-4711"
+LOCAL_ID = "AAAAAAA-BBBBBBB-CCCCCCC-DDDDDDD-EEEEEEE-FFFFFFF-GGGGGGG-HHHHHHH"
+PEER_ID = "BBBBBBB-CCCCCCC-DDDDDDD-EEEEEEE-FFFFFFF-GGGGGGG-HHHHHHH-IIIIIII"
+OTHER_ID = "CCCCCCC-DDDDDDD-EEEEEEE-FFFFFFF-GGGGGGG-HHHHHHH-IIIIIII-JJJJJJJ"
+
+
+def default_state(home):
+    return {
+        "myID": LOCAL_ID,
+        "tilde": str(home),
+        "version": "v2.0.10",
+        "devices": [
+            {"deviceID": PEER_ID, "name": "laptop", "untrusted": False, "addresses": ["dynamic"]},
+            {"deviceID": LOCAL_ID, "name": "this", "untrusted": False},
+            {"deviceID": OTHER_ID, "name": "<phone & co>", "untrusted": True},
+        ],
+        "connections": {PEER_ID: {"connected": True}, OTHER_ID: {"connected": False}},
+        "folders": [],
+        "status": {},
+        "errors": {},
+        "pendingFolders": {},
+        "pendingDevices": {},
+        "discovery": {},
+        "gui": {"theme": "default", "address": "ignored"},
+        "paths": {"guiAssets": "/usr/share/syncthing/gui", "config": "/tmp/config.xml"},
+        "defaultFolder": {"id": "", "label": "", "path": "~", "type": "sendreceive",
+                          "rescanIntervalS": 3600, "fsWatcherEnabled": True, "paused": False,
+                          "devices": [], "minDiskFree": {"value": 1, "unit": "%"}},
+        "random": "AbCdEfGhIj",
+        "events": [],
+        "files": {},
+    }
+
+
+def folder(path, folder_id="docs", label="Documents", paused=False, devices=(LOCAL_ID, PEER_ID)):
+    return {"id": folder_id, "label": label, "path": str(path), "paused": paused, "markerName": ".stfolder",
+            "type": "sendreceive",
+            "devices": [{"deviceID": device, "introducedBy": "", "encryptionPassword": ""} for device in devices]}
+
+
+def make_certificate(directory, name="https"):
+    """(cert path, key path) of a fresh self-signed P-256 certificate, or
+    None without openssl."""
+    if not shutil.which("openssl"):
+        return None
+    cert = os.path.join(directory, name + "-cert.pem")
+    key = os.path.join(directory, name + "-key.pem")
+    subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256",
+                    "-nodes", "-subj", "/CN=syncthing", "-days", "2", "-addext", "subjectAltName=IP:127.0.0.1",
+                    "-keyout", key, "-out", cert], check=True, capture_output=True, timeout=30)
+    return cert, key
+
+
+class QuietServer(ThreadingHTTPServer):
+    def handle_error(self, request, client_address):
+        # Clients that hang up mid-reply (the core's deadlines, TLS refusals).
+        pass
+
+
+class FakeSyncthing:
+    def __init__(self, home, api_key=API_KEY, tls=None):
+        self.state = default_state(home)
+        self.api_key = api_key
+        self.requests = []
+        self.lock = threading.Lock()
+        self.overrides = {}
+        self.delays = {}
+        self.down = None
+        self.next_event = 1
+        handler = self._handler()
+        self.server = QuietServer(("127.0.0.1", 0), handler)
+        self.server.daemon_threads = True
+        if tls:
+            context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            context.load_cert_chain(tls[0], tls[1])
+            self.server.socket = context.wrap_socket(self.server.socket, server_side=True)
+        self.port = self.server.server_address[1]
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def close(self):
+        self.server.shutdown()
+        self.server.server_close()
+
+    @property
+    def address(self):
+        return f"127.0.0.1:{self.port}"
+
+    def add_event(self, kind, data):
+        with self.lock:
+            self.state["events"].append({"id": self.next_event, "globalID": self.next_event, "type": kind,
+                                         "time": "2026-11-06T00:00:00Z", "data": data})
+            self.next_event += 1
+
+    def wait_polling(self, timeout=10):
+        """Until the core's event loop long-polls (events added before that
+        are skipped, as by Syncthing's own clients)."""
+        until = time.monotonic() + timeout
+        while time.monotonic() < until:
+            if any("timeout=1" in call["target"] for call in self.calls("GET", "/rest/events")):
+                return
+            time.sleep(0.05)
+        raise AssertionError("the core never long-polled /rest/events")
+
+    def calls(self, method=None, prefix=""):
+        with self.lock:
+            return [r for r in self.requests if (method is None or r["method"] == method)
+                    and r["path"].startswith(prefix)]
+
+    def _handler(self):
+        fake = self
+
+        class Handler(BaseHTTPRequestHandler):
+            protocol_version = "HTTP/1.1"
+            disable_nagle_algorithm = True
+
+            def log_message(self, *args):
+                pass
+
+            def reply(self, status, value=None, raw=None):
+                body = raw if raw is not None else (b"" if value is None else json.dumps(value).encode())
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def handle_any(self):
+                length = int(self.headers.get("Content-Length") or 0)
+                body = self.rfile.read(length) if length else b""
+                target = urlsplit(self.path)
+                record = {"method": self.command, "path": target.path, "target": self.path,
+                          "key": self.headers.get("X-API-Key"), "body": body.decode("utf-8", "replace"),
+                          "headers": dict(self.headers.items())}
+                with fake.lock:
+                    fake.requests.append(record)
+                if fake.down and fake.down():
+                    # A stopped Syncthing: drop the connection unanswered.
+                    self.close_connection = True
+                    return
+                delay = fake.delays.get(target.path)
+                if delay:
+                    time.sleep(delay)
+                override = fake.overrides.get((self.command, target.path))
+                if override is not None:
+                    status, payload = override
+                    if isinstance(payload, bytes):
+                        return self.reply(status, raw=payload)
+                    return self.reply(status, payload)
+                if target.path == "/rest/noauth/health":
+                    return self.reply(200, {"status": "OK"})
+                if self.headers.get("X-API-Key") != fake.api_key:
+                    return self.reply(403, raw=b"CSRF Error\n")
+                query = {k: v[0] for k, v in parse_qs(target.query, keep_blank_values=True).items()}
+                with fake.lock:
+                    result = fake.route(self.command, target.path, query, body)
+                if result is None:
+                    return self.reply(404, raw=b"404 page not found\n")
+                status, payload = result
+                if self.command == "GET" and target.path == "/rest/events" and payload == []:
+                    time.sleep(min(float(query.get("timeout", "0")), 0.5))
+                self.reply(status, payload)
+
+            do_GET = do_POST = do_PATCH = do_DELETE = do_PUT = handle_any
+
+        return Handler
+
+    # Called with self.lock held.
+    def route(self, method, path, query, body):
+        state = self.state
+        folders = state["folders"]
+
+        def find(folder_id):
+            for item in folders:
+                if item["id"] == folder_id:
+                    return item
+            return None
+
+        if method == "GET":
+            simple = {
+                "/rest/system/status": lambda: {"myID": state["myID"], "tilde": state["tilde"], "uptime": 5},
+                "/rest/system/version": lambda: {"version": state["version"], "os": "linux"},
+                "/rest/config/devices": lambda: state["devices"],
+                "/rest/config/folders": lambda: folders,
+                "/rest/system/connections": lambda: {"connections": state["connections"], "total": {}},
+                "/rest/cluster/pending/folders": lambda: state["pendingFolders"],
+                "/rest/cluster/pending/devices": lambda: state["pendingDevices"],
+                "/rest/system/discovery": lambda: state["discovery"],
+                "/rest/config/gui": lambda: state["gui"],
+                "/rest/system/paths": lambda: state["paths"],
+                "/rest/config/defaults/folder": lambda: state["defaultFolder"],
+            }
+            if path in simple:
+                return 200, copy.deepcopy(simple[path]())
+            if path.startswith("/rest/config/folders/"):
+                item = find(unquote(path[len("/rest/config/folders/"):]))
+                return (200, copy.deepcopy(item)) if item else (404, None)
+            if path == "/rest/db/status":
+                return 200, state["status"].get(query.get("folder"),
+                                                 {"state": "idle", "needTotalItems": 0, "globalFiles": 1, "globalBytes": 10})
+            if path == "/rest/folder/errors":
+                if find(query.get("folder")) is None:
+                    return None
+                return 200, {"folder": query.get("folder"), "errors": state["errors"].get(query.get("folder")),
+                             "page": 1, "perpage": 100}
+            if path == "/rest/svc/random/string":
+                return 200, {"random": state["random"]}
+            if path == "/rest/db/file":
+                info = state["files"].get((query.get("folder"), query.get("file")))
+                return (200, info) if info else None
+            if path == "/rest/events":
+                since = int(query.get("since", "0"))
+                limit = int(query.get("limit", "0"))
+                kinds = set(query.get("events", "").split(",")) if query.get("events") else None
+                events = [e for e in state["events"] if e["id"] > since and (kinds is None or e["type"] in kinds)]
+                if limit > 0:
+                    events = events[-limit:]
+                return 200, events
+            return None
+        if method == "PATCH" and path.startswith("/rest/config/folders/"):
+            item = find(unquote(path[len("/rest/config/folders/"):]))
+            if item is None:
+                return 404, None
+            item.update(json.loads(body))
+            self.add_event_locked("ConfigSaved", {})
+            return 200, None
+        if method == "DELETE" and path.startswith("/rest/config/folders/"):
+            item = find(unquote(path[len("/rest/config/folders/"):]))
+            if item is None:
+                return 404, None
+            folders.remove(item)
+            self.add_event_locked("ConfigSaved", {})
+            return 200, None
+        if method == "POST" and path == "/rest/config/folders":
+            folders.append(json.loads(body))
+            self.add_event_locked("ConfigSaved", {})
+            return 200, None
+        if method == "POST" and path == "/rest/db/scan":
+            return 200, None
+        return None
+
+    def add_event_locked(self, kind, data):
+        self.state["events"].append({"id": self.next_event, "globalID": self.next_event, "type": kind,
+                                     "time": "2026-11-06T00:00:00Z", "data": data})
+        self.next_event += 1
