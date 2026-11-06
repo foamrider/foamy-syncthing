@@ -143,24 +143,28 @@ class Core:
         self.process = subprocess.Popen(self.argv(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                         stderr=subprocess.PIPE, env=self.env, cwd=str(self.home))
         self.stderr = b""
+        self.started = time.monotonic()
         threading.Thread(target=self._read, daemon=True).start()
         threading.Thread(target=self._read_stderr, daemon=True).start()
 
     def _read(self):
+        # (arrival time, line): a frame's timing doesn't depend on when the
+        # test gets round to reading it.
         for line in self.process.stdout:
-            self.lines.put(line)
-        self.lines.put(None)
+            self.lines.put((time.monotonic(), line))
+        self.lines.put((time.monotonic(), None))
 
     def _read_stderr(self):
         self.stderr = self.process.stderr.read()
 
     def next_frame(self, timeout=10):
-        line = self.lines.get(timeout=timeout)
+        arrived, line = self.lines.get(timeout=timeout)
         if line is None:
             raise EOFError("core output ended")
         self.raw = getattr(self, "raw", b"") + line
         frame = json.loads(line)
         self.frames.append(frame)
+        self.arrived = arrived
         return frame
 
     def wait_for(self, predicate, timeout=10, what="frame"):
@@ -216,7 +220,7 @@ class Core:
         code = self.process.wait(timeout=timeout)
         while True:
             try:
-                line = self.lines.get(timeout=2)
+                _, line = self.lines.get(timeout=2)
             except queue.Empty:
                 break
             if line is None:

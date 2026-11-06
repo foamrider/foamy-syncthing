@@ -615,6 +615,77 @@ class TlsTests(CoreTest):
         core.finish()
 
 
+TIMEOUT = {"code": "timeout", "message": "request timed out"}
+# Syncshell's Go transport: 8 s from the written request to the response
+# headers, 15 s for a whole request. Slack covers a loaded host and qemu.
+HEADER_BOUND, REQUEST_BOUND, EARLY, SLACK = 8.0, 15.0, 0.5, 2.5
+
+
+class DeadlineTests(CoreTest):
+    """A peer that trickles a reply a piece at a time (each piece well inside
+    any per-read timeout) is cut off at Go's absolute bounds, over HTTP and
+    HTTPS, and the requests queued behind it still run."""
+
+    def trickle_core(self, mode, gap, tls):
+        core = self.core(tls=tls, start=False)
+        certificate = (str(core.config_dir / "https-cert.pem"),
+                       str(core.config_dir / "https-key.pem")) if tls else None
+        trickler = fake_syncthing.Trickler(mode, gap, tls=certificate)
+        self.addCleanup(trickler.close)
+        core.write_config(tls=tls, address=trickler.address)
+        return core
+
+    def assert_bound(self, took, bound, what):
+        self.assertGreaterEqual(took, bound - EARLY, f"{what} after {took:.2f}s")
+        self.assertLess(took, bound + SLACK, f"{what} after {took:.2f}s")
+
+    def test_a_trickled_header_ends_at_the_header_bound(self):
+        cores = {tls: self.trickle_core("header", 2, tls) for tls in (False, True)}
+        for core in cores.values():
+            core.start()
+        for tls, core in cores.items():
+            with self.subTest(tls=tls):
+                state = core.ready(timeout=HEADER_BOUND + 10)["state"]
+                self.assertEqual(state["connection"]["error"], TIMEOUT)
+                self.assertFalse(state["connection"]["online"])
+                self.assert_bound(core.arrived - core.started, HEADER_BOUND, "initial snapshot")
+        sent = {}
+        for tls, core in cores.items():
+            core.send({"v": 2, "type": "refresh", "id": "1"})
+            sent[tls] = time.monotonic()
+        for tls, core in cores.items():
+            with self.subTest(tls=tls):
+                result = core.wait_for(lambda f: f["type"] == "result" and f["id"] == "1",
+                                       HEADER_BOUND + 10, "refresh result")
+                self.assertEqual(result["error"], TIMEOUT)
+                self.assert_bound(core.arrived - sent[tls], HEADER_BOUND, "refresh result")
+                started = time.monotonic()
+                core.request("shutdown", "2", timeout=5)
+                self.assertLess(core.arrived - started, 1.5)
+                self.assertEqual(core.finish(), 0)
+                self.assert_secret_free(core)
+
+    def test_a_trickled_body_ends_at_the_request_bound(self):
+        cores = {tls: self.trickle_core("body", 1, tls) for tls in (False, True)}
+        for core in cores.values():
+            core.start()
+        time.sleep(1)
+        for core in cores.values():
+            # Read only once the initial refresh is done.
+            core.send({"v": 2, "type": "shutdown", "id": "1"})
+        for tls, core in cores.items():
+            with self.subTest(tls=tls):
+                state = core.ready(timeout=REQUEST_BOUND + 10)["state"]
+                self.assertEqual(state["connection"]["error"], TIMEOUT)
+                self.assert_bound(core.arrived - core.started, REQUEST_BOUND, "initial snapshot")
+                snapshot_at = core.arrived
+                result = core.wait_for(lambda f: f["type"] == "result" and f["id"] == "1", 5, "shutdown")
+                self.assertTrue(result["ok"], result)
+                self.assertLess(core.arrived - snapshot_at, 1.5)
+                self.assertEqual(core.finish(), 0)
+                self.assert_secret_free(core)
+
+
 class FailureTests(CoreTest):
     def test_wrong_api_key_is_unauthorized_and_external(self):
         core, _ = self.folder_core(api_key="wrong-Canary-1234")

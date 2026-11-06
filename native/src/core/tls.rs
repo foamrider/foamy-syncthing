@@ -13,10 +13,11 @@
 //!
 //! In every mode the handshake signatures are verified against the peer's
 //! key, TLS 1.2 is the minimum, and session resumption is off, so every
-//! connection is verified afresh. Cryptography is Graviola's (pure Rust and
-//! assembly, no C compiler needed to cross-build); it needs AES and
-//! carry-less multiplication instructions, which [`cpu_supported`] checks
-//! before any handshake.
+//! connection is verified afresh. The crypto provider, the CPU check and
+//! the system CA store are the kit's (`foamy_helper::tls`: Graviola, pure
+//! Rust and assembly); Graviola needs AES and carry-less multiplication
+//! instructions, which the transport checks with
+//! `foamy_helper::tls::cpu_supported` before any handshake.
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -38,37 +39,10 @@ pub enum Mode {
     SystemRoots,
 }
 
-/// True when this CPU has the instructions Graviola needs (it would
-/// otherwise abort in the first handshake).
-pub fn cpu_supported() -> bool {
-    #[cfg(target_arch = "x86_64")]
-    {
-        std::arch::is_x86_feature_detected!("aes")
-            && std::arch::is_x86_feature_detected!("pclmulqdq")
-            && std::arch::is_x86_feature_detected!("ssse3")
-            && std::arch::is_x86_feature_detected!("avx")
-            && std::arch::is_x86_feature_detected!("avx2")
-            && std::arch::is_x86_feature_detected!("bmi1")
-            && std::arch::is_x86_feature_detected!("bmi2")
-            && std::arch::is_x86_feature_detected!("adx")
-    }
-    #[cfg(target_arch = "aarch64")]
-    {
-        std::arch::is_aarch64_feature_detected!("neon")
-            && std::arch::is_aarch64_feature_detected!("aes")
-            && std::arch::is_aarch64_feature_detected!("pmull")
-            && std::arch::is_aarch64_feature_detected!("sha2")
-    }
-    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    {
-        false
-    }
-}
-
 /// A client configuration for one target. Errors are for the caller's log
 /// only (they never contain secrets).
 pub fn client_config(mode: Mode) -> Result<Arc<ClientConfig>, String> {
-    let provider = Arc::new(rustls_graviola::default_provider());
+    let provider = foamy_helper::tls::provider();
     let algorithms = provider.signature_verification_algorithms;
     let builder = ClientConfig::builder_with_provider(Arc::clone(&provider))
         .with_protocol_versions(rustls::ALL_VERSIONS)
@@ -92,16 +66,11 @@ pub fn client_config(mode: Mode) -> Result<Arc<ClientConfig>, String> {
             .with_custom_certificate_verifier(Arc::new(AnyCertificate { algorithms }))
             .with_no_client_auth(),
         Mode::SystemRoots => {
-            let mut roots = rustls::RootCertStore::empty();
-            for certificate in rustls_native_certs::load_native_certs().certs {
-                let _ = roots.add(certificate);
-            }
-            let verifier = rustls::client::WebPkiServerVerifier::builder_with_provider(
-                Arc::new(roots),
-                provider,
-            )
-            .build()
-            .map_err(|error| error.to_string())?;
+            let roots = foamy_helper::tls::system_roots().map_err(|error| error.to_string())?;
+            let verifier =
+                rustls::client::WebPkiServerVerifier::builder_with_provider(roots, provider)
+                    .build()
+                    .map_err(|error| error.to_string())?;
             builder.with_webpki_verifier(verifier).with_no_client_auth()
         }
     };

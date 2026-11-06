@@ -1,4 +1,4 @@
-// foamy-kit 0.5.0 9b74bf82136c6b84e1545ed33c9b2575d8568c5a17f27a8a86a0d6dade4019a8 — do not edit; change foamy-kit and run sync
+// foamy-kit 0.5.0 c313f9ebfeef38e6adc56fb455e4643404b50f89aa495d7f7ffbaa139f40f351 — do not edit; change foamy-kit and run sync
 //! Bounded child processes: a deadline, a cap on captured output, a kill on
 //! either, and control over the environment, the process group or session,
 //! resource limits and death with the parent.
@@ -21,7 +21,7 @@
 
 use std::ffi::OsStr;
 use std::io::{self, ErrorKind, Read, Write};
-use std::os::fd::AsFd;
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, RawFd};
 use std::os::unix::process::CommandExt;
 use std::path::Path;
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, ExitStatus, Stdio};
@@ -62,6 +62,18 @@ impl Output {
     }
 }
 
+/// A step run in the child between `fork` and `exec`, after the kit's own
+/// setup. It must be async-signal-safe: system calls only, no allocation.
+pub(crate) type Hook = Box<dyn Fn() -> io::Result<()> + Send + Sync>;
+
+struct Hooks(Vec<Hook>);
+
+impl std::fmt::Debug for Hooks {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{} pre-exec hook(s)", self.0.len())
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Group {
     /// `setpgid(0, 0)`: its own process group, killed as a whole.
@@ -84,6 +96,8 @@ pub struct Bounded {
     die_with_parent: bool,
     group: Group,
     limits: Vec<(Resource, u64)>,
+    inherit: Vec<RawFd>,
+    hooks: Hooks,
 }
 
 impl Bounded {
@@ -97,6 +111,8 @@ impl Bounded {
             die_with_parent: true,
             group: Group::Own,
             limits: Vec::new(),
+            inherit: Vec::new(),
+            hooks: Hooks(Vec::new()),
         }
     }
 
@@ -189,6 +205,26 @@ impl Bounded {
         self
     }
 
+    /// Lets the child inherit `fd` under the same number (clears its
+    /// close-on-exec flag in the child only), like Python's `pass_fds`. The
+    /// fd must stay open until [`run`](Self::run).
+    pub fn inherit_fd(self, fd: impl AsFd) -> Bounded {
+        self.inherit_raw_fd(fd.as_fd().as_raw_fd())
+    }
+
+    pub(crate) fn inherit_raw_fd(mut self, fd: RawFd) -> Bounded {
+        self.inherit.push(fd);
+        self
+    }
+
+    /// Adds a step to run in the child just before `exec`, after the
+    /// session, death signal, rlimits and inherited fds.
+    #[cfg_attr(not(feature = "sandbox"), allow(dead_code))]
+    pub(crate) fn pre_exec_hook(mut self, hook: Hook) -> Bounded {
+        self.hooks.0.push(hook);
+        self
+    }
+
     /// Runs the child to completion within the bounds. `Err` only when it
     /// could not be started or waited for; a timeout or an overflow is an
     /// [`Output`] with `timed_out` or `overflowed` set.
@@ -201,6 +237,8 @@ impl Bounded {
             die_with_parent,
             group,
             limits,
+            inherit,
+            hooks,
         } = self;
         command
             .stdin(if stdin.is_some() {
@@ -217,11 +255,23 @@ impl Bounded {
         let parent = die_with_parent.then(getpid);
         // SAFETY: the closure runs in the forked child before exec. It only
         // makes system calls through rustix (setsid, prctl, getppid,
-        // getrlimit, setrlimit) and builds io::Errors from raw OS codes, so
-        // it neither allocates nor takes locks; `limits` is moved in and
-        // only read.
+        // getrlimit, setrlimit, fcntl) and builds io::Errors from raw OS
+        // codes, so it neither allocates nor takes locks; `limits` and
+        // `inherit` are moved in and only read. The hooks are the crate's
+        // own (sandbox), which hold to the same rule.
         unsafe {
-            command.pre_exec(move || crate::process::child_setup(session, parent, &limits));
+            command.pre_exec(move || {
+                crate::process::child_setup(session, parent, &limits)?;
+                for &fd in &inherit {
+                    // SAFETY: only fcntl on the number; a closed fd is EBADF.
+                    let fd = BorrowedFd::borrow_raw(fd);
+                    rustix::io::fcntl_setfd(fd, rustix::io::FdFlags::empty())?;
+                }
+                for hook in &hooks.0 {
+                    hook()?;
+                }
+                Ok(())
+            });
         }
         let started = Instant::now();
         let mut child = command.spawn()?;
@@ -318,10 +368,13 @@ fn keep(buffer: &mut Vec<u8>, data: &[u8], cap: usize) -> bool {
 
 impl Streams {
     /// Moves bytes between the child and our buffers until both output
-    /// streams end, the deadline passes or an output exceeds `cap`.
+    /// streams end and standard input is fully written (or the child
+    /// stopped reading it: `EPIPE`), the deadline passes or an output
+    /// exceeds `cap`. A child that closes or redirects its output before
+    /// reading its input still gets all of it.
     fn pump(&mut self, deadline: Instant, cap: usize) -> io::Result<Pump> {
         let mut chunk = vec![0u8; 16 * 1024];
-        while self.stdout.is_some() || self.stderr.is_some() {
+        while self.stdout.is_some() || self.stderr.is_some() || self.stdin.is_some() {
             let now = Instant::now();
             if now >= deadline {
                 return Ok(Pump::TimedOut);
@@ -488,6 +541,29 @@ mod tests {
     }
 
     #[test]
+    fn keeps_feeding_stdin_after_the_child_closes_its_output() {
+        // Regression (Codex review on PR #2): the input used to be cut off
+        // once stdout and stderr had both closed.
+        let dir = crate::fs::tests::TempDir::new("stdin");
+        let target = dir.0.join("count");
+        let output = sh("exec >&- 2>&-; wc -c > \"$0\"")
+            .arg(&target)
+            .stdin(vec![b'x'; 300_000])
+            .run()
+            .unwrap();
+        assert!(output.success(), "{output:?}");
+        assert_eq!(std::fs::read_to_string(&target).unwrap().trim(), "300000");
+        // Closed output and a child that never reads: the deadline still holds.
+        let start = Instant::now();
+        let stuck = sh("exec >&- 2>&-; sleep 30")
+            .stdin(vec![0u8; 300_000])
+            .timeout(Duration::from_millis(200))
+            .run()
+            .unwrap();
+        assert!(stuck.timed_out && start.elapsed() < Duration::from_secs(5));
+    }
+
+    #[test]
     fn controls_the_environment() {
         let output = sh("printf '%s|%s' \"${FOAMY_A-unset}\" \"${FOAMY_B-unset}\"")
             .keep_env(&["PATH"])
@@ -520,6 +596,21 @@ mod tests {
         let output = sh("ulimit -n").rlimit(Resource::Nofile, 32).run().unwrap();
         assert_eq!(output.stdout_lossy().trim(), "32");
         assert!(Bounded::new("/nonexistent/foamy").run().is_err());
+    }
+
+    #[test]
+    fn inherited_fds_reach_the_child_under_their_number() {
+        let (read, mut write) = io::pipe().unwrap();
+        write.write_all(b"through fd").unwrap();
+        drop(write);
+        let script = format!("cat <&{}", read.as_raw_fd());
+        let output = sh(&script).inherit_fd(&read).run().unwrap();
+        assert_eq!(output.stdout, b"through fd");
+        let closed = sh(&script).run().unwrap();
+        assert!(
+            !closed.success(),
+            "without inherit_fd the fd stays close-on-exec"
+        );
     }
 
     #[test]

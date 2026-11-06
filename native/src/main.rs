@@ -60,8 +60,9 @@
 //!   stderr, snapshots or errors.
 //! - Transport: loopback (or any configured) HTTP/1.1 or a Unix socket, no
 //!   proxy; 3 s connect, 4 s TLS handshake, 8 s to the response headers,
-//!   15 s per request (70 s for the event long-poll), 8 MiB per response,
-//!   two idle keep-alive connections. With TLS on, the GUI certificate
+//!   15 s per request (70 s for the event long-poll), all absolute (a peer
+//!   that trickles bytes can't stretch them), 8 MiB per response, two idle
+//!   keep-alive connections. With TLS on, the GUI certificate
 //!   `https-cert.pem` next to `config.xml` is pinned (exact certificate,
 //!   within its validity period, handshake signatures verified, no
 //!   resumption); `--insecure-tls` only for an explicit HTTPS endpoint;

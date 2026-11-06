@@ -4,6 +4,11 @@
 //! per-request deadline, at most two idle keep-alive connections (dropped
 //! after 45 s), no proxy, no compression, and a cap on the body. Redirects
 //! are the caller's business (see `client.rs`).
+//!
+//! The bounds are absolute, like Go's timers: every socket read and write,
+//! including rustls's own, goes through `foamy_helper::net::DeadlineStream`,
+//! whose deadline is the phase's (handshake, headers, or the whole request),
+//! so a peer that trickles bytes can't stretch a phase past its bound.
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
@@ -11,6 +16,7 @@ use std::os::unix::net::UnixStream;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use foamy_helper::net::{DeadlineStream, TimeoutStream, is_deadline};
 use rustls::pki_types::ServerName;
 use rustls::{ClientConfig, ClientConnection, StreamOwned};
 
@@ -72,21 +78,25 @@ enum Socket {
     Unix(UnixStream),
 }
 
-impl Socket {
-    fn set_timeouts(&self, timeout: Duration) -> io::Result<()> {
-        let timeout = Some(timeout.max(Duration::from_millis(1)));
+impl TimeoutStream for Socket {
+    fn set_read_limit(&self, timeout: Option<Duration>) -> io::Result<()> {
         match self {
-            Socket::Tcp(s) => {
-                s.set_read_timeout(timeout)?;
-                s.set_write_timeout(timeout)
-            }
-            Socket::Unix(s) => {
-                s.set_read_timeout(timeout)?;
-                s.set_write_timeout(timeout)
-            }
+            Socket::Tcp(s) => s.set_read_timeout(timeout),
+            Socket::Unix(s) => s.set_read_timeout(timeout),
         }
     }
+    fn set_write_limit(&self, timeout: Option<Duration>) -> io::Result<()> {
+        match self {
+            Socket::Tcp(s) => s.set_write_timeout(timeout),
+            Socket::Unix(s) => s.set_write_timeout(timeout),
+        }
+    }
+}
 
+/// A socket whose every read and write ends by the current phase's deadline.
+type Timed = DeadlineStream<Socket>;
+
+impl Socket {
     /// True when the peer closed or sent something while the connection
     /// sat idle (either way it can't carry the next request).
     fn stale(&self) -> bool {
@@ -139,15 +149,23 @@ impl Write for Socket {
 }
 
 enum Stream {
-    Plain(Socket),
-    Tls(Box<StreamOwned<ClientConnection, Socket>>),
+    Plain(Timed),
+    Tls(Box<StreamOwned<ClientConnection, Timed>>),
 }
 
 impl Stream {
     fn socket(&self) -> &Socket {
         match self {
-            Stream::Plain(s) => s,
-            Stream::Tls(s) => &s.sock,
+            Stream::Plain(s) => s.get_ref(),
+            Stream::Tls(s) => s.sock.get_ref(),
+        }
+    }
+
+    /// Bounds all I/O from now on (TLS records included) by `deadline`.
+    fn set_deadline(&mut self, deadline: Instant) {
+        match self {
+            Stream::Plain(s) => s.set_deadline(deadline),
+            Stream::Tls(s) => s.sock.set_deadline(deadline),
         }
     }
 }
@@ -186,15 +204,8 @@ impl Drop for Connection {
     }
 }
 
-fn timed_out(error: &io::Error) -> bool {
-    matches!(
-        error.kind(),
-        io::ErrorKind::WouldBlock | io::ErrorKind::TimedOut
-    )
-}
-
 fn io_failure(error: &io::Error) -> Failure {
-    if timed_out(error) {
+    if is_deadline(error) {
         return Failure::Timeout;
     }
     // A TLS alert or record error surfaces from rustls as InvalidData.
@@ -220,7 +231,7 @@ impl Transport {
         Transport {
             address,
             host_header,
-            tls_usable: tls.is_none() || crate::core::tls::cpu_supported(),
+            tls_usable: tls.is_none() || foamy_helper::tls::cpu_supported(),
             tls,
             idle: Mutex::new(Vec::new()),
         }
@@ -279,31 +290,28 @@ impl Transport {
             }
         };
         let stream = match &self.tls {
-            None => Stream::Plain(socket),
+            None => Stream::Plain(DeadlineStream::new(socket, deadline)),
             Some((config, name)) => {
                 if !self.tls_usable {
                     return Err(Failure::TlsUnsupported);
                 }
-                let handshake_left = remaining(TLS_HANDSHAKE_TIMEOUT)?;
-                socket
-                    .set_timeouts(handshake_left)
-                    .map_err(|_| Failure::Connection)?;
-                let handshake_deadline = Instant::now() + handshake_left;
+                let handshake_deadline = Instant::now() + remaining(TLS_HANDSHAKE_TIMEOUT)?;
+                // Go: "net/http: TLS handshake timeout" counts as a TLS
+                // failure; the request's own deadline passing first is
+                // Client.Timeout, a timeout.
+                let expired = if handshake_deadline < deadline {
+                    Failure::Tls
+                } else {
+                    Failure::Timeout
+                };
                 let connection = ClientConnection::new(Arc::clone(config), name.clone())
                     .map_err(|_| Failure::Tls)?;
-                let mut tls = StreamOwned::new(connection, socket);
+                let mut tls =
+                    StreamOwned::new(connection, DeadlineStream::new(socket, handshake_deadline));
                 while tls.conn.is_handshaking() {
-                    let left = handshake_deadline.saturating_duration_since(Instant::now());
-                    if left.is_zero() {
-                        return Err(Failure::Tls);
-                    }
-                    tls.sock
-                        .set_timeouts(left)
-                        .map_err(|_| Failure::Connection)?;
                     match tls.conn.complete_io(&mut tls.sock) {
                         Ok(_) => {}
-                        // Go: "net/http: TLS handshake timeout" counts as a TLS failure.
-                        Err(error) if timed_out(&error) => return Err(Failure::Tls),
+                        Err(error) if is_deadline(&error) => return Err(expired),
                         Err(error) if error.kind() == io::ErrorKind::InvalidData => {
                             return Err(Failure::Tls);
                         }
@@ -399,21 +407,11 @@ impl Transport {
         deadline: Instant,
         max_body: usize,
     ) -> Result<Response, (Failure, bool)> {
-        let set =
-            |connection: &Connection, limit: Option<Instant>| -> Result<(), (Failure, bool)> {
-                let until = limit.map_or(deadline, |l| l.min(deadline));
-                let left = until.saturating_duration_since(Instant::now());
-                if left.is_zero() {
-                    return Err((Failure::Timeout, false));
-                }
-                connection
-                    .reader
-                    .get_ref()
-                    .socket()
-                    .set_timeouts(left)
-                    .map_err(|_| (Failure::Connection, false))
-            };
-        set(&connection, None)?;
+        if Instant::now() >= deadline {
+            return Err((Failure::Timeout, false));
+        }
+        // Writing the request: the request's deadline (Go: Client.Timeout).
+        connection.reader.get_mut().set_deadline(deadline);
         {
             let stream = connection.reader.get_mut();
             stream
@@ -421,18 +419,20 @@ impl Transport {
                 .and_then(|()| stream.flush())
                 .map_err(|e| (io_failure(&e), false))?;
         }
-        let header_deadline = Instant::now() + RESPONSE_HEADER_TIMEOUT;
-        set(&connection, Some(header_deadline))?;
+        // The headers, interim 1xx ones included: 8 s from the written
+        // request (Go: ResponseHeaderTimeout), within the request's deadline.
+        let header_deadline = (Instant::now() + RESPONSE_HEADER_TIMEOUT).min(deadline);
+        connection.reader.get_mut().set_deadline(header_deadline);
         let (status, headers) = loop {
             let (status, headers) = read_head(&mut connection.reader)?;
             // Interim 1xx responses precede the real one.
             if (100..200).contains(&status) && status != 101 {
-                set(&connection, Some(header_deadline))?;
                 continue;
             }
             break (status, headers);
         };
-        set(&connection, None)?;
+        // The body: what is left of the request's deadline.
+        connection.reader.get_mut().set_deadline(deadline);
         let header = |name: &str| {
             headers
                 .iter()
@@ -605,6 +605,60 @@ mod tests {
         let mut body = Vec::new();
         let result = read_chunked(&mut Cursor::new(input.to_vec()), &mut body, max);
         (result, body)
+    }
+
+    /// A loopback peer that reads one request, sends `first`, then `piece`
+    /// every 50 ms for as long as the client listens.
+    fn trickler(first: &'static [u8], piece: &'static [u8]) -> Transport {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let (mut peer, _) = listener.accept().unwrap();
+            let mut head = Vec::new();
+            let mut byte = [0u8; 1];
+            while !head.ends_with(b"\r\n\r\n") && peer.read(&mut byte).unwrap_or(0) == 1 {
+                head.push(byte[0]);
+            }
+            let _ = peer.write_all(first);
+            while peer.write_all(piece).is_ok() {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        });
+        let address = Address::Tcp {
+            host: "127.0.0.1".into(),
+            port,
+        };
+        Transport::new(address, None)
+    }
+
+    #[test]
+    fn a_trickling_peer_cannot_outlast_the_request_deadline() {
+        for (first, piece) in [
+            // Headers that never end.
+            (&b"HTTP/1.1 200 OK\r\n"[..], &b"X-Trickle: 1\r\n"[..]),
+            // A body that never completes.
+            (
+                &b"HTTP/1.1 200 OK\r\nContent-Length: 100000\r\n\r\n"[..],
+                &b" "[..],
+            ),
+        ] {
+            let transport = trickler(first, piece);
+            let started = Instant::now();
+            let result = transport.request(
+                "GET",
+                "/rest/noauth/health",
+                &[],
+                None,
+                Duration::from_millis(700),
+                1 << 20,
+            );
+            let took = started.elapsed();
+            assert!(matches!(result, Err(Failure::Timeout)), "{first:?}");
+            assert!(
+                took >= Duration::from_millis(650) && took < Duration::from_millis(1500),
+                "{took:?}"
+            );
+        }
     }
 
     #[test]

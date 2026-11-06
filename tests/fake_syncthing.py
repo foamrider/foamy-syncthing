@@ -11,6 +11,7 @@ import copy
 import json
 import os
 import shutil
+import socket
 import ssl
 import subprocess
 import threading
@@ -75,6 +76,69 @@ class QuietServer(ThreadingHTTPServer):
     def handle_error(self, request, client_address):
         # Clients that hang up mid-reply (the core's deadlines, TLS refusals).
         pass
+
+
+class Trickler:
+    """A loopback endpoint that answers every request a byte at a time and
+    never finishes: `mode="header"` sends a status line, then one header line
+    every `gap` seconds and never the blank line; `mode="body"` sends complete
+    headers announcing a large body, then one byte of it every `gap` seconds.
+    Each piece arrives well within any per-read socket timeout, so only an
+    absolute deadline ends the request. HTTPS with `tls=(cert, key)`."""
+
+    def __init__(self, mode, gap, tls=None):
+        self.mode, self.gap = mode, gap
+        self.context = None
+        if tls:
+            self.context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+            self.context.load_cert_chain(tls[0], tls[1])
+        self.listener = socket.create_server(("127.0.0.1", 0))
+        self.port = self.listener.getsockname()[1]
+        self.closed = threading.Event()
+        self.requests = 0
+        threading.Thread(target=self._accept, daemon=True).start()
+
+    @property
+    def address(self):
+        return f"127.0.0.1:{self.port}"
+
+    def close(self):
+        self.closed.set()
+        self.listener.close()
+
+    def _accept(self):
+        while not self.closed.is_set():
+            try:
+                connection, _ = self.listener.accept()
+            except OSError:
+                return
+            threading.Thread(target=self._serve, args=(connection,), daemon=True).start()
+
+    def _serve(self, connection):
+        try:
+            connection.settimeout(10)
+            if self.context:
+                connection = self.context.wrap_socket(connection, server_side=True)
+            head = b""
+            while b"\r\n\r\n" not in head:
+                data = connection.recv(4096)
+                if not data:
+                    return
+                head += data
+            self.requests += 1
+            if self.mode == "header":
+                connection.sendall(b"HTTP/1.1 200 OK\r\n")
+                piece = b"X-Trickle: 1\r\n"
+            else:
+                connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
+                                   b"Content-Length: 4096\r\n\r\n")
+                piece = b" "
+            while not self.closed.wait(self.gap):
+                connection.sendall(piece)
+        except (OSError, ssl.SSLError):
+            pass
+        finally:
+            connection.close()
 
 
 class FakeSyncthing:

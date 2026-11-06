@@ -1,4 +1,4 @@
-// foamy-kit 0.5.0 402155c59682692dee3485a547be8099c7f484c48af768ff1ed1a562f02be5cd — do not edit; change foamy-kit and run sync
+// foamy-kit 0.5.0 2f17136d803e674f7a0576813750d8406680381102023f4669102bbceadc1555 — do not edit; change foamy-kit and run sync
 //! Files: atomic writes with owner and type checks, private directories and
 //! bounded reads that refuse symlinks and special files.
 
@@ -23,8 +23,10 @@ fn refuse(kind: ErrorKind, path: &Path, why: &str) -> io::Error {
     io::Error::new(kind, format!("{} {why}", path.display()))
 }
 
-/// Checks that an open directory belongs to this user and that nobody else
-/// can write into it (`private`: nobody else can read or enter it either).
+/// Checks that an open directory belongs to this user and is not
+/// world-writable without the sticky bit (where anyone could swap the
+/// file); group-writable is fine, as with umask 002 (`private`: nobody else
+/// may read, write or enter it at all).
 fn check_directory(fd: impl AsFd, path: &Path, private: bool) -> io::Result<()> {
     let stat = rfs::fstat(fd)?;
     if FileType::from_raw_mode(stat.st_mode) != FileType::Directory {
@@ -37,14 +39,19 @@ fn check_directory(fd: impl AsFd, path: &Path, private: bool) -> io::Result<()> 
             "is not owned by the current user",
         ));
     }
-    let open_to_others = if private { 0o077 } else { 0o022 };
-    if stat.st_mode & open_to_others != 0 {
-        let why = if private {
-            "is accessible to other users (expected mode 0700)"
-        } else {
-            "is writable by other users"
-        };
-        return Err(refuse(ErrorKind::PermissionDenied, path, why));
+    if private && stat.st_mode & 0o077 != 0 {
+        return Err(refuse(
+            ErrorKind::PermissionDenied,
+            path,
+            "is accessible to other users (expected mode 0700)",
+        ));
+    }
+    if !private && stat.st_mode & 0o002 != 0 && stat.st_mode & 0o1000 == 0 {
+        return Err(refuse(
+            ErrorKind::PermissionDenied,
+            path,
+            "is writable by all users without the sticky bit",
+        ));
     }
     Ok(())
 }
@@ -87,9 +94,10 @@ fn create_temp(dir: &OwnedFd, parent: &Path) -> io::Result<(OsString, OwnedFd)> 
 /// the directory. Readers see the old content or the new, never a mix.
 ///
 /// Refuses, before writing anything, when the directory is not owned by
-/// this user or is writable by others, or when `path` exists but is not a
-/// regular file owned by this user (a symlink is never followed or
-/// replaced). The temporary file is removed on failure.
+/// this user or is world-writable without the sticky bit (a group-writable
+/// directory of the user's own, as with umask 002, is fine), or when `path`
+/// exists but is not a regular file owned by this user (a symlink is never
+/// followed or replaced). The temporary file is removed on failure.
 pub fn write_atomic(path: &Path, data: &[u8], mode: u32) -> io::Result<()> {
     let (parent, name) = split(path)?;
     let dir = rfs::open(
@@ -270,11 +278,30 @@ pub(crate) mod tests {
         fs::set_permissions(&dir.0, fs::Permissions::from_mode(0o777)).unwrap();
         let error = write_atomic(&dir.0.join("file"), b"x", 0o600).unwrap_err();
         assert!(
-            error.to_string().contains("writable by other users"),
+            error.to_string().contains("writable by all users"),
             "{error}"
         );
         assert!(!dir.0.join("file").exists());
+        // Foreign-owned (root's /), even with the sticky bit (/tmp).
         assert!(write_atomic(Path::new("/"), b"x", 0o600).is_err());
+        let tmp = write_atomic(Path::new("/tmp/foamy-helper-never"), b"x", 0o600).unwrap_err();
+        assert!(tmp.to_string().contains("not owned"), "{tmp}");
+    }
+
+    #[test]
+    fn accepts_group_writable_and_sticky_own_directories() {
+        let dir = TempDir::new("umask002");
+        for mode in [0o775, 0o770, 0o1777] {
+            fs::set_permissions(&dir.0, fs::Permissions::from_mode(mode)).unwrap();
+            write_atomic(&dir.0.join("state"), format!("{mode:o}").as_bytes(), 0o600).unwrap();
+            assert_eq!(
+                fs::read_to_string(dir.0.join("state")).unwrap(),
+                format!("{mode:o}")
+            );
+        }
+        // ensure_private_dir stays strict.
+        fs::set_permissions(&dir.0, fs::Permissions::from_mode(0o770)).unwrap();
+        assert!(ensure_private_dir(&dir.0).is_err());
     }
 
     #[test]
