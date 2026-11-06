@@ -78,6 +78,32 @@ class QuietServer(ThreadingHTTPServer):
         pass
 
 
+class FullBacklog:
+    """A Unix stream listener that never accepts, with its listen backlog
+    already full: a connect to it can only wait (a blocking one forever)."""
+
+    def __init__(self, directory):
+        self.path = os.path.join(directory, "gui.sock")
+        self.listener = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.listener.bind(self.path)
+        self.listener.listen(0)
+        self.clients = []
+        while True:
+            client = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            client.setblocking(False)
+            try:
+                client.connect(self.path)
+            except BlockingIOError:
+                client.close()
+                break
+            self.clients.append(client)
+
+    def close(self):
+        for client in self.clients:
+            client.close()
+        self.listener.close()
+
+
 class Trickler:
     """A loopback endpoint that answers every request a byte at a time and
     never finishes: `mode="header"` sends a status line, then one header line

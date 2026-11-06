@@ -619,6 +619,8 @@ TIMEOUT = {"code": "timeout", "message": "request timed out"}
 # Syncshell's Go transport: 8 s from the written request to the response
 # headers, 15 s for a whole request. Slack covers a loaded host and qemu.
 HEADER_BOUND, REQUEST_BOUND, EARLY, SLACK = 8.0, 15.0, 0.5, 2.5
+# 3 s to connect (Go's net.Dialer.Timeout).
+DIAL_BOUND = 3.0
 
 
 class DeadlineTests(CoreTest):
@@ -684,6 +686,26 @@ class DeadlineTests(CoreTest):
                 self.assertLess(core.arrived - snapshot_at, 1.5)
                 self.assertEqual(core.finish(), 0)
                 self.assert_secret_free(core)
+
+
+    def test_a_full_unix_backlog_ends_at_the_dial_bound(self):
+        # A connect to a listener whose backlog is full never completes on
+        # its own; the dial deadline ends it and the core still answers.
+        core = self.core(start=False)
+        listener = fake_syncthing.FullBacklog(str(core.home))
+        self.addCleanup(listener.close)
+        core.write_config(address=listener.path)
+        core.start()
+        state = core.ready(timeout=DIAL_BOUND + 10)["state"]
+        self.assertEqual(state["connection"]["error"], TIMEOUT)
+        self.assertFalse(state["connection"]["online"])
+        self.assertLess(core.arrived - core.started, DIAL_BOUND + SLACK, "initial snapshot")
+        started = time.monotonic()
+        result = core.request("shutdown", "1", timeout=DIAL_BOUND + 5)
+        self.assertTrue(result["ok"], result)
+        self.assertLess(core.arrived - started, 1.5)
+        self.assertEqual(core.finish(), 0)
+        self.assert_secret_free(core)
 
 
 class FailureTests(CoreTest):

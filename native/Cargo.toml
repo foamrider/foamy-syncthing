@@ -14,8 +14,9 @@ foamy-helper = { path = "../kit/rust/foamy-helper", features = ["tls"] }
 # Snapshots, requests and Syncthing's REST replies.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# poll(2) for idle-connection checks, errno values.
-rustix = { version = "1.1", default-features = false, features = ["std", "fs", "process", "event"] }
+# poll(2) for idle-connection checks, errno values, and the nonblocking
+# Unix-socket connect (`net`).
+rustix = { version = "1.1", default-features = false, features = ["std", "fs", "process", "event", "net"] }
 # HTTPS to the Syncthing GUI: the pinned-certificate and insecure verifiers
 # and the client connection (the kit's version and features; no aws-lc-rs, C).
 rustls = { version = "0.23.31", default-features = false, features = ["std", "tls12"] }

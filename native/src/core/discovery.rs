@@ -278,11 +278,28 @@ fn read_protected_credential(path: &str) -> Result<String, Error> {
     Ok(credential)
 }
 
-#[derive(Default, Debug, PartialEq)]
+/// The parsed `<gui>` settings; `api_key` is the credential, so `Debug`
+/// shows only whether there is one.
+#[derive(Default, PartialEq)]
 pub struct Gui {
     pub tls: bool,
     pub address: String,
     pub api_key: String,
+}
+
+impl std::fmt::Debug for Gui {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let api_key = if self.api_key.is_empty() {
+            "empty"
+        } else {
+            "redacted"
+        };
+        f.debug_struct("Gui")
+            .field("tls", &self.tls)
+            .field("address", &self.address)
+            .field("api_key", &format_args!("{api_key}"))
+            .finish()
+    }
 }
 
 /// Go's `xml.Unmarshal` into `{GUI {TLS attr; Address; APIKey} "gui"}`: the
@@ -568,6 +585,30 @@ mod tests {
 
     fn gui(text: &str) -> Option<(bool, String, String)> {
         parse_config(text.as_bytes()).map(|g| (g.tls, g.address, g.api_key))
+    }
+
+    #[test]
+    fn debug_output_never_shows_the_api_key() {
+        let key = "debug-Canary-31337";
+        let config = format!(
+            r#"<configuration><gui tls="true"><address>127.0.0.1:8384</address><apikey>{key}</apikey></gui></configuration>"#
+        );
+        let gui = parse_config(config.as_bytes()).unwrap();
+        assert_eq!(gui.api_key, key);
+        for text in [
+            format!("{gui:?}"),
+            format!("{gui:#?}"),
+            format!("{:?}", Some(&gui)),
+        ] {
+            assert!(!text.contains(key), "{text}");
+            assert!(
+                text.contains("redacted") && text.contains("127.0.0.1:8384"),
+                "{text}"
+            );
+        }
+        assert!(format!("{:?}", Gui::default()).contains("empty"));
+        let target = ApiKey::new(key.to_string());
+        assert!(!format!("{target:?}").contains(key));
     }
 
     #[test]

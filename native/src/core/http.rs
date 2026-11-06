@@ -8,7 +8,10 @@
 //! The bounds are absolute, like Go's timers: every socket read and write,
 //! including rustls's own, goes through `foamy_helper::net::DeadlineStream`,
 //! whose deadline is the phase's (handshake, headers, or the whole request),
-//! so a peer that trickles bytes can't stretch a phase past its bound.
+//! so a peer that trickles bytes can't stretch a phase past its bound. The
+//! connect itself is bounded too: TCP by `connect_timeout`, a Unix socket by
+//! a nonblocking connect (`connect_unix`), since a blocking one waits for as
+//! long as the listener's backlog stays full.
 
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{Shutdown, TcpStream, ToSocketAddrs};
@@ -218,6 +221,66 @@ fn io_failure(error: &io::Error) -> Failure {
     Failure::Connection
 }
 
+/// How often a Unix connect retries while the listener's backlog is full.
+const UNIX_RETRY: Duration = Duration::from_millis(10);
+
+/// Connects to a Unix stream socket by `deadline` (Go: `net.Dialer.Timeout`;
+/// a passed deadline is a timeout, as in Go). The socket is nonblocking
+/// while it connects and blocking afterwards (`DeadlineStream` then bounds
+/// each read and write with socket timeouts).
+///
+/// On Linux a nonblocking connect to a listener whose backlog is full fails
+/// with `EAGAIN` without queueing anything (and the unconnected socket polls
+/// as writable at once), so that case retries the connect until the
+/// deadline; `EINPROGRESS` waits for writability and reads `SO_ERROR`.
+fn connect_unix(path: &str, deadline: Instant) -> Result<UnixStream, Failure> {
+    use rustix::event::{PollFd, PollFlags, Timespec, poll};
+    use rustix::io::Errno;
+    use rustix::net::{AddressFamily, SocketAddrUnix, SocketFlags, SocketType, sockopt};
+
+    let failed = |errno: Errno| io_failure(&io::Error::from(errno));
+    let address = SocketAddrUnix::new(path).map_err(|_| Failure::Connection)?;
+    let socket = rustix::net::socket_with(
+        AddressFamily::UNIX,
+        SocketType::STREAM,
+        SocketFlags::CLOEXEC | SocketFlags::NONBLOCK,
+        None,
+    )
+    .map_err(|_| Failure::Connection)?;
+    loop {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(Failure::Timeout);
+        }
+        match rustix::net::connect(&socket, &address) {
+            Ok(()) => break,
+            Err(Errno::INTR) => {}
+            // The backlog is full: nothing was queued, so try again.
+            Err(Errno::AGAIN) => std::thread::sleep(left.min(UNIX_RETRY)),
+            Err(Errno::INPROGRESS | Errno::ALREADY) => {
+                let mut fds = [PollFd::new(&socket, PollFlags::OUT)];
+                let wait = Timespec::try_from(left).map_err(|_| Failure::Connection)?;
+                match poll(&mut fds, Some(&wait)) {
+                    Ok(0) => return Err(Failure::Timeout),
+                    Ok(_) => match sockopt::socket_error(&socket) {
+                        Ok(Ok(())) => break,
+                        Ok(Err(errno)) | Err(errno) => return Err(failed(errno)),
+                    },
+                    Err(Errno::INTR) => {}
+                    Err(errno) => return Err(failed(errno)),
+                }
+            }
+            Err(Errno::ISCONN) => break,
+            Err(errno) => return Err(failed(errno)),
+        }
+    }
+    let stream = UnixStream::from(socket);
+    stream
+        .set_nonblocking(false)
+        .map_err(|_| Failure::Connection)?;
+    Ok(stream)
+}
+
 impl Transport {
     pub fn new(address: Address, tls: Option<Arc<ClientConfig>>) -> Transport {
         let (host_header, name_host) = match &address {
@@ -285,9 +348,7 @@ impl Transport {
                 let _ = stream.set_nodelay(true);
                 Socket::Tcp(stream)
             }
-            Address::Unix(path) => {
-                Socket::Unix(UnixStream::connect(path).map_err(|e| io_failure(&e))?)
-            }
+            Address::Unix(path) => Socket::Unix(connect_unix(path, dial_deadline)?),
         };
         let stream = match &self.tls {
             None => Stream::Plain(DeadlineStream::new(socket, deadline)),
@@ -659,6 +720,72 @@ mod tests {
                 "{took:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_full_unix_backlog_ends_at_the_dial_deadline() {
+        let directory =
+            std::env::temp_dir().join(format!("foamy-syncthing-backlog-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&directory);
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("gui.sock");
+        // A listener that never accepts, its backlog filled by nonblocking
+        // connects until one fails.
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let mut queued = Vec::new();
+        loop {
+            let socket = rustix::net::socket_with(
+                rustix::net::AddressFamily::UNIX,
+                rustix::net::SocketType::STREAM,
+                rustix::net::SocketFlags::NONBLOCK,
+                None,
+            )
+            .unwrap();
+            let address = rustix::net::SocketAddrUnix::new(&path).unwrap();
+            if rustix::net::connect(&socket, &address).is_err() {
+                break;
+            }
+            queued.push(socket);
+            assert!(queued.len() < 10_000, "the backlog never filled");
+        }
+        let transport = Transport::new(Address::Unix(path.to_str().unwrap().into()), None);
+        let started = Instant::now();
+        let result = transport.request(
+            "GET",
+            "/rest/noauth/health",
+            &[],
+            None,
+            Duration::from_secs(10),
+            1 << 20,
+        );
+        let took = started.elapsed();
+        assert!(
+            matches!(result, Err(Failure::Timeout)),
+            "{:?}",
+            result.err()
+        );
+        assert!(
+            took >= DIAL_TIMEOUT - Duration::from_millis(50)
+                && took < DIAL_TIMEOUT + Duration::from_millis(1500),
+            "{took:?}"
+        );
+        // A listener that accepts connects at once; one that is gone is refused.
+        drop((listener, queued));
+        std::fs::remove_file(&path).unwrap();
+        let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(1);
+        let stream = connect_unix(path.to_str().unwrap(), deadline).unwrap();
+        assert!(stream.read_timeout().is_ok());
+        let mut flags = rustix::fs::fcntl_getfl(&stream).unwrap();
+        flags &= rustix::fs::OFlags::NONBLOCK;
+        assert!(flags.is_empty(), "the connected socket is blocking");
+        drop(listener);
+        std::fs::remove_file(&path).unwrap();
+        assert!(matches!(
+            connect_unix(path.to_str().unwrap(), deadline),
+            Err(Failure::Connection)
+        ));
+        let _ = std::fs::remove_dir_all(&directory);
     }
 
     #[test]
