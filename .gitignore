@@ -2,3 +2,4 @@
 shell.json
 __pycache__/
 *.pyc
+/target/

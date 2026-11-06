@@ -1,0 +1,7 @@
+# The plugin's Cargo workspace (foamy-kit README, "Native helpers"): the root
+# makes cargo hash the vendored kit/rust crate by its relative path, so every
+# checkout builds the same bytes. Cargo.lock lives next to this file.
+[workspace]
+members = ["native"]
+exclude = ["kit"]
+resolver = "3"

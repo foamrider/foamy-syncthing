@@ -1,0 +1,12 @@
+[package]
+name = "foamy-syncthing-helper"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Conflict scan and native core of Foamy Syncthing; the core is a Rust port of Syncshell's core (MIT)"
+
+[dependencies]
+foamy-helper = { path = "../kit/rust/foamy-helper" }
+serde_json = "1"
+rustix = { version = "1.1", default-features = false, features = ["std", "fs", "process", "event"] }
