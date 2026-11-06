@@ -2,12 +2,13 @@
 //! `device_actions.go` and `lifecycle.go`): serialized, validated against
 //! the published snapshot and Syncthing's current configuration, and
 //! followed by a refresh. Folder actions never delete or rename files.
-//! Service start/stop follows in the next commit. Every other Syncshell
-//! action (rescans, sharing and device controls, Web UI integration,
-//! enable/disable) is not ported and answers `unsupported_action` like an
-//! unknown name.
+//! Every other Syncshell action (rescans, sharing and device controls, Web
+//! UI integration, enable/disable) is not ported and answers
+//! `unsupported_action` like an unknown name.
 
 use std::collections::BTreeSet;
+use std::thread;
+use std::time::{Duration, Instant};
 
 use serde::Deserialize;
 use serde_json::Value;
@@ -15,6 +16,7 @@ use serde_json::Value;
 use super::client::{self, Code, FolderDevice};
 use super::gocompat::{self, base, clean, eval_symlinks, is_abs, join, paths_overlap, trim_space};
 use super::session::{Session, public_error};
+use super::systemd;
 use super::types::*;
 
 /// The single action input shape (strict: unknown fields are invalid).
@@ -134,6 +136,8 @@ impl Session {
             "folder.forget" => self.forget_folder(args.folder_id),
             "folder.add-existing" => self.add_existing_folder(&args),
             "folder.suggest-id" => self.suggest_folder_id(),
+            "lifecycle.start" => self.lifecycle_action("start"),
+            "lifecycle.stop" => self.lifecycle_action("stop"),
             _ => rejected("unsupported_action", "action is not supported"),
         }
     }
@@ -363,6 +367,60 @@ impl Session {
             data: Some(serde_json::json!({ "folderId": suggestion })),
             error: None,
         }
+    }
+
+    /// `systemctl --user start|stop` of the bound unit, then up to 10 s of
+    /// refreshes (every 200 ms) until the unit reaches the state.
+    fn lifecycle_action(&self, name: &str) -> ActionResult {
+        let published = self.refresh().0;
+        let state = &published.state.lifecycle;
+        if !state.authorized || !state.target_match {
+            return rejected(
+                "lifecycle_forbidden",
+                "lifecycle binding does not apply to this target",
+            );
+        }
+        if name == "start" && !state.can_start && !state.can_control {
+            return rejected(
+                "lifecycle_forbidden",
+                "user service cannot be started for this target",
+            );
+        }
+        if name != "start" && !state.can_control {
+            return rejected(
+                "lifecycle_forbidden",
+                "user service cannot be controlled for this target",
+            );
+        }
+        if lifecycle_reached(name, &published) {
+            return ActionResult::ok();
+        }
+        if let Err(message) = systemd::apply(&self.binding.unit, name) {
+            return ActionResult::rejected("lifecycle_failed", message);
+        }
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            let published = self.refresh().0;
+            if lifecycle_reached(name, &published) {
+                return ActionResult::ok();
+            }
+            if Instant::now() > deadline {
+                return rejected(
+                    "lifecycle_timeout",
+                    "user service did not reach the requested state",
+                );
+            }
+            thread::sleep(Duration::from_millis(200));
+        }
+    }
+}
+
+fn lifecycle_reached(name: &str, published: &Published) -> bool {
+    let state = &published.state.lifecycle;
+    match name {
+        "start" => state.active_state == "active",
+        "stop" => !state.active,
+        _ => false,
     }
 }
 

@@ -2,7 +2,8 @@
 //! `internal/systemduser`). The core runs exactly
 //! `systemctl --user show <unit> --no-pager --property=LoadState
 //! --property=ActiveState --property=UnitFileState --property=FragmentPath
-//! --property=ExecStart --property=Environment` (3 s), with stdin `/dev/null`,
+//! --property=ExecStart --property=Environment` (3 s) and
+//! `systemctl --user start|stop <unit>` (10 s), with stdin `/dev/null`,
 //! output captured and capped at 64 KiB and never shown, and only for a
 //! unit named on the command line with `--lifecycle-authorized`.
 
@@ -16,6 +17,7 @@ use super::types::{Lifecycle, bounded};
 
 const MAX_SHOW_OUTPUT: usize = 64 << 10;
 const SHOW_TIMEOUT: Duration = Duration::from_secs(3);
+const ACTION_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Host authority for one exact unit.
 #[derive(Clone, Debug, Default)]
@@ -42,6 +44,27 @@ pub fn valid_unit(unit: &str) -> bool {
         && stem
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"_.@:-".contains(&b))
+}
+
+/// `start` or `stop` of an already authorized unit.
+pub fn apply(unit: &str, action: &str) -> Result<(), String> {
+    if !valid_unit(unit) {
+        return Err("lifecycle unit is invalid".into());
+    }
+    if action != "start" && action != "stop" {
+        return Err("lifecycle action is invalid".into());
+    }
+    let failed = || "authorized user-service action failed".to_string();
+    let output = Bounded::new("systemctl")
+        .args(["--user", action, unit])
+        .timeout(ACTION_TIMEOUT)
+        .max_output(MAX_SHOW_OUTPUT)
+        .run()
+        .map_err(|_| failed())?;
+    if !output.success() || output.stdout.len() + output.stderr.len() > MAX_SHOW_OUTPUT {
+        return Err(failed());
+    }
+    Ok(())
 }
 
 fn show(unit: &str) -> Option<BTreeMap<String, String>> {
