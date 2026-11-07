@@ -164,11 +164,16 @@ bridge was never used); the Web UI opens in your browser.
 ```sh
 node --test tests/*.test.js tests/*.test.cjs
 python3 -I -m unittest discover -s tests -p 'test_*.py'
-python3 tests/runtime.py              # offscreen, 4.0 and 4.5 (needs foamy-kit)
-python3 tests/i18n-runtime.py         # OMARCHY_PATH=<4.5 tree> for the 4.5 language switch
+python3 tests/runtime.py              # offscreen on 4.5 (needs foamy-kit)
+python3 tests/i18n-runtime.py         # live language switch (OMARCHY_PATH picks another tree)
 bash tests/kit-check.sh               # kit files and the native pin
 omarchy-plugin-validate .
 ```
+
+The offscreen tests run on Omarchy 4.5, the installed `/usr/share/omarchy/shell`
+(`FOAMY_HOST_45` picks another 4.5 tree). `tests/runtime.py` also runs on 4.0
+when `FOAMY_HOST_40` names a 4.0 shell tree; otherwise it prints a SKIP line
+for it.
 
 The tests need Python 3 (development only). `tests/test_stream.py` runs the
 real core against a fake Syncthing (`tests/fake_syncthing.py`) and a fake
