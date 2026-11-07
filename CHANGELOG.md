@@ -1,5 +1,32 @@
 # Changelog
 
+## Foamy Syncthing 1.2.0
+
+- Replace the bundled Go core (Syncshell 0.1.9, `bin/x86_64/syncshell-core`)
+  and the Python conflict scanner with one static Rust helper,
+  `bin/<arch>/foamy-syncthing-helper`, for x86_64 and **aarch64**. Its
+  `stream` subcommand is a Rust port of Syncshell's core at commit 7318f140
+  (MIT, credited in `LICENSE-SYNCSHELL`): the same protocol v2 and, for the
+  same Syncthing replies, the same output; the API key still never leaves
+  the process, and the GUI certificate is still pinned when TLS is on. Only
+  what the panel uses is ported; the unused desktop bridge, `probe`/`status`
+  and Syncshell's other actions are gone. 2.3 to 2.8 MB instead of 11.8 MB,
+  and the Go build's ten known standard-library vulnerabilities go with it.
+  Python 3 is no longer needed at runtime. Other CPUs show "This plugin's
+  helper isn't available for this CPU." instead of an architecture error.
+- Bound every request in the native core by absolute deadlines, as the Go
+  core's transport did: 4 s for the TLS handshake, 8 s to the headers and the
+  request's own limit for the body, so an endpoint that trickles bytes can no
+  longer hold a refresh. Host name lookups and Unix socket connects count
+  against the 3 s dial bound, and `unix://` URL paths are percent-decoded.
+- Keep the API key out of the core's debug output.
+- Name every CPU instruction HTTPS needs on an unsupported CPU (AES and
+  carry-less multiply, AVX2, BMI2 and ADX on x86-64, or the ARMv8 crypto
+  extensions), from foamy-kit 0.5.2.
+- Target Omarchy 4.5 only in the documentation; the offscreen tests run on the
+  installed 4.5 shell.
+- Sync foamy-kit 0.5.2.
+
 ## Foamy Syncthing 1.1.0 - Unreleased
 
 - Use foamy-kit for the popup. The forked 4.0 KeyboardPanel landed at the
@@ -25,18 +52,6 @@
 - Remove the unused Syncshell panel, Web UI theme files and assets (about
   7,000 lines of QML/JS); flatten the adapter into `Service.qml` and
   `service/`.
-- Replace the bundled Go core (Syncshell 0.1.9, `bin/x86_64/syncshell-core`)
-  and the Python conflict scanner with one static Rust helper,
-  `bin/<arch>/foamy-syncthing-helper`, for x86_64 and **aarch64**. Its
-  `stream` subcommand is a Rust port of Syncshell's core at commit 7318f140
-  (MIT, credited in `LICENSE-SYNCSHELL`): the same protocol v2 and, for the
-  same Syncthing replies, the same output; the API key still never leaves
-  the process, and the GUI certificate is still pinned when TLS is on. Only
-  what the panel uses is ported; the unused desktop bridge, `probe`/`status`
-  and Syncshell's other actions are gone. 2.3 to 2.8 MB instead of 11.8 MB,
-  and the Go build's ten known standard-library vulnerabilities go with it.
-  Python 3 is no longer needed at runtime. Other CPUs show "This plugin's
-  helper isn't available for this CPU." instead of an architecture error.
 
 ## Foamy Syncthing 1.0.0
 

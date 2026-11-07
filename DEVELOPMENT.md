@@ -1,7 +1,6 @@
 # Development
 
-Targets Omarchy 4.5 and keeps loading on 4.0.6 (English there), with runtime
-feature detection only.
+Targets Omarchy 4.5, with runtime feature detection only.
 
 ## Layout
 

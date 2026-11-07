@@ -7,7 +7,7 @@ add-folder controls and a start/stop switch for the Syncthing user service.
 
 ## Install
 
-Requires Omarchy 4.5 (it also loads on 4.0.6, in English) on **x86-64 or
+Requires Omarchy 4.5 on **x86-64 or
 ARM64 (aarch64) Linux**, systemd user services, Bash, `jq` and
 `wl-clipboard`. Opening a
 folder uses `uwsm-app` and `xdg-open`. **Choose an existing directory** uses
@@ -198,8 +198,7 @@ Syncthing user service first.
 ## Language
 
 Language follows **Omarchy → Setup → Language** on Omarchy 4.5 (English and
-Norwegian Bokmål; missing strings fall back to English). Omarchy 4.0 shows
-the plugin in English.
+Norwegian Bokmål; missing strings fall back to English).
 
 ## License
 
