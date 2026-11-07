@@ -80,6 +80,18 @@ impl fmt::Display for Error {
     }
 }
 
+/// A transport failure as the panel shows it. On a CPU without the
+/// instructions the TLS cryptography needs, the kit's message names them.
+fn transport_error(failure: http::Failure) -> Error {
+    match failure {
+        http::Failure::Tls => Error::new(Code::Tls, "Syncthing TLS verification failed"),
+        http::Failure::TlsUnsupported => Error::new(Code::Tls, foamy_helper::tls::UNSUPPORTED),
+        http::Failure::Timeout => Error::new(Code::Timeout, "request timed out"),
+        http::Failure::Dns => Error::new(Code::Dns, "target name could not be resolved"),
+        http::Failure::Connection => Error::new(Code::Connection, "could not connect to Syncthing"),
+    }
+}
+
 /// The API key; deliberately without `Debug` output of its value.
 pub struct ApiKey(String);
 
@@ -380,17 +392,15 @@ impl Client {
             }
             let response = self
                 .transport
-                .request(&method, &target, &headers, body.as_deref(), left, MAX_RESPONSE_BYTES)
-                .map_err(|failure| match failure {
-                    http::Failure::Tls => Error::new(Code::Tls, "Syncthing TLS verification failed"),
-                    http::Failure::TlsUnsupported => Error::new(
-                        Code::Tls,
-                        "HTTPS to Syncthing needs AES and carry-less multiplication CPU instructions, which this CPU lacks",
-                    ),
-                    http::Failure::Timeout => Error::new(Code::Timeout, "request timed out"),
-                    http::Failure::Dns => Error::new(Code::Dns, "target name could not be resolved"),
-                    http::Failure::Connection => Error::new(Code::Connection, "could not connect to Syncthing"),
-                })?;
+                .request(
+                    &method,
+                    &target,
+                    &headers,
+                    body.as_deref(),
+                    left,
+                    MAX_RESPONSE_BYTES,
+                )
+                .map_err(transport_error)?;
             if matches!(response.status, 301 | 302 | 303 | 307 | 308)
                 && let Some(location) = response.location.as_deref()
             {
@@ -695,6 +705,15 @@ fn decode<T: DeserializeOwned + Default>(bytes: &[u8]) -> Result<T, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_unsupported_cpu_reports_the_kits_message() {
+        let error = transport_error(http::Failure::TlsUnsupported);
+        assert_eq!(
+            (error.code, error.message.as_str()),
+            (Code::Tls, foamy_helper::tls::UNSUPPORTED)
+        );
+    }
 
     #[test]
     fn decoding_is_as_lenient_as_go() {

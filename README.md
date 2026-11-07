@@ -136,12 +136,12 @@ The binaries are built reproducibly with foamy-kit's
 profile); `native/native.pin` records the toolchain, the source hash and
 each binary's sha256, and `bash tests/kit-check.sh` checks them. HTTPS uses
 rustls with Graviola's cryptography (Rust and assembly, so both
-architectures build without a C cross-compiler). That needs AES and
-carry-less multiplication instructions, on x86-64 also AVX2, BMI2 and ADX
-(Intel Broadwell, AMD Zen or newer), and on ARMv8 the crypto extension (not
-the Raspberry Pi 4); without them plain HTTP still works and an HTTPS GUI
-shows a clear error. Third-party
-licenses: `LICENSE-NATIVE-DEPENDENCIES`.
+architectures build without a C cross-compiler). HTTPS needs AES, carry-less
+multiply, AVX2, BMI2 and ADX on x86-64 (Intel Broadwell, AMD Zen or newer),
+or the crypto extensions on ARMv8 (a Raspberry Pi 5, not a Pi 4); without
+them plain HTTP still works, and with an HTTPS GUI the panel says HTTPS isn't
+supported on this CPU (in English, like the core's other connection errors).
+Third-party licenses: `LICENSE-NATIVE-DEPENDENCIES`.
 
 This port is ours to maintain: Syncshell's later releases are not picked
 up automatically (DEVELOPMENT.md explains how to carry a fix over).

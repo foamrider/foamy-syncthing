@@ -15,9 +15,10 @@
 //! key, TLS 1.2 is the minimum, and session resumption is off, so every
 //! connection is verified afresh. The crypto provider, the CPU check and
 //! the system CA store are the kit's (`foamy_helper::tls`: Graviola, pure
-//! Rust and assembly); Graviola needs AES and carry-less multiplication
-//! instructions, which the transport checks with
-//! `foamy_helper::tls::cpu_supported` before any handshake.
+//! Rust and assembly). Graviola needs AES, carry-less multiplication, AVX2,
+//! BMI2 and ADX on x86-64, or the crypto extensions on ARMv8; the transport
+//! checks them with `foamy_helper::tls::cpu_supported` before any handshake
+//! and otherwise reports `foamy_helper::tls::UNSUPPORTED`.
 
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
