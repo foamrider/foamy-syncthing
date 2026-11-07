@@ -187,7 +187,8 @@ class Core:
         self.stderr = b""
         self.started = time.monotonic()
         threading.Thread(target=self._read, daemon=True).start()
-        threading.Thread(target=self._read_stderr, daemon=True).start()
+        self.stderr_reader = threading.Thread(target=self._read_stderr, daemon=True)
+        self.stderr_reader.start()
 
     def _read(self):
         # (arrival time, line): a frame's timing doesn't depend on when the
@@ -260,6 +261,8 @@ class Core:
         except BrokenPipeError:
             pass
         code = self.process.wait(timeout=timeout)
+        # stderr is complete only once its reader has seen EOF.
+        self.stderr_reader.join(timeout=timeout)
         while True:
             try:
                 _, line = self.lines.get(timeout=2)
