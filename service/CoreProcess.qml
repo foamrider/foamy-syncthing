@@ -1,15 +1,20 @@
 import QtQuick
 import Quickshell.Io
 import "../kit"
+import "../kit/FoamyNative.js" as FoamyNative
 
+// The native core: `bin/<arch>/foamy-syncthing-helper stream`, launched
+// through FoamyNative (bash's $HOSTTYPE picks x86_64 or aarch64). Exit 126
+// or 127 means there is no helper for this CPU: shown once, never retried.
 QtObject {
   id: root
 
   required property string pluginRoot
   property var startupArguments: []
-  property string architecture: ""
-  property string corePath: ""
-  property bool executableReady: false
+  readonly property string helperName: "foamy-syncthing-helper"
+  // False once the helper turned out to be missing for this CPU.
+  property bool executableReady: true
+  // Until the first launch has started.
   property bool starting: true
   property bool desiredRunning: true
   property bool protocolReady: false
@@ -36,8 +41,6 @@ QtObject {
   property var _pending: ({})
   property bool _expectedStop: false
   property bool _restartRequested: false
-  property string _architectureOutput: ""
-  property string _executableOutput: ""
 
   signal resultReceived(string id, bool ok, var data, var error)
   signal protocolFailed(string message)
@@ -243,6 +246,17 @@ QtObject {
     shutdownTimer.stop()
     stableTimer.stop()
     protocolReady = false
+    if (FoamyNative.unavailable(exitCode)) {
+      // No helper binary for this CPU (or not executable): no restarts.
+      _restartRequested = false
+      restartTimer.stop()
+      executableReady = false
+      desiredRunning = false
+      unavailable = true
+      lastError = FoamyI18n.t(FoamyNative.UNAVAILABLE_TEXT)
+      failPending(lastError)
+      return
+    }
     var unexpected = !_restartRequested && !_expectedStop && desiredRunning
     var message = unexpected
       ? FoamyI18n.t("The native core exited unexpectedly (status %1)", [exitCode])
@@ -261,14 +275,6 @@ QtObject {
     restartTimer.restart()
   }
 
-  function inspectExecutable() {
-    corePath = pluginRoot + "/bin/x86_64/syncshell-core"
-    _executableOutput = ""
-    executableProcess.running = true
-  }
-
-  Component.onCompleted: architectureProcess.running = true
-
   Component.onDestruction: {
     _expectedStop = true
     desiredRunning = false
@@ -276,7 +282,7 @@ QtObject {
   }
 
   property Process coreProcess: Process {
-    command: [root.corePath, "stream"].concat(root.startupArguments || [])
+    command: FoamyNative.command(root.pluginRoot, root.helperName, ["stream"].concat(root.startupArguments || []))
     running: root.desiredRunning && root.executableReady && !root.incompatible
     stdinEnabled: true
 
@@ -294,6 +300,7 @@ QtObject {
     }
 
     onStarted: {
+      root.starting = false
       root.failPending(FoamyI18n.t("The native core restarted before the request completed"))
       root.generation++
       root.protocolReady = false
@@ -305,51 +312,6 @@ QtObject {
     }
 
     onExited: function(exitCode) { root.handleExit(exitCode) }
-  }
-
-  property Process architectureProcess: Process {
-    command: ["/usr/bin/uname", "-m"]
-
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root._architectureOutput = text
-    }
-
-    onExited: function(exitCode) {
-      root.architecture = String(root._architectureOutput || "").trim()
-      if (exitCode !== 0 || root.architecture !== "x86_64") {
-        root.starting = false
-        root.unavailable = true
-        root.lastError = root.architecture
-          ? FoamyI18n.t("Unsupported architecture: %1 (the bundled core is x86_64 only)", [root.architecture])
-          : FoamyI18n.t("Could not determine the system architecture")
-        return
-      }
-      root.inspectExecutable()
-    }
-  }
-
-  property Process executableProcess: Process {
-    command: ["/usr/bin/find", root.corePath, "-maxdepth", "0", "-type", "f",
-      "-executable", "-print"]
-
-    stdout: StdioCollector {
-      waitForEnd: true
-      onStreamFinished: root._executableOutput = text
-    }
-
-    onExited: function(exitCode) {
-      root.starting = false
-      if (exitCode !== 0
-          || String(root._executableOutput || "").trim() !== root.corePath) {
-        root.unavailable = true
-        root.lastError = FoamyI18n.t("The bundled native core is unavailable")
-        return
-      }
-      root.executableReady = true
-      root.unavailable = false
-      root.lastError = ""
-    }
   }
 
   property Timer restartTimer: Timer {

@@ -2,10 +2,10 @@
   "schemaVersion": 1,
   "id": "foamy.syncthing",
   "name": "Foamy Syncthing",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "foamrider",
-  "license": "MIT AND BSD-3-Clause",
-  "description": "Syncthing folder and device status in the Omarchy bar, with pause, unlink and add-folder controls and Syncthing service start/stop, through a bundled native core (Syncshell 0.1.9).",
+  "license": "MIT AND BSD-3-Clause AND ISC",
+  "description": "Syncthing folder and device status in the Omarchy bar, with pause, unlink and add-folder controls and Syncthing service start/stop, through a bundled native core (a Rust port of Syncshell 0.1.9's core).",
   "kinds": [
     "service",
     "bar-widget"

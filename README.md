@@ -7,8 +7,9 @@ add-folder controls and a start/stop switch for the Syncthing user service.
 
 ## Install
 
-Requires Omarchy 4.5 (it also loads on 4.0.6, in English) on **x86-64 Linux**,
-systemd user services, Bash, `jq`, Python 3 and `wl-clipboard`. Opening a
+Requires Omarchy 4.5 on **x86-64 or
+ARM64 (aarch64) Linux**, systemd user services, Bash, `jq` and
+`wl-clipboard`. Opening a
 folder uses `uwsm-app` and `xdg-open`. **Choose an existing directory** uses
 `qml6` and `hyprctl`.
 
@@ -22,9 +23,10 @@ press it. Disable any other Syncthing shell plugin before enabling this one.
 omarchy plugin add https://github.com/foamrider/foamy-syncthing.git --enable
 ```
 
-The plugin bundles one helper binary, `bin/x86_64/syncshell-core`, which talks
-to Syncthing (see [Native core](#native-core)). Other CPU architectures are
-not supported.
+The plugin bundles one helper binary, `bin/<arch>/foamy-syncthing-helper`
+(x86_64 and aarch64), which talks to Syncthing and scans for conflict files
+(see [Native core](#native-core)). On other CPUs the popup says "This
+plugin's helper isn't available for this CPU." and nothing retries.
 
 ## Use
 
@@ -79,8 +81,10 @@ Settings save in place (`bar.shell.updateEntryInline`, else `omarchy bar set`).
 ## Resource use
 
 - One native core per shell (the plugin's service), however many monitors
-  show the bar. Over one keep-alive loopback connection to Syncthing it used
-  under 1 s CPU in 27 minutes, and 17.6 MB RSS.
+  show the bar. It long-polls Syncthing's event stream once a second over
+  keep-alive loopback connections. Idle for 10 minutes against a local
+  Syncthing 2.1.7 it used 0.2 s CPU and 2.2 MB RSS (2.9 MB with TLS); the
+  Go core it replaced used 0.5 to 0.6 s and 14.5 to 17.4 MB.
 - The installation check (`scripts/syncthing-install.sh status`) runs only
   while Syncthing is unreachable.
 - The conflict scan walks the configured folders when the folder set
@@ -89,8 +93,9 @@ Settings save in place (`bar.shell.updateEntryInline`, else `omarchy bar set`).
   directories. It follows configured root links but never links inside the
   roots, and counts only regular files named `*.sync-conflict-*`. It gets
   the paths on stdin (never in arguments) and is bounded (1 MiB input,
-  30-second hard deadline). A failed scan keeps the last result and shows an
-  error.
+  30-second hard deadline, 25 s in the helper itself). It runs the
+  helper's `conflicts` subcommand, which starts no other programs. A failed
+  scan keeps the last result and shows an error.
 - The popup content is built on first open. Its rows update in place and
   are computed only while it is open.
 - A core that crashes is restarted after 250 ms, 500 ms and 1 s, then every
@@ -99,43 +104,50 @@ Settings save in place (`bar.shell.updateEntryInline`, else `omarchy bar set`).
 
 ## Native core
 
-`bin/x86_64/syncshell-core` is the unmodified native core of
-[Syncshell](https://github.com/omarchy-QOL/syncshell) 0.1.9 (MIT, by IlyaZar;
-see `LICENSE-SYNCSHELL`). It is third-party code. It reads Syncthing's API
-key from Syncthing's own `config.xml` and keeps it to itself: the key never
-reaches QML, process arguments, logs or the panel. It also runs the REST and
-event-stream calls (loopback, with the GUI certificate when TLS is on), the
-folder actions, and `systemctl --user` start/stop for `syncthing.service`.
-The panel talks to it as JSON lines over stdin/stdout.
+`bin/x86_64/foamy-syncthing-helper` and `bin/aarch64/foamy-syncthing-helper`
+are one static Rust program with two subcommands:
 
-Provenance (`packaging/bundled/core.pin`):
+- `stream` is the native core: a Rust port of the native core of
+  [Syncshell](https://github.com/omarchy-QOL/syncshell) (MIT, by IlyaZar; see
+  `LICENSE-SYNCSHELL`), following `core/` at commit
+  `7318f1404e765f274df3d079e35d0ad32b5c1701` (v0.1.9), which this plugin
+  bundled as a Go binary before. It speaks the same JSON-lines protocol (v2)
+  over stdin/stdout, and for the same Syncthing replies it writes the same
+  bytes. It reads Syncthing's API key from Syncthing's own `config.xml` and
+  keeps it to itself: the key never reaches QML, process arguments, the
+  environment, logs, snapshots or errors, and it is sent only to the
+  selected Syncthing (never on the unauthenticated health check, never
+  across a redirect to another address). It runs the REST and event-stream
+  calls (loopback or a `unix://` GUI socket, with the GUI certificate
+  `https-cert.pem` pinned when TLS is on), the folder actions, and `systemctl --user start|stop` for
+  `syncthing.service` only.
+- `conflicts` is the conflict scan (see [Resource use](#resource-use)).
 
-| | |
-|---|---|
-| Upstream | https://github.com/omarchy-QOL/syncshell, tag `v0.1.9`, commit `7318f1404e765f274df3d079e35d0ad32b5c1701` |
-| Binary | byte-identical to `bin/x86_64/syncshell-core` at that commit; sha256 `b527c64a566cf75b3eced6d99b026b61ed3bdae2b7aa45340f7b78c259479bdf` (`packaging/bundled/SHA256SUMS`) |
-| Go | `go1.27.1` (from the binary's build info) |
-| Flags | `CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -mod=readonly -trimpath -buildvcs=false -ldflags=-buildid= ./cmd/syncshell-core` in `core/` (upstream `packaging/bundled/build.sh`) |
-| Dependencies | `golang.org/x/sys v0.31.0` only (hash pinned by upstream `core/go.sum`) |
+Only what the panel uses is ported: the snapshot, `refresh`, `configure`,
+`shutdown`, and the actions pause, resume, unlink (forget), add an existing
+directory, suggest a folder ID, recheck folder errors, and start or stop
+the service. Syncshell's desktop bridge (`--desktop-authorized`), its
+`probe`/`status` commands, Web UI theme and import tools, rescans, sharing
+and device controls are not part of this core. The contract is written at
+the top of `native/src/main.rs`.
 
-- `packaging/bundled/verify-core.sh` checks the checksum, that the binary is
-  a static x86-64 ELF, and the Go build metadata above.
-- `packaging/bundled/build-core.sh` fetches the pinned commit, rebuilds with
-  those flags and the pinned Go release (through `GOTOOLCHAIN`, which may
-  download it from the Go proxy), and compares the result with the bundled
-  binary.
+The binaries are built reproducibly with foamy-kit's
+`tools/build-native.sh` (Rust 1.99.1, static musl, the kit's release
+profile); `native/native.pin` records the toolchain, the source hash and
+each binary's sha256, and `bash tests/kit-check.sh` checks them. HTTPS uses
+rustls with Graviola's cryptography (Rust and assembly, so both
+architectures build without a C cross-compiler). HTTPS needs AES, carry-less
+multiply, AVX2, BMI2 and ADX on x86-64 (Intel Broadwell, AMD Zen or newer),
+or the crypto extensions on ARMv8 (a Raspberry Pi 5, not a Pi 4); without
+them plain HTTP still works, and with an HTTPS GUI the panel says HTTPS isn't
+supported on this CPU (in English, like the core's other connection errors).
+Third-party licenses: `LICENSE-NATIVE-DEPENDENCIES`.
 
-What was verified for this release: the checksum and build metadata match,
-and the bundled file is the one in the upstream tag. A rebuild of that
-commit with go1.27.3 (go1.27.1 couldn't be fetched in the review
-environment) has the same module graph and the same 217 Syncshell symbols
-with the same sizes. Its bytes differ, as expected from a different
-toolchain. A byte-for-byte rebuild with go1.27.1 hasn't been run yet.
-`build-core.sh` does exactly that.
+This port is ours to maintain: Syncshell's later releases are not picked
+up automatically (DEVELOPMENT.md explains how to carry a fix over).
 
-The plugin starts the core without `--desktop-authorized`, so the core's
-local HTTP "desktop bridge" (file open/rename for the Syncshell Web UI) is
-off. The Web UI opens in your browser.
+The plugin starts the core without `--desktop-authorized` (the desktop
+bridge was never used); the Web UI opens in your browser.
 
 ## Privacy and safety
 
@@ -152,15 +164,25 @@ off. The Web UI opens in your browser.
 ```sh
 node --test tests/*.test.js tests/*.test.cjs
 python3 -I -m unittest discover -s tests -p 'test_*.py'
-python3 tests/runtime.py              # offscreen, 4.0 and 4.5 (needs foamy-kit)
-python3 tests/i18n-runtime.py         # OMARCHY_PATH=<4.5 tree> for the 4.5 language switch
-bash tests/kit-check.sh
-packaging/bundled/verify-core.sh
+python3 tests/runtime.py              # offscreen on 4.5 (needs foamy-kit)
+python3 tests/i18n-runtime.py         # live language switch (OMARCHY_PATH picks another tree)
+bash tests/kit-check.sh               # kit files and the native pin
 omarchy-plugin-validate .
 ```
 
-The runtime test uses `tests/fake-core.py` in place of the native core. It
-never touches Syncthing, its service or your shell configuration.
+The offscreen tests run on Omarchy 4.5, the installed `/usr/share/omarchy/shell`
+(`FOAMY_HOST_45` picks another 4.5 tree). `tests/runtime.py` also runs on 4.0
+when `FOAMY_HOST_40` names a 4.0 shell tree; otherwise it prints a SKIP line
+for it.
+
+The tests need Python 3 (development only). `tests/test_stream.py` runs the
+real core against a fake Syncthing (`tests/fake_syncthing.py`) and a fake
+`systemctl` on a `PATH` that holds nothing else; `FOAMY_HELPER` (a JSON argv
+prefix) selects another build, e.g.
+`FOAMY_HELPER='["bin/aarch64/foamy-syncthing-helper"]'` through qemu
+binfmt. The runtime test uses `tests/fake-core.py` in place of the core.
+None of them touches your Syncthing, its service or your shell
+configuration.
 
 ## Remove
 
@@ -176,16 +198,17 @@ Syncthing user service first.
 ## Language
 
 Language follows **Omarchy → Setup → Language** on Omarchy 4.5 (English and
-Norwegian Bokmål; missing strings fall back to English). Omarchy 4.0 shows
-the plugin in English.
+Norwegian Bokmål; missing strings fall back to English).
 
 ## License
 
 `kit/` holds shared components copied from [foamy-kit](https://github.com/foamrider/foamy-kit); edit them there, not here.
 
-Plugin code is [MIT](LICENSE). The native core is Syncshell's
-([MIT](LICENSE-SYNCSHELL)) and contains the Go runtime and `golang.org/x/sys`
-([BSD-3-Clause](packaging/bundled/LICENSE.golang)). Shared components in
+Plugin code is [MIT](LICENSE). The native core is a port of Syncshell's
+([MIT](LICENSE-SYNCSHELL), © IlyaZar). The helper binaries also contain the
+Rust standard library, musl and the crates listed in
+[LICENSE-NATIVE-DEPENDENCIES](LICENSE-NATIVE-DEPENDENCIES) (MIT, MIT-0, ISC
+and BSD-3-Clause). Shared components in
 `kit/` come from [foamy-kit](https://github.com/foamrider/foamy-kit) (MIT;
 Lucide icons ISC, `kit/LICENSE-LUCIDE`; parts adapted from Omarchy, MIT,
 `kit/LICENSE-OMARCHY` and `LICENSE-OMARCHY`).

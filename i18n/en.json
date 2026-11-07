@@ -218,7 +218,5 @@
   "The native core exited unexpectedly (status %1)": "The native core exited unexpectedly (status %1)",
   "The native core stopped before the request completed": "The native core stopped before the request completed",
   "The native core restarted before the request completed": "The native core restarted before the request completed",
-  "Unsupported architecture: %1 (the bundled core is x86_64 only)": "Unsupported architecture: %1 (the bundled core is x86_64 only)",
-  "Could not determine the system architecture": "Could not determine the system architecture",
-  "The bundled native core is unavailable": "The bundled native core is unavailable"
+  "This plugin's helper isn't available for this CPU.": "This plugin's helper isn't available for this CPU."
 }

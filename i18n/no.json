@@ -217,7 +217,5 @@
   "The native core exited unexpectedly (status %1)": "Den lokale kjernen avsluttet uventet (status %1)",
   "The native core stopped before the request completed": "Den lokale kjernen stoppet før forespørselen var fullført",
   "The native core restarted before the request completed": "Den lokale kjernen startet på nytt før forespørselen var fullført",
-  "Unsupported architecture: %1 (the bundled core is x86_64 only)": "Arkitekturen støttes ikke: %1 (den medfølgende kjernen er kun for x86_64)",
-  "Could not determine the system architecture": "Kunne ikke finne systemarkitekturen",
-  "The bundled native core is unavailable": "Den medfølgende lokale kjernen er utilgjengelig"
+  "This plugin's helper isn't available for this CPU.": "Hjelpeprogrammet til denne utvidelsen er ikke tilgjengelig for denne prosessoren."
 }

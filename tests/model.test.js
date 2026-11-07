@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const test = require("node:test");
+const FoamyNative = require("../kit/node-loader.cjs").load("FoamyNative");
 function model(file) {
   const context = vm.createContext({});
   vm.runInContext(fs.readFileSync(path.join(__dirname, "..", file), "utf8").replace(/^\.pragma library\s*/, ""), context);
@@ -304,16 +305,16 @@ test("unlink pauses before removing configuration and stops safely on errors", (
   assert.equal(offline.requests.length, 0);
 });
 
-test("the core keeps retrying with backoff instead of staying down", () => {
+function coreContext(timers) {
   const source = fs.readFileSync(path.join(__dirname, "../service/CoreProcess.qml"), "utf8");
-  const timers = [];
   const context = vm.createContext({
+    FoamyNative, executableReady: true,
     maxRestartAttempts: 3, slowRestartBaseMs: 30000, maxRestartDelayMs: 300000,
     restartAttempts: 0, protocolReady: true, unavailable: false, lastError: "",
     _restartRequested: false, _expectedStop: false, desiredRunning: true,
     failPending() {}, shutdownTimer: {stop() {}}, stableTimer: {stop() {}},
     FoamyI18n: {t: (key, values) => key.replace("%1", values?.[0])},
-    restartTimer: {interval: 0, restart() { timers.push(this.interval); }},
+    restartTimer: {interval: 0, restart() { timers.push(this.interval); }, stop() { timers.push("stop"); }},
   });
   for (const name of ["restartDelay", "handleExit"]) {
     const start = source.indexOf(`  function ${name}(`);
@@ -321,10 +322,31 @@ test("the core keeps retrying with backoff instead of staying down", () => {
     assert.ok(start >= 0, name);
     vm.runInContext(source.slice(start, end), context);
   }
+  return { context, source };
+}
+
+test("the core keeps retrying with backoff instead of staying down", () => {
+  const timers = [];
+  const { context, source } = coreContext(timers);
   for (let i = 0; i < 9; i++) context.handleExit(1);
   assert.deepEqual(timers, [250, 500, 1000, 30000, 60000, 120000, 240000, 300000, 300000]);
   assert.equal(context.desiredRunning, true, "never gives up");
   assert.equal(context.unavailable, true);
   assert.match(source, /onTriggered: if \(root\.protocolReady\) root\.restartAttempts = 0/);
   assert.match(source, /function retry\(\)[\s\S]*incompatible = false/);
+});
+
+test("a core with no helper for this CPU is reported once and never restarted", () => {
+  for (const code of [126, 127]) {
+    const timers = [];
+    const { context, source } = coreContext(timers);
+    context.handleExit(code);
+    assert.deepEqual(timers, ["stop"]);
+    assert.equal(context.executableReady, false);
+    assert.equal(context.desiredRunning, false);
+    assert.equal(context.unavailable, true);
+    assert.equal(context.lastError, FoamyNative.UNAVAILABLE_TEXT);
+    assert.match(source, /FoamyNative\.command\(root\.pluginRoot, root\.helperName, \["stream"\]/);
+    assert.match(source, /function retry\(\)\s*\{\s*if \(!executableReady/);
+  }
 });
