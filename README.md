@@ -118,8 +118,8 @@ are one static Rust program with two subcommands:
   environment, logs, snapshots or errors, and it is sent only to the
   selected Syncthing (never on the unauthenticated health check, never
   across a redirect to another address). It runs the REST and event-stream
-  calls (loopback, with the GUI certificate `https-cert.pem` pinned when TLS
-  is on), the folder actions, and `systemctl --user start|stop` for
+  calls (loopback or a `unix://` GUI socket, with the GUI certificate
+  `https-cert.pem` pinned when TLS is on), the folder actions, and `systemctl --user start|stop` for
   `syncthing.service` only.
 - `conflicts` is the conflict scan (see [Resource use](#resource-use)).
 
@@ -137,9 +137,10 @@ profile); `native/native.pin` records the toolchain, the source hash and
 each binary's sha256, and `bash tests/kit-check.sh` checks them. HTTPS uses
 rustls with Graviola's cryptography (Rust and assembly, so both
 architectures build without a C cross-compiler). That needs AES and
-carry-less multiplication instructions (x86-64 CPUs from about 2014, and
-ARMv8 CPUs with the crypto extension; not the Raspberry Pi 4); without them
-plain HTTP still works and an HTTPS GUI shows a clear error. Third-party
+carry-less multiplication instructions, on x86-64 also AVX2, BMI2 and ADX
+(Intel Broadwell, AMD Zen or newer), and on ARMv8 the crypto extension (not
+the Raspberry Pi 4); without them plain HTTP still works and an HTTPS GUI
+shows a clear error. Third-party
 licenses: `LICENSE-NATIVE-DEPENDENCIES`.
 
 This port is ours to maintain: Syncshell's later releases are not picked
