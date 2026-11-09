@@ -11,9 +11,9 @@ Targets Omarchy 4.5, with runtime feature detection only.
 | `Panel.qml` | The bar widget, one per bar (per monitor on 4.5). A `FoamyMember` leader feeds the service its settings and owns the `foamy.syncthing` IPC target |
 | `ui/` | `SyncthingView.qml` (lazy popup body), `AddFolderForm.qml`, `UnlinkDialog.qml`, `SyncthingProgress.qml` |
 | `models/` | Pure JS: `PanelModel.js` (folder rows, summary, formatting), `OverviewModel.js` (tab rows), `Keyed.js` (in-place ListModel sync) |
-| `scripts/` | `syncthing-install.sh`, the folder chooser |
+| `scripts/` | `syncthing-install.sh` |
 | `kit/` | foamy-kit copies. Never edit them here: change foamy-kit and run its `sync.sh` (`tests/kit-check.sh` fails on local edits) |
-| `native/` | The Rust helper `foamy-syncthing-helper` (`conflicts` and `stream`, the Syncshell core port); its contract is the doc comment in `src/main.rs`; `native.pin` is written by the build tool |
+| `native/` | The Rust helper `foamy-syncthing-helper` (`conflicts`, `stream`, the Syncshell core port, and `pick-folder`, the xdg-desktop-portal folder chooser); its contract is the doc comment in `src/main.rs`; `native.pin` is written by the build tool |
 | `bin/<arch>/` | The built helper for x86_64 and aarch64 (never edited by hand) |
 | `Cargo.toml`, `Cargo.lock`, `rust-toolchain.toml` | The Cargo workspace, its lock file and the kit's pinned toolchain |
 | `preview/Preview.qml` | Mock states for foamy-kit's preview harness (not loaded at runtime) |

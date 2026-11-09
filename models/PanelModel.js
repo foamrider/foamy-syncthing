@@ -5,6 +5,20 @@
 var formatNumber = function(value, decimals) { return Number(value).toFixed(decimals) }
 function setNumberFormat(fn) { if (typeof fn === "function") formatNumber = fn }
 
+// The helper's `pick-folder` reply (the last stdout line): {path} for a
+// choice, {cancelled: true}, or {error: code} (the helper's code, or
+// PORTAL_FAILED when the timeout backstop stopped it, else FAILED). Exit
+// codes 126/127 (no helper for this CPU) are the caller's to check first.
+function folderPickReply(exitCode, stdout) {
+  var data = null
+  try { data = JSON.parse(String(stdout || "").trim().split("\n").pop()) } catch (error) { data = null }
+  if (exitCode === 0 && data && data.ok === true && data.cancelled === true) return { cancelled: true }
+  if (exitCode === 0 && data && data.ok === true && typeof data.path === "string" && data.path.charAt(0) === "/")
+    return { path: data.path }
+  if (exitCode === 124 || exitCode === 137) return { error: "PORTAL_FAILED" }
+  return { error: data && typeof data.code === "string" && /^[A-Z_]{1,40}$/.test(data.code) ? data.code : "FAILED" }
+}
+
 function resolveFolderPath(value, homePath) {
   var path = String(value || "")
   if (path === "~") return homePath

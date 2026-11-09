@@ -162,6 +162,8 @@
   "Saving…": "Saving…",
   "Retry": "Retry",
   "The folder chooser failed; enter the path manually.": "The folder chooser failed; enter the path manually.",
+  "The folder chooser needs a session bus, and there is none; enter the path manually.": "The folder chooser needs a session bus, and there is none; enter the path manually.",
+  "No folder chooser is running (xdg-desktop-portal); enter the path manually.": "No folder chooser is running (xdg-desktop-portal); enter the path manually.",
   "This folder has sync conflict files (*.sync-conflict-*). Open it to compare and keep one version.": "This folder has sync conflict files (*.sync-conflict-*). Open it to compare and keep one version.",
   "Sync conflicts": "Sync conflicts",
   "Conflicts": "Conflicts",

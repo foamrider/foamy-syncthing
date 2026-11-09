@@ -350,3 +350,29 @@ test("a core with no helper for this CPU is reported once and never restarted", 
     assert.match(source, /function retry\(\)\s*\{\s*if \(!executableReady/);
   }
 });
+
+test("the pick-folder reply gives a path, a cancel or an error code", () => {
+  const panel = model("models/PanelModel.js");
+  const reply = (code, text) => JSON.parse(JSON.stringify(panel.folderPickReply(code, text)));
+  assert.deepEqual(reply(0, '{"ok":true,"path":"/home/me/Sync"}\n'), { path: "/home/me/Sync" });
+  assert.deepEqual(reply(0, 'noise\n{"ok":true,"cancelled":true}\n'), { cancelled: true });
+  assert.deepEqual(reply(1, '{"ok":false,"code":"NO_SESSION_BUS","error":"no bus"}\n'), { error: "NO_SESSION_BUS" });
+  assert.deepEqual(reply(1, '{"ok":false,"code":"PORTAL_UNAVAILABLE","error":"x"}'), { error: "PORTAL_UNAVAILABLE" });
+  // The timeout backstop, garbage, a relative path, a code that isn't one.
+  assert.deepEqual(reply(124, ""), { error: "PORTAL_FAILED" });
+  assert.deepEqual(reply(137, ""), { error: "PORTAL_FAILED" });
+  assert.deepEqual(reply(0, "not json"), { error: "FAILED" });
+  assert.deepEqual(reply(0, '{"ok":true,"path":"Sync"}'), { error: "FAILED" });
+  assert.deepEqual(reply(1, '{"ok":false,"code":"<b>x</b>"}'), { error: "FAILED" });
+  assert.deepEqual(reply(1, '{"ok":true,"path":"/a"}'), { error: "FAILED" });
+});
+
+test("the folder chooser is the helper's pick-folder, under a timeout, with no picker script", () => {
+  const panel = fs.readFileSync(path.join(__dirname, "../Panel.qml"), "utf8");
+  assert.match(panel, /\["timeout", "--kill-after=5s", "1830s"\]\.concat\(FoamyNative\.command\(/);
+  assert.match(panel, /"foamy-syncthing-helper",\s*\["pick-folder",/);
+  assert.match(panel, /FoamyNative\.unavailable\(exitCode\)/);
+  assert.doesNotMatch(panel, /syncthing-folder-picker\.sh|folder-picker\.qml|SYNCTHING_FOLDER|"bash"/);
+  for (const gone of ["scripts/syncthing-folder-picker.sh", "scripts/folder-picker.qml"])
+    assert.equal(fs.existsSync(path.join(__dirname, "..", gone)), false, gone);
+});

@@ -161,6 +161,8 @@
   "Saving…": "Lagrer…",
   "Retry": "Prøv igjen",
   "The folder chooser failed; enter the path manually.": "Mappevelgeren mislyktes; skriv inn stien manuelt.",
+  "The folder chooser needs a session bus, and there is none; enter the path manually.": "Mappevelgeren trenger en øktbuss, og det finnes ingen; skriv inn stien manuelt.",
+  "No folder chooser is running (xdg-desktop-portal); enter the path manually.": "Ingen mappevelger kjører (xdg-desktop-portal); skriv inn stien manuelt.",
   "This folder has sync conflict files (*.sync-conflict-*). Open it to compare and keep one version.": "Mappen har synkroniseringskonflikter (*.sync-conflict-*). Åpne den for å sammenligne og beholde én versjon.",
   "Sync conflicts": "Synkroniseringskonflikter",
   "Conflicts": "Konflikter",

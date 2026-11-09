@@ -1,5 +1,15 @@
 # Changelog
 
+## Foamy Syncthing 1.3.0
+
+- **Choose an existing directory** asks the desktop's folder chooser through
+  xdg-desktop-portal, from the helper's new `pick-folder` subcommand, instead
+  of a `qml6` window that a background `hyprctl`/`jq` loop floated and
+  centred. `qml6` and `hyprctl` are no longer needed; the removed
+  `scripts/syncthing-folder-picker.sh` and `scripts/folder-picker.qml` go
+  with them. A missing session bus or portal now says so instead of the
+  generic failure.
+
 ## Foamy Syncthing 1.2.0
 
 - Replace the bundled Go core (Syncshell 0.1.9, `bin/x86_64/syncshell-core`)

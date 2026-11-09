@@ -7,6 +7,8 @@ import qs.Commons as Commons
 import qs.Ui
 import "." as Plugin
 import "kit"
+import "kit/FoamyNative.js" as FoamyNative
+import "models/PanelModel.js" as PanelModel
 import "Preferences.js" as Schema
 import "ui"
 
@@ -112,7 +114,8 @@ Panel {
     if (path) Quickshell.execDetached(["uwsm-app", "--", "xdg-open", path])
   }
 
-  // The folder chooser is a separate window: release the popup while it is open.
+  // The folder chooser is the desktop's (xdg-desktop-portal, through the
+  // helper's pick-folder), a separate window: release the popup while it is open.
   function browseFolder() {
     if (folderPicker.running) return
     returningFromBrowser = true
@@ -122,14 +125,22 @@ Panel {
 
   Process {
     id: folderPicker
-    command: ["bash", decodeURIComponent(Qt.resolvedUrl("scripts/syncthing-folder-picker.sh").toString().replace(/^file:\/\//, "")),
-      FoamyI18n.t("Choose a Syncthing folder"), FoamyI18n.t("Choose")]
+    // The helper waits up to 30 minutes for the choice (the dialog waits on
+    // the user) and then answers PORTAL_FAILED; this is the backstop.
+    command: ["timeout", "--kill-after=5s", "1830s"].concat(FoamyNative.command(
+      FoamyNative.localPath(Qt.resolvedUrl(".")), "foamy-syncthing-helper",
+      ["pick-folder", FoamyI18n.t("Choose a Syncthing folder"), FoamyI18n.t("Choose")]))
     stdout: StdioCollector { id: folderPickerOutput; waitForEnd: true }
     onExited: function(exitCode) {
-      var match = String(folderPickerOutput.text).match(/(file:\/\/[^\r\n]*)/)
+      var reply = PanelModel.folderPickReply(exitCode, folderPickerOutput.text)
       root.open()
-      if (exitCode !== 0) root.pickerError = FoamyI18n.t("The folder chooser failed; enter the path manually.")
-      else if (match && root.view) root.view.setAddPath(decodeURIComponent(match[1].replace(/^file:\/\//, "")))
+      if (FoamyNative.unavailable(exitCode)) root.pickerError = FoamyI18n.t(FoamyNative.UNAVAILABLE_TEXT)
+      else if (reply.error === "NO_SESSION_BUS")
+        root.pickerError = FoamyI18n.t("The folder chooser needs a session bus, and there is none; enter the path manually.")
+      else if (reply.error === "PORTAL_UNAVAILABLE")
+        root.pickerError = FoamyI18n.t("No folder chooser is running (xdg-desktop-portal); enter the path manually.")
+      else if (reply.error) root.pickerError = FoamyI18n.t("The folder chooser failed; enter the path manually.")
+      else if (reply.path && root.view) root.view.setAddPath(reply.path)
       Qt.callLater(function() { root.returningFromBrowser = false })
     }
   }
