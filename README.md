@@ -226,7 +226,30 @@ difference is reported with both hashes. `git -C ../foamy-kit describe --tags`
 prints `v0.5.2`, the release `native.pin` names. To check a release the
 marketplace lists, run `git checkout <commit>` right after `cd`.
 
-<!-- Maintainers: when native.pin's kit changes, set the commit above to
+### Building the helper yourself
+
+To run binaries you built instead of the committed ones, build them in the
+installed plugin (`omarchy plugin add` cloned it to
+`~/.config/omarchy/plugins/foamy.syncthing`), with the same toolchain and
+foamy-kit commit as above. Keep foamy-kit outside
+`~/.config/omarchy/plugins`, which the shell scans for plugins:
+
+```sh
+cd ~/.config/omarchy/plugins/foamy.syncthing
+pin=native/native.pin
+rustup toolchain install "$(awk '$1 == "toolchain" { print $2 }' $pin)" \
+  --profile minimal --target x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+git clone https://github.com/foamrider/foamy-kit.git ~/.cache/foamy-kit &&
+  git -C ~/.cache/foamy-kit checkout -q --detach cc3e46f0fae443701c81793cf9f49890b39b37c1 &&
+  ~/.cache/foamy-kit/tools/build-native.sh .
+```
+
+This replaces `bin/x86_64/foamy-syncthing-helper`, `bin/aarch64/foamy-syncthing-helper`
+and `native/native.pin` with your build; run `omarchy restart shell` so running
+helpers use it. The build is reproducible, so `git status` shows no change
+when your binaries match the release, and `omarchy plugin update` still applies.
+
+<!-- Maintainers: when native.pin's kit changes, set both commits above to
      `git -C foamy-kit rev-parse v<kit>^{commit}`. -->
 
 ## Remove
