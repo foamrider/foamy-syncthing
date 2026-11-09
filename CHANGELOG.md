@@ -1,6 +1,6 @@
 # Changelog
 
-## Foamy Syncthing - Unreleased
+## Foamy Syncthing 1.3.0
 
 - **Choose an existing directory** asks the desktop's folder chooser through
   xdg-desktop-portal, from the helper's new `pick-folder` subcommand, instead
