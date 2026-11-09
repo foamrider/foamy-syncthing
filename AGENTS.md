@@ -16,6 +16,11 @@ rules a change must keep.
   for what the panel uses.
 - `foamy-syncthing-helper conflicts` is the conflict scan: roots on stdin
   only, never in argv or diagnostics; it starts no programs.
+- `foamy-syncthing-helper pick-folder` is the folder chooser: one
+  xdg-desktop-portal `OpenFile` request (`directory: true`) on the session
+  bus, the same `native/src/portal.rs` and `dbus.rs` as foamy-github (from
+  foamy-lock's studio). Never run it against the real session bus in tests:
+  it opens a dialog on the user's screen. The unit tests use a fake bus.
 
 ## Rules for changing the core
 

@@ -1,4 +1,4 @@
-//! `foamy-syncthing-helper`: Foamy Syncthing's one native binary, with two
+//! `foamy-syncthing-helper`: Foamy Syncthing's one native binary, with three
 //! subcommands. Anything else (no subcommand, another one) prints a usage
 //! line to stderr and exits 2. A helper bug exits 101 from the panic hook
 //! (message on stderr, no core dump). It never exits 126 or 127, which the
@@ -87,9 +87,20 @@
 //!   when stdout fails. `RLIMIT_CORE` is 0. SIGTERM ends it at once.
 //!
 //! The module documentation in `core/` gives each part's details.
+//!
+//! # `pick-folder [title [accept label]]` (replaces `scripts/syncthing-folder-picker.sh`)
+//!
+//! The desktop's folder chooser through xdg-desktop-portal (`portal.rs`):
+//! one JSON line, `{"ok": true, "path"}`, `{"ok": true, "cancelled": true}`
+//! or `{"ok": false, "code", "error"}` (`INVALID_ARGUMENT`,
+//! `NO_SESSION_BUS`, `PORTAL_UNAVAILABLE`, `PORTAL_FAILED`) with exit 1.
+//! Talks only to the session bus (no child processes, no files); waits up to
+//! 30 minutes for the choice and dies with its parent.
 
 mod conflicts;
 mod core;
+mod dbus;
+mod portal;
 
 use std::ffi::OsString;
 use std::process::ExitCode;
@@ -106,8 +117,12 @@ fn main() -> ExitCode {
     match args.first().and_then(|command| command.to_str()) {
         Some("conflicts") => conflicts::main(&args[1..]),
         Some("stream") => core::main(&args[1..]),
+        Some("pick-folder") => foamy_helper::json::run(
+            || portal::main("foamy-syncthing-helper", &args[1..]),
+            foamy_helper::json::error_reply,
+        ),
         _ => {
-            eprintln!("foamy-syncthing-helper: expected conflicts or stream");
+            eprintln!("foamy-syncthing-helper: expected conflicts, stream or pick-folder");
             ExitCode::from(2)
         }
     }

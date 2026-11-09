@@ -10,8 +10,9 @@ add-folder controls and a start/stop switch for the Syncthing user service.
 Requires Omarchy 4.5 on **x86-64 or
 ARM64 (aarch64) Linux**, systemd user services, Bash, `jq` and
 `wl-clipboard`. Opening a
-folder uses `uwsm-app` and `xdg-open`. **Choose an existing directory** uses
-`qml6` and `hyprctl`.
+folder uses `uwsm-app` and `xdg-open`. **Choose an existing directory** opens
+the desktop's folder chooser through xdg-desktop-portal (standard on Omarchy;
+the helper asks it over the session bus).
 
 **Syncthing itself is not bundled.** Install `syncthing` and enable its user
 service, or use the popup's install button. That opens an Omarchy terminal
@@ -24,8 +25,8 @@ omarchy plugin add https://github.com/foamrider/foamy-syncthing.git --enable
 ```
 
 The plugin bundles one helper binary, `bin/<arch>/foamy-syncthing-helper`
-(x86_64 and aarch64), which talks to Syncthing and scans for conflict files
-(see [Native core](#native-core)). On other CPUs the popup says "This
+(x86_64 and aarch64), which talks to Syncthing, scans for conflict files and
+asks the desktop's folder chooser for a directory (see [Native core](#native-core)). On other CPUs the popup says "This
 plugin's helper isn't available for this CPU." and nothing retries.
 
 ## Use
@@ -105,7 +106,7 @@ Settings save in place (`bar.shell.updateEntryInline`, else `omarchy bar set`).
 ## Native core
 
 `bin/x86_64/foamy-syncthing-helper` and `bin/aarch64/foamy-syncthing-helper`
-are one static Rust program with two subcommands:
+are one static Rust program with three subcommands:
 
 - `stream` is the native core: a Rust port of the native core of
   [Syncshell](https://github.com/omarchy-QOL/syncshell) (MIT, by IlyaZar; see
@@ -122,6 +123,10 @@ are one static Rust program with two subcommands:
   `https-cert.pem` pinned when TLS is on), the folder actions, and `systemctl --user start|stop` for
   `syncthing.service` only.
 - `conflicts` is the conflict scan (see [Resource use](#resource-use)).
+- `pick-folder` opens the folder chooser for **Choose an existing directory**:
+  one `org.freedesktop.portal.FileChooser` request on the session bus (no
+  other programs, no files), answered with the chosen path, a cancel or an
+  error code; it waits for you for up to 30 minutes.
 
 Only what the panel uses is ported: the snapshot, `refresh`, `configure`,
 `shutdown`, and the actions pause, resume, unlink (forget), add an existing
