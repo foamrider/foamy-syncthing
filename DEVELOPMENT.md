@@ -45,17 +45,16 @@ Targets Omarchy 4.5, with runtime feature detection only.
 `7318f1404e765f274df3d079e35d0ad32b5c1701`, v0.1.9) plus the conflict scan.
 Nothing tracks upstream automatically; see `AGENTS.md` for the rules
 (protocol v2 stays compatible with `service/CoreProcess.qml`, the API key
-never leaves the process, binaries only from the kit's build tool).
+never leaves the process, binaries only from the plugin's build tool, `kit/native/`).
 
 Rebuild (developers only; needs rustup with Rust 1.99.1, both musl targets,
-`file`, and qemu-user binfmt to test the aarch64 build). With `KIT` the
-foamy-kit checkout:
+`file`, and qemu-user binfmt to test the aarch64 build), from the plugin root:
 
 ```sh
 export CARGO_TARGET_DIR=~/.cache/foamy-native/foamy-syncthing   # never inside the plugin
-$KIT/tools/build-native.sh . --test      # cargo fmt --check, clippy -D warnings, cargo test
-$KIT/tools/build-native.sh .             # both arches into bin/<arch>/, writes native/native.pin
-$KIT/tools/build-native.sh . --verify    # clean rebuild, byte compare
+kit/native/build-native.sh . --test      # cargo fmt --check, clippy -D warnings, cargo test
+kit/native/build-native.sh .             # both arches into bin/<arch>/, writes native/native.pin
+kit/native/build-native.sh . --verify    # clean rebuild, byte compare
 python3 -I -m unittest discover -s tests -p 'test_*.py'
 FOAMY_HELPER='["bin/aarch64/foamy-syncthing-helper"]' python3 -I -m unittest discover -s tests -p 'test_*.py'
 bash tests/kit-check.sh

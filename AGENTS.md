@@ -42,9 +42,9 @@ rules a change must keep.
   against the real user service.
 - Keep every bound (timeouts, output caps, list limits, string lengths) on
   purpose; no async runtime; same system tools with the same argv.
-- **Binaries come only from the kit's build tool**, never by hand:
-  `$KIT/tools/build-native.sh . --test`, `$KIT/tools/build-native.sh .`,
-  `$KIT/tools/build-native.sh . --verify` (byte-identical rebuild). Commit
+- **Binaries come only from the plugin's build tool** (`kit/native/`), never by hand:
+  `kit/native/build-native.sh . --test`, `kit/native/build-native.sh .`,
+  `kit/native/build-native.sh . --verify` (byte-identical rebuild). Commit
   `bin/x86_64/…`, `bin/aarch64/…` and `native/native.pin` with the source
   change. Never write a Cargo `target/` inside the plugin
   (`CARGO_TARGET_DIR=~/.cache/foamy-native/foamy-syncthing`).
