@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# foamy-kit 0.7.0 eb004fb2f3a5ff6bc56fdd1dfba32c3aafcc8905f5f11b53c92370a8e77b9cc4 — do not edit; change foamy-kit and run sync
+# foamy-kit 0.8.0 7b5277019329e960d132292f7e43434f07a2bf836968d8b3c54407f5fff500be — do not edit; change foamy-kit and run sync
 """Build and verify a foamy plugin's native helper, from the plugin alone.
 
 foamy-kit's FoamyNative component copies this file into every plugin that
@@ -11,6 +11,11 @@ own repository at that commit, rustup and Python 3.11 or newer:
   kit/native/build-native.sh . --verify        # clean rebuild, byte-identical to bin/
   kit/native/build-native.sh . --verify --out DIR   # ... and keep the rebuilt files in DIR
   kit/native/build-native.sh . --test          # cargo fmt --check, clippy -D warnings, test
+  kit/native/build-native.sh . --notices       # only rewrite THIRD_PARTY_NOTICES.md
+
+The build and --verify also write / check THIRD_PARTY_NOTICES.md at the
+plugin root: the license texts and copyright notices of the third-party code
+linked into the binaries (see "third-party notices" below).
 
 Both arches are static musl builds made with the toolchain that
 rust-toolchain.toml pins and the kit's release profile (kit/rust/release.toml).
@@ -282,7 +287,7 @@ def verify_native(plugin, lock):
         if native_source_hash(plugin, crate) != pin.get("source"):
             problems.append(f"{binary} is stale: {crate}/, kit/rust, Cargo.toml, Cargo.lock or {TOOLCHAIN_FILE} "
                             f"changed since it was built (run kit/native/build-native.sh .)")
-    return problems
+    return problems + notices_problems(plugin, pins)
 
 
 # --------------------------------------------------------------- native build
@@ -476,27 +481,35 @@ def check_toolchain(env, channel, cwd):
     return out.stdout.strip()
 
 
-def build_native(plugin, crate, binary, channel, target_dir):
-    """Builds both arches into target_dir; {arch: bytes}."""
+def cargo_home():
+    return Path(os.environ.get("CARGO_HOME") or Path.home() / ".cargo").resolve()
+
+
+def build_flags(plugin, crate, target_dir):
+    """The rustc flags of every native build (and of the dependency graph the
+    notices are made from, so target cfgs are evaluated the same way)."""
     plugin = Path(plugin)
-    crate_dir = plugin / crate
-    home = Path.home()
-    cargo_home = Path(os.environ.get("CARGO_HOME") or home / ".cargo").resolve()
-    rustup_home = Path(os.environ.get("RUSTUP_HOME") or home / ".rustup").resolve()
+    rustup_home = Path(os.environ.get("RUSTUP_HOME") or Path.home() / ".rustup").resolve()
     # Later remaps win: general prefixes first. Paths end up relative to the
     # plugin, so any checkout (live, worktree, another machine) builds the
     # same bytes.
-    flags = [
+    return [
         "-C", "link-self-contained=yes",
         "-C", "link-arg=--build-id=none",
-        f"--remap-path-prefix={cargo_home}=/cargo",
+        f"--remap-path-prefix={cargo_home()}=/cargo",
         f"--remap-path-prefix={rustup_home}=/rustup",
         f"--remap-path-prefix={target_dir}=/target",
         f"--remap-path-prefix={plugin}=.",
         f"--remap-path-prefix={plugin / 'kit/rust'}=kit/rust",
-        f"--remap-path-prefix={crate_dir}=.",
+        f"--remap-path-prefix={plugin / crate}=.",
     ]
-    env = cargo_env(target_dir, channel, flags, ARCHES.values())
+
+
+def build_native(plugin, crate, binary, channel, target_dir):
+    """Builds both arches into target_dir; {arch: bytes}."""
+    plugin = Path(plugin)
+    crate_dir = plugin / crate
+    env = cargo_env(target_dir, channel, build_flags(plugin, crate, target_dir), ARCHES.values())
     check_toolchain(env, channel, crate_dir)
     built = {}
     for arch, triple in ARCHES.items():
@@ -634,6 +647,846 @@ def pin_bytes(crate, binary, channel, source, built, kit):
     return ("\n".join(lines) + "\n").encode()
 
 
+# ------------------------------------------------------ third-party notices
+#
+# THIRD_PARTY_NOTICES.md at the plugin root maps the code statically linked
+# into each pinned binary to the license texts and copyright notices that
+# code ships. It is generated with the binaries (never by hand), from
+# Cargo.lock, the crate archives in the cargo registry (each checked against
+# its Cargo.lock checksum) and the pinned toolchain, so it is deterministic:
+# --verify regenerates it and fails when the committed file differs. It is
+# not a build input (native_sources leaves the plugin root's files out), so
+# writing it never makes the binaries stale.
+
+NOTICES_NAME = "THIRD_PARTY_NOTICES.md"
+NOTICES_TITLE = "# Third-party notices: native helpers"
+TREE_LINE_RE = re.compile(r"(\S+) v(\S+)(?: \((.+)\))?")
+NAME_VERSION_RE = re.compile(r"(.+?)-(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.+-]*)?)")
+NOTICE_FILE_RE = re.compile(r"(?i)(licen[cs]e|copying|notice|copyright|unlicen[cs]e)([-._ ].*)?")
+NOT_NOTICE_SUFFIXES = (".rs", ".toml", ".json", ".yml", ".yaml", ".sh", ".py", ".html", ".css", ".js", ".lock")
+SOURCE_SUFFIXES = (".rs", ".c", ".h", ".s", ".S", ".asm", ".inc", ".cc", ".cpp")
+# Not compiled into a binary, so their file headers are not scanned.
+SOURCE_SKIP_DIRS = {"tests", "test", "benches", "bench", "examples", "example", "fuzz", "testdata", "docs", "doc",
+                    ".github", "ci", "admin", "scripts"}
+HEADER_LINES = 40
+COPYRIGHT_LINE_RE = re.compile(r"(?i)(copyright\b|\(c\)\s*\d|©)")
+NOT_COPYRIGHT_RE = re.compile(r"(?i)copyright\s+(notice|holder|owner|and\b|law|claim|license|statement|\(c\)\s*<)")
+SPDX_LINE_RE = re.compile(r"SPDX-License-Identifier:\s*([A-Za-z0-9.+()\s-]+)")
+ELF_CRATE_RE = re.compile(rb"/cargo/registry/src/[^/\x00]+/([A-Za-z0-9_.+-]+)/")
+ELF_STD_DEP_RE = re.compile(rb"/rust/deps/([A-Za-z0-9_.+-]+)/")
+ELF_STD_RE = re.compile(rb"/rustc/[0-9a-f]{40}/library/([a-z_]+)/")
+# Sysroot crates of the musl targets that live in the Rust repository
+# (library/): covered by the toolchain's "in-tree" notices.
+SYSROOT_IN_TREE = {"alloc", "compiler_builtins", "core", "panic_abort", "panic_unwind", "proc_macro",
+                   "profiler_builtins", "rustc_std_workspace_alloc", "rustc_std_workspace_core",
+                   "rustc_std_workspace_std", "std", "std_detect", "sysroot", "test", "unwind"}
+# Sysroot crates a release helper never links, and why.
+SYSROOT_NOT_LINKED = {
+    "test": "the test harness",
+    "getopts": "used only by the test harness",
+    "proc_macro": "the compiler's proc-macro bridge",
+    "rustc_literal_escaper": "used only by proc_macro",
+    "profiler_builtins": "only for -C instrument-coverage / profile-generate builds",
+    "panic_unwind": 'the release profile is panic = "abort" (panic_abort is linked instead)',
+}
+# The musl version Rust's self-contained libc.a must be (checked in its
+# version.lo) for MUSL_COPYRIGHT to be the right file.
+MUSL_VERSION = "1.2.5"
+# musl's COPYRIGHT at v1.2.5 (git.musl-libc.org/cgit/musl/plain/COPYRIGHT?h=v1.2.5,
+# sha256 f9bc4423732350eb0b3f7ed7e91d530298476f8fec0c6c427a1c04ade22655af).
+MUSL_COPYRIGHT = """\
+musl as a whole is licensed under the following standard MIT license:
+
+----------------------------------------------------------------------
+Copyright © 2005-2020 Rich Felker, et al.
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+----------------------------------------------------------------------
+
+Authors/contributors include:
+
+A. Wilcox
+Ada Worcester
+Alex Dowad
+Alex Suykov
+Alexander Monakov
+Andre McCurdy
+Andrew Kelley
+Anthony G. Basile
+Aric Belsito
+Arvid Picciani
+Bartosz Brachaczek
+Benjamin Peterson
+Bobby Bingham
+Boris Brezillon
+Brent Cook
+Chris Spiegel
+Clément Vasseur
+Daniel Micay
+Daniel Sabogal
+Daurnimator
+David Carlier
+David Edelsohn
+Denys Vlasenko
+Dmitry Ivanov
+Dmitry V. Levin
+Drew DeVault
+Emil Renner Berthing
+Fangrui Song
+Felix Fietkau
+Felix Janda
+Gianluca Anzolin
+Hauke Mehrtens
+He X
+Hiltjo Posthuma
+Isaac Dunham
+Jaydeep Patil
+Jens Gustedt
+Jeremy Huntwork
+Jo-Philipp Wich
+Joakim Sindholt
+John Spencer
+Julien Ramseier
+Justin Cormack
+Kaarle Ritvanen
+Khem Raj
+Kylie McClain
+Leah Neukirchen
+Luca Barbato
+Luka Perkov
+M Farkas-Dyck (Strake)
+Mahesh Bodapati
+Markus Wichmann
+Masanori Ogino
+Michael Clark
+Michael Forney
+Mikhail Kremnyov
+Natanael Copa
+Nicholas J. Kain
+orc
+Pascal Cuoq
+Patrick Oppenlander
+Petr Hosek
+Petr Skocik
+Pierre Carrier
+Reini Urban
+Rich Felker
+Richard Pennington
+Ryan Fairfax
+Samuel Holland
+Segev Finer
+Shiz
+sin
+Solar Designer
+Stefan Kristiansson
+Stefan O'Rear
+Szabolcs Nagy
+Timo Teräs
+Trutz Behn
+Valentin Ochs
+Will Dietz
+William Haddon
+William Pitcock
+
+Portions of this software are derived from third-party works licensed
+under terms compatible with the above MIT license:
+
+The TRE regular expression implementation (src/regex/reg* and
+src/regex/tre*) is Copyright © 2001-2008 Ville Laurikari and licensed
+under a 2-clause BSD license (license text in the source files). The
+included version has been heavily modified by Rich Felker in 2012, in
+the interests of size, simplicity, and namespace cleanliness.
+
+Much of the math library code (src/math/* and src/complex/*) is
+Copyright © 1993,2004 Sun Microsystems or
+Copyright © 2003-2011 David Schultz or
+Copyright © 2003-2009 Steven G. Kargl or
+Copyright © 2003-2009 Bruce D. Evans or
+Copyright © 2008 Stephen L. Moshier or
+Copyright © 2017-2018 Arm Limited
+and labelled as such in comments in the individual source files. All
+have been licensed under extremely permissive terms.
+
+The ARM memcpy code (src/string/arm/memcpy.S) is Copyright © 2008
+The Android Open Source Project and is licensed under a two-clause BSD
+license. It was taken from Bionic libc, used on Android.
+
+The AArch64 memcpy and memset code (src/string/aarch64/*) are
+Copyright © 1999-2019, Arm Limited.
+
+The implementation of DES for crypt (src/crypt/crypt_des.c) is
+Copyright © 1994 David Burren. It is licensed under a BSD license.
+
+The implementation of blowfish crypt (src/crypt/crypt_blowfish.c) was
+originally written by Solar Designer and placed into the public
+domain. The code also comes with a fallback permissive license for use
+in jurisdictions that may not recognize the public domain.
+
+The smoothsort implementation (src/stdlib/qsort.c) is Copyright © 2011
+Valentin Ochs and is licensed under an MIT-style license.
+
+The x86_64 port was written by Nicholas J. Kain and is licensed under
+the standard MIT terms.
+
+The mips and microblaze ports were originally written by Richard
+Pennington for use in the ellcc project. The original code was adapted
+by Rich Felker for build system and code conventions during upstream
+integration. It is licensed under the standard MIT terms.
+
+The mips64 port was contributed by Imagination Technologies and is
+licensed under the standard MIT terms.
+
+The powerpc port was also originally written by Richard Pennington,
+and later supplemented and integrated by John Spencer. It is licensed
+under the standard MIT terms.
+
+All other files which have no copyright comments are original works
+produced specifically for use as part of this library, written either
+by Rich Felker, the main author of the library, or by one or more
+contibutors listed above. Details on authorship of individual files
+can be found in the git version control history of the project. The
+omission of copyright and license comments in each file is in the
+interest of source tree size.
+
+In addition, permission is hereby granted for all public header files
+(include/* and arch/*/bits/*) and crt files intended to be linked into
+applications (crt/*, ldso/dlstart.c, and arch/*/crt_arch.h) to omit
+the copyright notice and permission notice otherwise required by the
+license, and to use these files without any requirement of
+attribution. These files include substantial contributions from:
+
+Bobby Bingham
+John Spencer
+Nicholas J. Kain
+Rich Felker
+Richard Pennington
+Stefan Kristiansson
+Szabolcs Nagy
+
+all of whom have explicitly granted such permission.
+
+This file previously contained text expressing a belief that most of
+the files covered by the above exception were sufficiently trivial not
+to be subject to copyright, resulting in confusion over whether it
+negated the permissions granted in the license. In the spirit of
+permissive licensing, and of not having licensing issues being an
+obstacle to adoption, that text has been removed.
+"""
+# foamy-kit's LICENSE, for the vendored kit/rust crates (foamy-kit's tests
+# keep it equal to the kit's LICENSE file).
+KIT_LICENSE = """\
+MIT License
+
+Copyright (c) 2026 foamrider
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+"""
+# Standard license texts the toolchain does not ship (share/doc/rust/licenses
+# has Apache-2.0, BSD-2-Clause, ISC, LLVM-exception, MIT, NCSA, Unicode-3.0, …),
+# used only for a crate that ships no license file of its own.
+EMBEDDED_LICENSES = {
+    "MIT-0": """\
+MIT No Attribution
+
+Copyright <year> <copyright holders>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this
+software and associated documentation files (the "Software"), to deal in the Software
+without restriction, including without limitation the rights to use, copy, modify,
+merge, publish, distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED,
+INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A
+PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+""",
+}
+
+
+def notice_name(parts):
+    """A notice file's path parts: LICENSE*, COPYING*, … or any file in a
+    LICENSES/ directory (REUSE layout), but no code or config file."""
+    in_dir = len(parts) > 1 and parts[-2].lower() in ("licenses", "licences")
+    return (bool(NOTICE_FILE_RE.fullmatch(parts[-1])) or in_dir) and not parts[-1].lower().endswith(NOT_NOTICE_SUFFIXES)
+
+
+def normalize_text(data):
+    """A notice's text: UTF-8 (invalid bytes replaced), no BOM, \\n line ends,
+    no trailing spaces, no leading or trailing blank lines."""
+    text = data.decode("utf-8", errors="replace") if isinstance(data, bytes) else data
+    lines = [line.rstrip() for line in text.lstrip("\ufeff").replace("\r\n", "\n").replace("\r", "\n").split("\n")]
+    while lines and not lines[0]:
+        lines.pop(0)
+    while lines and not lines[-1]:
+        lines.pop()
+    return "\n".join(lines)
+
+
+def spdx_ids(expression):
+    """The license ids in an SPDX expression (or a legacy "MIT/Apache-2.0")."""
+    return sorted({token for token in re.split(r"[\s()/,]+", expression or "")
+                   if token and token not in ("OR", "AND", "WITH", "or", "and")})
+
+
+def split_name_version(text):
+    match = NAME_VERSION_RE.fullmatch(text)
+    return (match.group(1), match.group(2)) if match else None
+
+
+def lock_packages(plugin):
+    data = read_toml(Path(plugin) / "Cargo.lock")
+    return {(p.get("name"), p.get("version")): p for p in data.get("package", []) if isinstance(p, dict)}
+
+
+def linked_packages(plugin, crate, triple, env):
+    """{(name, version): plugin-relative path or None for a registry crate}:
+    the packages cargo compiles for `triple` into the crate's binary, with the
+    features as built (the crate's defaults, the same resolver). Normal
+    dependencies only: build-dependencies and proc-macro crates (and their
+    own dependencies) run on the build host and are not linked."""
+    plugin = Path(plugin)
+    command = ["cargo", "tree", "--locked", "--target", triple, "--edges", "normal,no-proc-macro",
+               "--prefix", "none", "--format", "{p}", "--color", "never",
+               "--manifest-path", str(plugin / crate / "Cargo.toml"), "--config", str(plugin / RELEASE_PROFILE)]
+    out = subprocess.run(command, env=env, cwd=plugin / crate, capture_output=True, text=True, timeout=600)
+    if out.returncode != 0:
+        raise KitError(f"cargo tree for {triple} failed (exit {out.returncode}; after `cargo fetch --locked` it "
+                       f"works offline):\n{out.stderr.strip()[-2000:]}")
+    found = {}
+    top = plugin.resolve()
+    for line in out.stdout.splitlines():
+        line = line.strip().removesuffix(" (*)")
+        if not line:
+            continue
+        match = TREE_LINE_RE.fullmatch(line)
+        if not match:
+            raise KitError(f"cargo tree printed an unexpected line: {line!r}")
+        name, version, extra = match.groups()
+        path = None
+        if extra and extra.startswith("/"):
+            resolved = Path(extra).resolve()
+            if resolved != top and top not in resolved.parents:
+                raise KitError(f"{name} {version} is a path dependency outside the plugin ({extra})")
+            path = resolved.relative_to(top).as_posix()
+        elif extra:
+            raise KitError(f"{name} {version} comes from {extra}; only crates.io crates (locked by checksum) and "
+                           "path dependencies inside the plugin are supported")
+        found[(name, version)] = path
+    return found
+
+
+def manifest_license_file(manifest):
+    """The crate-relative path of a manifest's `license-file`, or None."""
+    package = manifest.get("package") if isinstance(manifest, dict) else None
+    value = package.get("license-file") if isinstance(package, dict) else None
+    if not isinstance(value, str) or not value.strip():
+        return None
+    import posixpath
+    rel = posixpath.normpath(value.strip().replace("\\", "/")).removeprefix("./")
+    return None if rel.startswith(("/", "../")) or rel in (".", "..") else rel
+
+
+def crate_files(name, version, checksum, fetch=None):
+    """[(path in the crate, bytes)]: the crate's Cargo.toml, its license
+    files and its manifest's `license-file` whole, its source files' first
+    4 KiB. Read only from the .crate archive in the cargo registry cache
+    whose sha256 is the Cargo.lock checksum, never from an unpacked copy
+    (nothing vouches for those bytes). A missing archive is fetched once
+    through `fetch` (cargo fetch --locked), then it must be there."""
+    import io
+    import tarfile
+    registry = cargo_home() / "registry"
+    prefix = f"{name}-{version}/"
+    archives = sorted((registry / "cache").glob(f"*/{name}-{version}.crate"))
+    if not archives and fetch is not None:
+        fetch()
+        archives = sorted((registry / "cache").glob(f"*/{name}-{version}.crate"))
+    if not archives:
+        raise KitError(f"{name} {version}: no .crate archive in the cargo registry cache ({registry / 'cache'}); "
+                       "run `cargo fetch --locked` in the plugin")
+    archive = archives[0]
+    data = archive.read_bytes()
+    if sha256(data) != checksum:
+        raise KitError(f"{archive} does not match the Cargo.lock checksum of {name} {version}; remove it and "
+                       "run `cargo fetch --locked`")
+    try:
+        with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
+            members = {m.name[len(prefix):]: m for m in tar.getmembers()
+                       if m.isfile() and m.name.startswith(prefix) and ".." not in m.name.split("/")}
+            manifest = {}
+            if "Cargo.toml" in members:
+                try:
+                    manifest = tomllib.loads(tar.extractfile(members["Cargo.toml"]).read().decode("utf-8", errors="replace"))
+                except tomllib.TOMLDecodeError as error:
+                    raise KitError(f"{name} {version}: Cargo.toml: {error}") from None
+            license_file = manifest_license_file(manifest)
+            if license_file is not None and license_file not in members:
+                raise KitError(f"{name} {version}: its license-file {license_file!r} is not in the crate archive")
+            files = []
+            for rel, member in sorted(members.items()):
+                whole = rel == "Cargo.toml" or rel == license_file or notice_name(rel.split("/"))
+                if whole or rel.endswith(SOURCE_SUFFIXES):
+                    stream = tar.extractfile(member)
+                    files.append((rel, stream.read() if whole else stream.read(4096)))
+    except (tarfile.TarError, OSError, EOFError) as error:
+        raise KitError(f"{archive}: unreadable crate archive ({error})") from None
+    return files
+
+
+def license_files(files, manifest):
+    """[(path, text)] of the notice files a crate ships: LICENSE*, LICENCE*,
+    COPYING*, NOTICE*, COPYRIGHT*, UNLICENSE and LICENSES/* anywhere outside
+    tests, benches and examples (vendored code keeps its own: ring's
+    third_party/fiat, …), and its Cargo.toml `license-file`."""
+    license_file = manifest_license_file(manifest)
+    found = {}
+    for rel, data in files:
+        parts = rel.split("/")
+        included = len(parts) == 1 or parts[0] not in SOURCE_SKIP_DIRS
+        notice = included and notice_name(parts)
+        if notice or rel == license_file:
+            text = normalize_text(data)
+            if text:
+                found[rel] = text
+    return sorted(found.items())
+
+
+def header_notices(files):
+    """(copyright lines, SPDX ids) found in the first lines of the crate's
+    source files outside tests, benches and examples: notices of code a
+    crate includes from elsewhere (graviola's s2n-bignum, mlkem-native, …)."""
+    lines, ids = set(), set()
+    for rel, data in files:
+        if not rel.endswith(SOURCE_SUFFIXES) or rel.split("/")[0] in SOURCE_SKIP_DIRS:
+            continue
+        for raw in data.decode("utf-8", errors="replace").splitlines()[:HEADER_LINES]:
+            line = re.sub(r"^[\s/*#!;%\-]+|[\s*/]+$", "", raw).strip()
+            spdx = SPDX_LINE_RE.search(line)
+            if spdx:
+                ids.update(spdx_ids(spdx.group(1)))
+            elif COPYRIGHT_LINE_RE.match(line) and not NOT_COPYRIGHT_RE.match(line) and 8 < len(line) < 200:
+                lines.add(line)
+    return sorted(lines), sorted(ids)
+
+
+def html_text(fragment):
+    """Plain text of an HTML fragment (the toolchain's COPYRIGHT files)."""
+    import html
+    text = re.sub(r"<br\s*/?>|</p>|</h[1-6]>|</li>|</div>", "\n", fragment)
+    text = html.unescape(re.sub(r"<[^>]+>", "", text))
+    out = []
+    for line in text.split("\n"):
+        line = line.strip()
+        if line or (out and out[-1]):
+            out.append(line)
+    return normalize_text("\n".join(out))
+
+
+def toolchain_notices(sysroot):
+    """From the pinned toolchain (the rustc component): the standard
+    library's in-tree notices, its out-of-tree crates' notices
+    {(name, version): (license, [(file, text)])}, the LLVM project entry of
+    the compiler's notices, and the standard license texts directory."""
+    import html
+    doc = Path(sysroot) / "share/doc/rust"
+    library = doc / "COPYRIGHT-library.html"
+    compiler = doc / "COPYRIGHT.html"
+    try:
+        library_html = library.read_text(encoding="utf-8")
+        compiler_html = compiler.read_text(encoding="utf-8")
+    except OSError as error:
+        raise KitError(f"the toolchain's notices are missing ({error}); reinstall the toolchain") from None
+    start = library_html.find('<h2 id="longer-version">')
+    middle = library_html.find('<h2 id="out-of-tree-dependencies">')
+    if start < 0 or middle < start:
+        raise KitError(f"{library}: unexpected layout (no in-tree / out-of-tree sections); update native.py")
+    in_tree = html_text(library_html[start:middle])
+    crates = {}
+    for match in re.finditer(r"<h3>📦 ([^<]+)</h3>(.*?)(?=<h3>|</body>|\Z)", library_html[middle:], re.S):
+        name_version = split_name_version(html.unescape(match.group(1)).strip())
+        if not name_version:
+            continue
+        body = match.group(2)
+        spdx = re.search(r"<b>License:</b>\s*([^<]*)</p>", body)
+        notices = [(html.unescape(f).strip(), normalize_text(html.unescape(t)))
+                   for f, t in re.findall(r"<summary><code>([^<]+)</code></summary>\s*<pre>(.*?)</pre>", body, re.S)]
+        crates[name_version] = (html.unescape(spdx.group(1)).strip() if spdx else "", notices)
+    llvm = re.search(r"<b>File/Directory:</b>\s*<code>src/llvm-project</code>(.*?)(?=<b>File/Directory:</b>|<h2)",
+                     compiler_html, re.S)
+    if not llvm:
+        raise KitError(f"{compiler}: no src/llvm-project entry; update native.py")
+    return {"in_tree": in_tree, "crates": crates,
+            "llvm": "File/Directory: src/llvm-project\n" + html_text(llvm.group(1)), "licenses": doc / "licenses"}
+
+
+def standard_license(licenses_dir, spdx):
+    path = Path(licenses_dir) / f"{spdx}.txt"
+    if spdx in EMBEDDED_LICENSES:
+        return normalize_text(EMBEDDED_LICENSES[spdx])
+    if re.fullmatch(r"[A-Za-z0-9.+-]+", spdx) and path.is_file():
+        return normalize_text(path.read_bytes())
+    return None
+
+
+def ar_member(data, wanted):
+    """The bytes of member `wanted` of a System V / GNU ar archive, or None."""
+    if not data.startswith(b"!<arch>\n"):
+        return None
+    offset, names = 8, b""
+    while offset + 60 <= len(data):
+        header = data[offset:offset + 60]
+        name = header[:16].decode("ascii", errors="replace").rstrip()
+        try:
+            size = int(header[48:58].decode("ascii").strip())
+        except ValueError:
+            return None
+        body = data[offset + 60:offset + 60 + size]
+        if name == "//":
+            names = body
+        elif name.startswith("/") and name[1:].isdigit() and names:
+            start = int(name[1:])
+            name = names[start:names.find(b"\n", start)].decode("ascii", errors="replace")
+        if name.rstrip("/") == wanted:
+            return body
+        offset += 60 + size + (size & 1)
+    return None
+
+
+def musl_version(sysroot, triple):
+    libc = Path(sysroot) / "lib/rustlib" / triple / "lib/self-contained/libc.a"
+    member = ar_member(libc.read_bytes(), "version.lo") if libc.is_file() else None
+    match = re.search(rb"(?<![0-9.])(\d+\.\d+\.\d+)\x00", member or b"")
+    return match.group(1).decode() if match else None
+
+
+def sysroot_crates(sysroot, triple):
+    lib = Path(sysroot) / "lib/rustlib" / triple / "lib"
+    return sorted({m.group(1) for p in lib.glob("lib*.rlib") if (m := re.fullmatch(r"lib(.+)-[0-9a-f]+\.rlib", p.name))})
+
+
+def elf_sources(data):
+    """What the binary's embedded source paths (panic locations; the build
+    remaps them to /cargo/…, /rustc/… and /rust/deps/…) show is linked:
+    {"crates": {(name, version)}, "std_deps": {(name, version)}, "std": {crate}}."""
+    def versions(regex):
+        return {nv for m in regex.finditer(data) if (nv := split_name_version(m.group(1).decode()))}
+    return {"crates": versions(ELF_CRATE_RE), "std_deps": versions(ELF_STD_DEP_RE),
+            "std": {m.group(1).decode() for m in ELF_STD_RE.finditer(data)}}
+
+
+def fence(text):
+    longest = max((len(run) for run in re.findall(r"`+", text)), default=0)
+    return "`" * max(3, longest + 1)
+
+
+def md_cell(text):
+    return str(text).replace("|", "\\|").replace("\n", " ")
+
+
+def notices_bytes(plugin, channel, binaries, env, cwd):
+    """THIRD_PARTY_NOTICES.md for the plugin. `binaries`: [{"crate", "binary",
+    "source", "files": {arch: bytes}}], one per pinned crate."""
+    plugin = Path(plugin)
+    sysroot_out = subprocess.run(["rustc", "--print", "sysroot"], env=env, cwd=cwd, capture_output=True, text=True,
+                                 timeout=60)
+    if sysroot_out.returncode != 0:
+        raise KitError(f"rustc --print sysroot failed: {sysroot_out.stderr.strip()}")
+    sysroot = Path(sysroot_out.stdout.strip())
+    toolchain = toolchain_notices(sysroot)
+    lock = lock_packages(plugin)
+    pool, uses, order = {}, {}, []
+    fetched = []
+
+    def fetch():
+        """cargo fetch --locked, once per generation (the build's environment)."""
+        if fetched:
+            return
+        fetched.append(True)
+        crate_dir = plugin / binaries[0]["crate"] if binaries else Path(cwd)
+        result = subprocess.run(["cargo", "fetch", "--locked", "--manifest-path", str(crate_dir / "Cargo.toml")],
+                                env=env, cwd=crate_dir, capture_output=True, text=True, timeout=600)
+        if result.returncode != 0:
+            raise KitError(f"cargo fetch --locked failed (exit {result.returncode}):\n{result.stderr.strip()[-2000:]}")
+
+    def notice(text, label):
+        text = normalize_text(text)
+        if text not in pool:
+            pool[text] = f"N{len(pool) + 1}"
+            order.append(text)
+        uses.setdefault(pool[text], [])
+        if label not in uses[pool[text]]:
+            uses[pool[text]].append(label)
+        return pool[text]
+
+    def refs(ids):
+        return ", ".join(f"[{i}](#{i.lower()})" for i in dict.fromkeys(ids)) or "none"
+
+    lines = [
+        NOTICES_TITLE,
+        "",
+        "Generated by `kit/native/build-native.sh` (foamy-kit) with the binaries; do not edit. "
+        "`kit/native/build-native.sh .` rewrites it, `kit/native/build-native.sh . --verify` (and the "
+        "Verify native helpers workflow) fails when it differs from a fresh generation, and "
+        "`tests/kit-check.sh` fails when it is missing or names other binaries than `native.pin`.",
+        "",
+        "The helper binaries below are static executables. Besides this plugin's own code (see `LICENSE`) "
+        "and foamy-kit's shared crate, they contain the third-party code listed for each, and this file "
+        "reproduces the license texts and copyright notices that code ships (under [Notices](#notices)). "
+        "Where a component offers a choice of licenses, every text it ships is reproduced. This is a "
+        "supply-chain record, not a legal determination.",
+        "",
+        "How the lists are made:",
+        "",
+        "- **Crates**: `cargo tree --locked --target <triple> --edges normal,no-proc-macro` for each musl "
+        "target, with the features the build uses. Build-dependencies and proc-macro crates (with their "
+        "own dependencies) run on the build host and are not linked. `Cargo.lock` also lists crates for "
+        "other platforms (windows-*, …) and for features this build does not enable (ring, aws-lc, …): "
+        "those are not compiled and not listed. A crate whose code link-time optimization drops entirely "
+        "is still listed. Every crate source path embedded in the binaries (panic locations) is checked "
+        "to be in the list when the file is generated.",
+        "- **Crate notices**: read from the crate archive (`.crate`) whose SHA-256 is the `Cargo.lock` "
+        "checksum shown: its `LICENSE*`, `LICENCE*`, `COPYING*`, `NOTICE*`, `COPYRIGHT*` and `UNLICENSE` "
+        "files and `license-file`, plus the copyright lines and SPDX ids at the top of its source files "
+        "(outside tests, benches and examples). For a crate that ships no license file, the standard text "
+        "of each license its SPDX expression names is reproduced instead, and marked so.",
+        "- **Toolchain**: the Rust standard library and its crates (notices from the pinned toolchain's "
+        "`share/doc/rust/COPYRIGHT-library.html`), musl libc and the C runtime objects of Rust's "
+        "self-contained musl linking, and LLVM's libunwind and crtbegin/crtend (from the toolchain's "
+        "`COPYRIGHT.html`).",
+        "",
+    ]
+    std_names = None
+    detected_std_deps = set()
+    sections = []
+    for entry in sorted(binaries, key=lambda e: e["binary"]):
+        crate, binary = entry["crate"], entry["binary"]
+        linked = {}
+        for arch, triple in ARCHES.items():
+            packages = linked_packages(plugin, crate, triple, env)
+            data = entry["files"].get(arch)
+            # Another crate's binary that its sources have outgrown (a shared
+            # dependency was updated) shows the old graph; it is rebuilt next,
+            # and until then kit-check and --verify report it stale.
+            if data is not None and not entry.get("stale"):
+                seen = elf_sources(data)
+                missing = sorted(nv for nv in seen["crates"] if nv not in packages)
+                if missing:
+                    raise KitError(f"bin/{arch}/{binary} contains code of " + ", ".join(f"{n} {v}" for n, v in missing)
+                                   + ", which cargo tree does not list; the notices would be incomplete")
+                detected_std_deps |= seen["std_deps"]
+            for key, path in packages.items():
+                linked.setdefault(key, {"path": path, "arches": []})["arches"].append(arch)
+        if std_names is None:
+            std_names = {arch: set(sysroot_crates(sysroot, triple)) for arch, triple in ARCHES.items()}
+        sections.append((entry, linked))
+
+    for entry, linked in sections:
+        crate, binary = entry["crate"], entry["binary"]
+        lines += [f"## `{binary}`", ""]
+        for arch in sorted(entry["files"]):
+            lines.append(f"- `bin/{arch}/{binary}`: sha256 `{sha256(entry['files'][arch])}`")
+        lines += [f"- `{crate}/{PIN_NAME}`: source `{entry['source']}`, toolchain {channel}", ""]
+        first, third = [], []
+        for (name, version), info in sorted(linked.items()):
+            arches = "both" if len(info["arches"]) == len(ARCHES) else ", ".join(info["arches"])
+            if info["path"] is not None:
+                manifest = read_toml(plugin / info["path"] / "Cargo.toml")
+                spdx = manifest.get("package", {}).get("license", "")
+                if info["path"].startswith("kit/rust/"):
+                    ids = [notice(KIT_LICENSE, f"{name} {version} (foamy-kit's LICENSE)")]
+                    owner = "foamy-kit, vendored"
+                else:
+                    ids, owner = [], "this plugin"
+                first.append(f"| {md_cell(name)} | {md_cell(version)} | `{info['path']}/` ({owner}) | "
+                             f"{md_cell(spdx)} | {arches} | {refs(ids) if ids else '`LICENSE`'} |")
+                continue
+            package = lock.get((name, version), {})
+            checksum = package.get("checksum", "")
+            if not str(package.get("source", "")).startswith("registry+") or not SHA_RE.fullmatch(checksum):
+                raise KitError(f"{name} {version}: Cargo.lock records no crates.io source and checksum")
+            files = crate_files(name, version, checksum, fetch)
+            manifest = {}
+            for rel, data in files:
+                if rel == "Cargo.toml":
+                    try:
+                        manifest = tomllib.loads(data.decode("utf-8", errors="replace"))
+                    except tomllib.TOMLDecodeError as error:
+                        raise KitError(f"{name} {version}: Cargo.toml: {error}") from None
+            spdx = str(manifest.get("package", {}).get("license", "") or "")
+            label = f"{name} {version}"
+            shipped = license_files(files, manifest)
+            ids = [notice(text, f"{label}: `{rel}`") for rel, text in shipped]
+            copyrights, header_ids = header_notices(files)
+            if copyrights:
+                ids.append(notice("Copyright lines at the top of the crate's source files:\n\n" + "\n".join(copyrights),
+                                  f"{label}: source file headers"))
+            if not shipped:
+                for spdx_id in sorted(set(spdx_ids(spdx)) | set(header_ids)):
+                    text = standard_license(toolchain["licenses"], spdx_id)
+                    if text is None:
+                        raise KitError(f"{label} ships no license file and native.py has no standard text for "
+                                       f"{spdx_id}; add it to EMBEDDED_LICENSES")
+                    ids.append(notice(text, f"{label}: standard {spdx_id} text (the crate ships no license file)"))
+                if not spdx_ids(spdx):
+                    raise KitError(f"{label} has neither a license file nor a license in its Cargo.toml")
+            third.append(f"| {md_cell(name)} | {md_cell(version)} | {md_cell(spdx)} | `{checksum}` | {arches} | "
+                         f"{refs(ids)} |")
+        lines += [f"### Crates linked into `{binary}`", "",
+                  "| Crate | Version | License (Cargo.toml) | Cargo.lock checksum (sha256 of the .crate) | Arches | Notices |",
+                  "|---|---|---|---|---|---|", *third, "",
+                  "First-party crates (not third-party code, listed for completeness):", "",
+                  "| Crate | Version | Source | License | Arches | Notices |", "|---|---|---|---|---|---|", *first, ""]
+        sections_std = toolchain_rows(entry, toolchain, std_names, detected_std_deps, channel, sysroot, notice, refs)
+        lines += [f"### Toolchain code linked into `{binary}`", "", *sections_std, ""]
+
+    lines += ["## Notices", ""]
+    for index, text in enumerate(order, 1):
+        ident = f"N{index}"
+        quote = fence(text)
+        lines += [f"### {ident}", "", "Shipped by: " + "; ".join(uses[ident]) + ".", "", f"{quote}text", text, quote, ""]
+    return ("\n".join(lines).rstrip("\n") + "\n").encode()
+
+
+def toolchain_rows(entry, toolchain, std_names, detected_std_deps, channel, sysroot, notice, refs):
+    """The standard library, musl and LLVM rows of one binary's section."""
+    rows = ["| Component | Version | License | Arches | Notices |", "|---|---|---|---|---|"]
+    names = set().union(*std_names.values())
+    in_tree = sorted(n for n in names if n in SYSROOT_IN_TREE and n not in SYSROOT_NOT_LINKED)
+    in_tree_ids = [notice(toolchain["in_tree"], f"Rust {channel} standard library: COPYRIGHT-library.html (in-tree files)")]
+    for spdx_id in sorted({i for m in re.finditer(r"^License: (.+)$", toolchain["in_tree"], re.M) for i in spdx_ids(m.group(1))}):
+        text = standard_license(toolchain["licenses"], spdx_id)
+        if text:
+            in_tree_ids.append(notice(text, f"Rust {channel}: standard {spdx_id} text (share/doc/rust/licenses)"))
+    rows.append(f"| Rust standard library ({', '.join(f'`{n}`' for n in in_tree)}) | {channel} | "
+                f"Apache-2.0 OR MIT (exceptions in the notice) | both | {refs(in_tree_ids)} |")
+    gaps = []
+    for name in sorted(names - SYSROOT_IN_TREE - set(SYSROOT_NOT_LINKED)):
+        key = name.replace("-", "_")
+        listed = {nv: info for nv, info in toolchain["crates"].items() if nv[0].replace("-", "_") == key}
+        found = sorted(v for n, v in detected_std_deps if n.replace("-", "_") == key)
+        arches = "both" if all(name in s for s in std_names.values()) else ", ".join(a for a, s in sorted(std_names.items()) if name in s)
+        chosen = {nv: info for nv, info in listed.items() if nv[1] in found} if found else listed
+        if not chosen:
+            gaps.append(f"`{name}` {' '.join(found) or '(version not visible in the binaries)'}")
+            continue
+        for (crate_name, version), (spdx, files) in sorted(chosen.items()):
+            ids = [notice(text, f"Rust {channel} standard library dependency {crate_name} {version}: `{f}`") for f, text in files]
+            note = "" if found else " (listed by the toolchain; the version in the binary is not visible)"
+            rows.append(f"| `{crate_name}` (a dependency of the standard library){note} | {version} | {md_cell(spdx)} | "
+                        f"{arches} | {refs(ids)} |")
+    musl = {arch: musl_version(sysroot, triple) for arch, triple in ARCHES.items()}
+    if any(version != MUSL_VERSION for version in musl.values()):
+        raise KitError(f"the toolchain's self-contained musl is {musl}, native.py has the COPYRIGHT of musl "
+                       f"{MUSL_VERSION}; update MUSL_VERSION and MUSL_COPYRIGHT")
+    musl_id = notice(MUSL_COPYRIGHT, f"musl libc {MUSL_VERSION}: `COPYRIGHT`")
+    rows.append(f"| musl libc (`libc.a`) and its C runtime objects (`crt1.o`, `rcrt1.o`, `Scrt1.o`, `crti.o`, `crtn.o`), "
+                f"from Rust's self-contained musl | {MUSL_VERSION} | MIT | both | {refs([musl_id])} |")
+    llvm_ids = [notice(toolchain["llvm"], f"Rust {channel}: COPYRIGHT.html (src/llvm-project)")]
+    for spdx_id in ("Apache-2.0", "LLVM-exception", "NCSA"):
+        text = standard_license(toolchain["licenses"], spdx_id)
+        if text:
+            llvm_ids.append(notice(text, f"Rust {channel}: standard {spdx_id} text (share/doc/rust/licenses)"))
+    rows.append(f"| LLVM libunwind (`libunwind.a`) and compiler-rt `crtbegin.o`/`crtend.o`, from Rust's self-contained "
+                f"musl | as shipped with Rust {channel} | Apache-2.0 WITH LLVM-exception AND NCSA | both | {refs(llvm_ids)} |")
+    rows.append("")
+    if gaps:
+        rows.append("The toolchain's notice file has no entry for these standard library dependencies, so their "
+                    "notices are not reproduced here: " + ", ".join(gaps) + ".")
+        rows.append("")
+    rows.append("Not linked (sysroot crates a release helper does not use): "
+                + "; ".join(f"`{n}`: {why}" for n, why in sorted(SYSROOT_NOT_LINKED.items())
+                            if any(n in s for s in std_names.values())) + ".")
+    return rows
+
+
+def notices_problems(plugin, pins):
+    """Without cargo: the notices file exists and names each pin's source hash
+    and binary checksums (as tests/kit-check.sh checks it)."""
+    path = Path(plugin) / NOTICES_NAME
+    if not pins:
+        return []
+    if path.is_symlink() or not path.is_file():
+        return [f"{NOTICES_NAME} is missing (run kit/native/build-native.sh .)"]
+    text = path.read_text(errors="replace")
+    lines = set(text.splitlines())
+    problems = []
+    if not text.startswith(NOTICES_TITLE + "\n"):
+        problems.append(f"{NOTICES_NAME} was not written by kit/native/build-native.sh")
+    for pin_path in pins:
+        crate = pin_path.parent.name
+        pin = read_pin(pin_path)
+        wanted = [f"- `{crate}/{PIN_NAME}`: source `{pin.get('source')}`, toolchain {pin.get('toolchain')}"]
+        wanted += [f"- `{rel}`: sha256 `{sha}`" for rel, sha in sorted(pin["files"].items())]
+        if any(line not in lines for line in wanted):
+            problems.append(f"{NOTICES_NAME} does not match {crate}/{PIN_NAME} (run kit/native/build-native.sh .)")
+    return problems
+
+
+def notice_entries(plugin, current=None):
+    """notices_bytes' binaries: every pinned crate with its committed
+    binaries, `current` ({"crate", "binary", "source", "files"}) in place of
+    its crate's. A committed binary whose pin no longer matches its sources
+    is marked "stale": its embedded paths are not checked against the new
+    dependency graph, so crates sharing an updated dependency can be rebuilt
+    one after another."""
+    plugin = Path(plugin)
+    entries = [current] if current else []
+    for pin_path in native_pins(plugin):
+        crate = pin_path.parent.name
+        if current and crate == current["crate"]:
+            continue
+        pin = read_pin(pin_path)
+        binary = pin.get("binary", "")
+        if not NAME_RE.fullmatch(binary):
+            raise KitError(f"{crate}/{PIN_NAME} has no valid binary name")
+        files = {arch: (plugin / f"bin/{arch}/{binary}").read_bytes() for arch in ARCHES
+                 if (plugin / f"bin/{arch}/{binary}").is_file() and not (plugin / f"bin/{arch}/{binary}").is_symlink()}
+        entries.append({"crate": crate, "binary": binary, "source": pin.get("source"), "files": files,
+                        "stale": native_source_hash(plugin, crate) != pin.get("source")})
+    return entries
+
+
+def notices_env(plugin, crate, channel, target_dir):
+    """cargo tree's environment: the build's, so target cfgs resolve alike."""
+    return cargo_env(target_dir, channel, build_flags(plugin, crate, target_dir), ARCHES.values())
+
+
 def cmd_native(args):
     plugin = Path(args.plugin).resolve()
     try:
@@ -655,6 +1508,19 @@ def cmd_native(args):
             out_dir = Path(args.out).resolve()
             if out_dir == plugin or plugin in out_dir.parents:
                 raise KitError(f"--out {out_dir} is inside the plugin; the rebuilt binaries go outside it")
+        if getattr(args, "notices", False):
+            if not (crate_dir / PIN_NAME).is_file():
+                raise KitError(f"no {crate}/{PIN_NAME}; build first (kit/native/build-native.sh .)")
+            stale = [p for p in verify_native(plugin, read_lock(plugin)) if not p.startswith(NOTICES_NAME)]
+            if stale:
+                raise KitError("the committed binaries don't match their native.pin and sources; rebuild them "
+                               "(kit/native/build-native.sh .), which writes the notices too:\n  " + "\n  ".join(stale))
+            env = notices_env(plugin, crate, channel, target_dir)
+            check_toolchain(env, channel, crate_dir)
+            data = notices_bytes(plugin, channel, notice_entries(plugin), env, crate_dir)
+            changed = install_atomic(plugin, NOTICES_NAME, data, 0o644)
+            print(f"{plugin.name}: {NOTICES_NAME} " + ("updated" if changed else "up to date"))
+            return 0
         if args.test:
             env = cargo_env(target_dir, channel)
             check_toolchain(env, channel, crate_dir)
@@ -694,6 +1560,17 @@ def cmd_native(args):
                 # written only after the comparison above read bin/, and kept
                 # even when they differ, so a mismatch can be inspected.
                 export_rebuilt(out_dir, binary, built)
+            current = {"crate": crate, "binary": binary, "source": source, "files": built}
+            notices = notices_bytes(plugin, channel, notice_entries(plugin, current),
+                                    notices_env(plugin, crate, channel, cache), crate_dir)
+            notices_path = plugin / NOTICES_NAME
+            committed_notices = (notices_path.read_bytes() if notices_path.is_file() and not notices_path.is_symlink()
+                                 else b"")
+            if notices != committed_notices:
+                problems.append(f"{NOTICES_NAME}: a fresh generation differs from the committed file "
+                                f"(run kit/native/build-native.sh . and commit it)")
+            else:
+                print(f"{NOTICES_NAME}: identical to a fresh generation ({len(notices)} bytes)")
             if pin.get("toolchain") != channel:
                 problems.append(f"{crate}/{PIN_NAME} says toolchain {pin.get('toolchain')}, {TOOLCHAIN_FILE} says {channel}")
             if pin.get("source") != source:
@@ -713,10 +1590,15 @@ def cmd_native(args):
         # before anything is written (install_atomic checks again, race-free).
         for rel in [f"bin/{arch}" for arch in sorted(built)] + [crate]:
             os.close(open_contained_dir(plugin, rel))
+        current = {"crate": crate, "binary": binary, "source": source, "files": built}
+        notices = notices_bytes(plugin, channel, notice_entries(plugin, current),
+                                notices_env(plugin, crate, channel, target_dir), crate_dir)
         changed = [f"bin/{arch}/{binary}" for arch, data in sorted(built.items())
                    if install_atomic(plugin, f"bin/{arch}/{binary}", data, 0o755)]
         if install_atomic(plugin, f"{crate}/{PIN_NAME}", pin_bytes(crate, binary, channel, source, built, read_lock(plugin)["version"]), 0o644):
             changed.append(f"{crate}/{PIN_NAME}")
+        if install_atomic(plugin, NOTICES_NAME, notices, 0o644):
+            changed.append(NOTICES_NAME)
         sizes = ", ".join(f"{arch} {len(data)} bytes" for arch, data in sorted(built.items()))
         print(f"{plugin.name}: {binary} ({channel}): {sizes}; " + (f"updated {', '.join(changed)}" if changed else "up to date"))
         return 0
@@ -731,12 +1613,14 @@ def main(argv=None):
     parser = argparse.ArgumentParser(
         prog="build-native.sh",
         description="Build both arches of a foamy plugin's native helper (static musl) into bin/<arch>/ "
-                    "and write <crate>/native.pin; or verify or test them.")
+                    f"and write <crate>/native.pin and {NOTICES_NAME}; or verify or test them.")
     parser.add_argument("plugin", help="the plugin directory (. from its root)")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--verify", action="store_true",
                       help="rebuild in a fresh target dir and compare with the committed binaries")
     mode.add_argument("--test", action="store_true", help="cargo fmt --check, clippy -D warnings and test for the crate")
+    mode.add_argument("--notices", action="store_true",
+                      help=f"only rewrite {NOTICES_NAME} (for current binaries; the build and --verify include it)")
     parser.add_argument("--out", metavar="DIR", help="with --verify: also write the rebuilt binaries to DIR/<arch>/<binary>")
     parser.add_argument("--crate", help="crate directory (default: the one with a native.pin, else native)")
     parser.add_argument("--bin", help="binary name (default: native.pin's, else foamy-<plugin>-helper)")
