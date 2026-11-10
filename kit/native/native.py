@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# foamy-kit 0.8.0 7b5277019329e960d132292f7e43434f07a2bf836968d8b3c54407f5fff500be — do not edit; change foamy-kit and run sync
+# foamy-kit 0.8.1 4ddafaa0e228ff4d5298740369ca5afb397cabc50fb50e0660a05b184d540616 — do not edit; change foamy-kit and run sync
 """Build and verify a foamy plugin's native helper, from the plugin alone.
 
 foamy-kit's FoamyNative component copies this file into every plugin that
@@ -689,6 +689,51 @@ SYSROOT_NOT_LINKED = {
     "profiler_builtins": "only for -C instrument-coverage / profile-generate builds",
     "panic_unwind": 'the release profile is panic = "abort" (panic_abort is linked instead)',
 }
+# The standard library's crates.io dependencies for each pinned toolchain:
+# (name, version, sha256 of the .crate), the registry packages of
+# library/Cargo.lock in that toolchain's rust-src component (for 1.99.1:
+# rust-src-1.99.1.tar.xz, sha256 e485a88c45db546b73571df7bebfcb4454ba4fb552c492e25fc5b00eeb5bf22d as
+# rustup's channel manifest gives it; library/Cargo.lock sha256
+# 53d9ccff0c906de434b65af90d5c30063894b940fc839261f1fb06ef2e69e3d3). The build needs only the minimal
+# profile, so rust-src is usually absent; when it is installed, its
+# Cargo.lock is read instead and must agree with this table. A new toolchain
+# needs its entry (or rust-src installed) before notices can be generated.
+STD_LOCKS = {
+    "1.99.1": (
+        ("addr2line", "0.27.1", "e567177890eb1617b1f774005b66b26b2377afd138a2ca37aae7d8f0c81429d4"),
+        ("adler2", "2.0.1", "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"),
+        ("cc", "1.2.0", "1aeb932158bd710538c73702db6945cb68a8fb08c519e6e12706b94263b36db8"),
+        ("cfg-if", "1.0.4", "9330f8b2ff13f34540b44e946ef35111825727b38d33286ef986142615121801"),
+        ("dlmalloc", "0.2.14", "ad5208a115eaba24916f7456929832e310a81518c641f93fee4f89aa93aa3675"),
+        ("foldhash", "0.2.0", "77ce24cb58228fbb8aa041425bb1050850ac19177686ea6e0f41a70416f56fdb"),
+        ("fortanix-sgx-abi", "0.6.1", "5efc85edd5b83e8394f4371dd0da6859dff63dd387dab8568fece6af4cde6f84"),
+        ("getopts", "0.2.24", "cfe4fbac503b8d1f88e6676011885f34b7174f46e59956bba534ba83abded4df"),
+        ("gimli", "0.34.0", "1033caf0b349c518623b5396bfb2cf0bddf44f0306d543a250e5743297aafd10"),
+        ("hashbrown", "0.17.1", "ed5909b6e89a2db4456e54cd5f673791d7eca6732202bbf2a9cc504fe2f9b84a"),
+        ("hermit-abi", "0.5.2", "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"),
+        ("libc", "0.2.189", "3eaf3ede3fee6db1a4c2ee091bf8a8b4dccdc6d17f656fb07896ee72867612f2"),
+        ("memchr", "2.8.3", "cf8baf1c55e62ffcace7a9f06f4bd9cd3f0c4beb022d3b367256b91b87513d98"),
+        ("miniz_oxide", "0.9.1", "b63fbc4a50860e98e7b2aa7804ded1db5cbc3aff9193adaff57a6931bf7c4b4c"),
+        ("moto-rt", "0.16.4", "0aadbab5a5ca5a01ec1ff4bc03c2c3a7643f0e1d97ad5a4a5b58ce78504e17da"),
+        ("object", "0.39.1", "2e5a6c098c7a3b6547378093f5cc30bc54fd361ce711e05293a5cc589562739b"),
+        ("r-efi", "5.3.0", "69cdb34c158ceb288df11e18b4bd39de994f6657d83847bdffdbd7f346754b0f"),
+        ("r-efi-alloc", "2.1.0", "dc2f58ef3ca9bb0f9c44d9aa8537601bcd3df94cc9314a40178cadf7d4466354"),
+        ("rand", "0.9.5", "b9ef1d0d795eb7d84685bca4f72f3649f064e6641543d3a8c415898726a57b41"),
+        ("rand_core", "0.9.5", "76afc826de14238e6e8c374ddcc1fa19e374fd8dd986b0d2af0d02377261d83c"),
+        ("rand_xorshift", "0.4.0", "513962919efc330f829edb2535844d1b912b0fbe2ca165d613e4e8788bb05a5a"),
+        ("rustc-demangle", "0.1.28", "b74b56ffa8bb2830709a538c2cbcae9aa062db0d2a42563bfb09bdaae44020eb"),
+        ("rustc-literal-escaper", "0.0.8", "bfe6f213fb658c8fb95baabd5420393438cf5a98d707f5dd701d9197c705f71e"),
+        ("shlex", "1.3.0", "0fda2ff0d084019ba4d7c6f371c95d8fd75ce3524c3cb8fb653a3023f6323e64"),
+        ("unwinding", "0.2.10", "4b134ada16dda9e435abe2a6d76a01d497bc60707357845a15f9b0ed42dc88ce"),
+        ("vex-sdk", "0.27.1", "79e5fe15afde1305478b35e2cb717fff59f485428534cf49cfdbfa4723379bf6"),
+        ("wasip1", "1.0.0", "b5e26842486624357dbeb8f0381cf1fb42f022291fd787d4a816768fec8cc760"),
+        ("wasip2", "1.0.4+wasi-0.2.12", "b67efb37e106e55ce722a510d6b5f9c17f083e5fc79afc2badeb12cc313d9487"),
+        ("wasip3", "0.7.0+wasi-0.3.0", "07aa681120704bf09828d1f7cf7e763666c1dc6a36e5096efd0ad9aadfb302d3"),
+        ("wit-bindgen", "0.57.1", "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"),
+    ),
+}
+CRATES_IO_DOWNLOAD = "https://static.crates.io/crates/{name}/{name}-{version}.crate"
+MAX_CRATE_BYTES = 64 << 20
 # The musl version Rust's self-contained libc.a must be (checked in its
 # version.lo) for MUSL_COPYRIGHT to be the right file.
 MUSL_VERSION = "1.2.5"
@@ -1029,10 +1074,7 @@ def crate_files(name, version, checksum, fetch=None):
     whose sha256 is the Cargo.lock checksum, never from an unpacked copy
     (nothing vouches for those bytes). A missing archive is fetched once
     through `fetch` (cargo fetch --locked), then it must be there."""
-    import io
-    import tarfile
     registry = cargo_home() / "registry"
-    prefix = f"{name}-{version}/"
     archives = sorted((registry / "cache").glob(f"*/{name}-{version}.crate"))
     if not archives and fetch is not None:
         fetch()
@@ -1045,6 +1087,14 @@ def crate_files(name, version, checksum, fetch=None):
     if sha256(data) != checksum:
         raise KitError(f"{archive} does not match the Cargo.lock checksum of {name} {version}; remove it and "
                        "run `cargo fetch --locked`")
+    return read_crate(name, version, data, archive)
+
+
+def read_crate(name, version, data, origin):
+    """crate_files' list from the bytes of a verified .crate archive."""
+    import io
+    import tarfile
+    prefix = f"{name}-{version}/"
     try:
         with tarfile.open(fileobj=io.BytesIO(data), mode="r:gz") as tar:
             members = {m.name[len(prefix):]: m for m in tar.getmembers()
@@ -1065,8 +1115,106 @@ def crate_files(name, version, checksum, fetch=None):
                     stream = tar.extractfile(member)
                     files.append((rel, stream.read() if whole else stream.read(4096)))
     except (tarfile.TarError, OSError, EOFError) as error:
-        raise KitError(f"{archive}: unreadable crate archive ({error})") from None
+        raise KitError(f"{origin}: unreadable crate archive ({error})") from None
     return files
+
+
+def download_crate(name, version):
+    """The .crate from crates.io (verified by the caller)."""
+    import urllib.request
+    url = CRATES_IO_DOWNLOAD.format(name=name, version=version)
+    request = urllib.request.Request(url, headers={"User-Agent": "foamy-kit-native-notices"})
+    try:
+        with urllib.request.urlopen(request, timeout=60) as response:
+            data = response.read(MAX_CRATE_BYTES + 1)
+    except OSError as error:
+        raise KitError(f"downloading {url} failed ({error}); generate the notices with network access once, the "
+                       f"archive is then cached") from None
+    if len(data) > MAX_CRATE_BYTES:
+        raise KitError(f"{url} is larger than {MAX_CRATE_BYTES} bytes")
+    return data
+
+
+def std_crate_files(name, version, checksum):
+    """crate_files for a standard library dependency (cargo never fetches
+    those): the .crate whose sha256 is the toolchain's library/Cargo.lock
+    checksum, from cargo's registry cache, else the foamy-native cache, else
+    downloaded from crates.io (unless CARGO_NET_OFFLINE) and cached there
+    after it matched. An archive that doesn't match is refused."""
+    cache = native_cache() / "crates" / f"{name}-{version}.crate"
+    for path in sorted((cargo_home() / "registry/cache").glob(f"*/{name}-{version}.crate")) + [cache]:
+        if path.is_file() and not path.is_symlink():
+            data = path.read_bytes()
+            if sha256(data) != checksum:
+                raise KitError(f"{path} does not match the standard library's Cargo.lock checksum of {name} {version}; "
+                               "remove it (it is downloaded again)")
+            return read_crate(name, version, data, path)
+    if os.environ.get("CARGO_NET_OFFLINE", "").lower() in ("1", "true", "yes"):
+        raise KitError(f"{name} {version} (a standard library dependency) is not cached and CARGO_NET_OFFLINE is set; "
+                       f"generate the notices with network access once (it is cached in {cache.parent})")
+    data = download_crate(name, version)
+    if sha256(data) != checksum:
+        raise KitError(f"the {name} {version} archive from crates.io does not match the standard library's Cargo.lock "
+                       f"checksum ({sha256(data)} vs {checksum}); refused")
+    cache.parent.mkdir(parents=True, exist_ok=True)
+    temp = cache.with_name(f".{cache.name}.{os.getpid()}")
+    temp.write_bytes(data)
+    os.replace(temp, cache)
+    return read_crate(name, version, data, cache)
+
+
+def std_lock(sysroot, channel):
+    """{name: {version: checksum}}: the standard library's crates.io
+    dependencies, from rust-src's library/Cargo.lock when installed (it must
+    then agree with STD_LOCKS), else from STD_LOCKS."""
+    embedded = None
+    if channel in STD_LOCKS:
+        embedded = {}
+        for name, version, checksum in STD_LOCKS[channel]:
+            embedded.setdefault(name, {})[version] = checksum
+    path = Path(sysroot) / "lib/rustlib/src/rust/library/Cargo.lock"
+    if path.is_file():
+        found = {}
+        for package in read_toml(path).get("package", []):
+            if str(package.get("source", "")).startswith("registry+") and SHA_RE.fullmatch(str(package.get("checksum", ""))):
+                found.setdefault(package["name"], {})[package["version"]] = package["checksum"]
+        if embedded is not None and found != embedded:
+            raise KitError(f"{path} disagrees with native.py's STD_LOCKS[{channel!r}]; regenerate that table")
+        return found
+    if embedded is None:
+        raise KitError(f"no standard library Cargo.lock for Rust {channel}: install rust-src "
+                       f"(rustup component add rust-src --toolchain {channel}) or add STD_LOCKS[{channel!r}] to native.py")
+    return embedded
+
+
+def crate_notices(label, files, licenses_dir, notice):
+    """(SPDX expression, notice ids) of a crate from its verified files: the
+    license files it ships, its source headers' copyright lines, and the
+    standard texts of its licenses when it ships no license file at all."""
+    manifest = {}
+    for rel, data in files:
+        if rel == "Cargo.toml":
+            try:
+                manifest = tomllib.loads(data.decode("utf-8", errors="replace"))
+            except tomllib.TOMLDecodeError as error:
+                raise KitError(f"{label}: Cargo.toml: {error}") from None
+    spdx = str(manifest.get("package", {}).get("license", "") or "")
+    shipped = license_files(files, manifest)
+    ids = [notice(text, f"{label}: `{rel}`") for rel, text in shipped]
+    copyrights, header_ids = header_notices(files)
+    if copyrights:
+        ids.append(notice("Copyright lines at the top of the crate's source files:\n\n" + "\n".join(copyrights),
+                          f"{label}: source file headers"))
+    if not shipped:
+        for spdx_id in sorted(set(spdx_ids(spdx)) | set(header_ids)):
+            text = standard_license(licenses_dir, spdx_id)
+            if text is None:
+                raise KitError(f"{label} ships no license file and native.py has no standard text for "
+                               f"{spdx_id}; add it to EMBEDDED_LICENSES")
+            ids.append(notice(text, f"{label}: standard {spdx_id} text (the crate ships no license file)"))
+        if not spdx_ids(spdx):
+            raise KitError(f"{label} has neither a license file nor a license in its Cargo.toml")
+    return spdx, ids
 
 
 def license_files(files, manifest):
@@ -1285,8 +1433,10 @@ def notices_bytes(plugin, channel, binaries, env, cwd):
         "files and `license-file`, plus the copyright lines and SPDX ids at the top of its source files "
         "(outside tests, benches and examples). For a crate that ships no license file, the standard text "
         "of each license its SPDX expression names is reproduced instead, and marked so.",
-        "- **Toolchain**: the Rust standard library and its crates (notices from the pinned toolchain's "
-        "`share/doc/rust/COPYRIGHT-library.html`), musl libc and the C runtime objects of Rust's "
+        "- **Toolchain**: the Rust standard library (in-tree notices from the pinned toolchain's "
+        "`share/doc/rust/COPYRIGHT-library.html`) and its crates.io dependencies at the versions of the "
+        "toolchain's `library/Cargo.lock` (the notice file's entry for that version, else the `.crate` archive with the lock's "
+        "checksum), musl libc and the C runtime objects of Rust's "
         "self-contained musl linking, and LLVM's libunwind and crtbegin/crtend (from the toolchain's "
         "`COPYRIGHT.html`).",
         "",
@@ -1341,30 +1491,7 @@ def notices_bytes(plugin, channel, binaries, env, cwd):
             if not str(package.get("source", "")).startswith("registry+") or not SHA_RE.fullmatch(checksum):
                 raise KitError(f"{name} {version}: Cargo.lock records no crates.io source and checksum")
             files = crate_files(name, version, checksum, fetch)
-            manifest = {}
-            for rel, data in files:
-                if rel == "Cargo.toml":
-                    try:
-                        manifest = tomllib.loads(data.decode("utf-8", errors="replace"))
-                    except tomllib.TOMLDecodeError as error:
-                        raise KitError(f"{name} {version}: Cargo.toml: {error}") from None
-            spdx = str(manifest.get("package", {}).get("license", "") or "")
-            label = f"{name} {version}"
-            shipped = license_files(files, manifest)
-            ids = [notice(text, f"{label}: `{rel}`") for rel, text in shipped]
-            copyrights, header_ids = header_notices(files)
-            if copyrights:
-                ids.append(notice("Copyright lines at the top of the crate's source files:\n\n" + "\n".join(copyrights),
-                                  f"{label}: source file headers"))
-            if not shipped:
-                for spdx_id in sorted(set(spdx_ids(spdx)) | set(header_ids)):
-                    text = standard_license(toolchain["licenses"], spdx_id)
-                    if text is None:
-                        raise KitError(f"{label} ships no license file and native.py has no standard text for "
-                                       f"{spdx_id}; add it to EMBEDDED_LICENSES")
-                    ids.append(notice(text, f"{label}: standard {spdx_id} text (the crate ships no license file)"))
-                if not spdx_ids(spdx):
-                    raise KitError(f"{label} has neither a license file nor a license in its Cargo.toml")
+            spdx, ids = crate_notices(f"{name} {version}", files, toolchain["licenses"], notice)
             third.append(f"| {md_cell(name)} | {md_cell(version)} | {md_cell(spdx)} | `{checksum}` | {arches} | "
                          f"{refs(ids)} |")
         lines += [f"### Crates linked into `{binary}`", "",
@@ -1372,7 +1499,8 @@ def notices_bytes(plugin, channel, binaries, env, cwd):
                   "|---|---|---|---|---|---|", *third, "",
                   "First-party crates (not third-party code, listed for completeness):", "",
                   "| Crate | Version | Source | License | Arches | Notices |", "|---|---|---|---|---|---|", *first, ""]
-        sections_std = toolchain_rows(entry, toolchain, std_names, detected_std_deps, channel, sysroot, notice, refs)
+        sections_std = toolchain_rows(entry, toolchain, std_names, detected_std_deps, channel, sysroot, notice, refs,
+                                      std_lock(sysroot, channel))
         lines += [f"### Toolchain code linked into `{binary}`", "", *sections_std, ""]
 
     lines += ["## Notices", ""]
@@ -1383,7 +1511,7 @@ def notices_bytes(plugin, channel, binaries, env, cwd):
     return ("\n".join(lines).rstrip("\n") + "\n").encode()
 
 
-def toolchain_rows(entry, toolchain, std_names, detected_std_deps, channel, sysroot, notice, refs):
+def toolchain_rows(entry, toolchain, std_names, detected_std_deps, channel, sysroot, notice, refs, std_deps):
     """The standard library, musl and LLVM rows of one binary's section."""
     rows = ["| Component | Version | License | Arches | Notices |", "|---|---|---|---|---|"]
     names = set().union(*std_names.values())
@@ -1395,21 +1523,40 @@ def toolchain_rows(entry, toolchain, std_names, detected_std_deps, channel, sysr
             in_tree_ids.append(notice(text, f"Rust {channel}: standard {spdx_id} text (share/doc/rust/licenses)"))
     rows.append(f"| Rust standard library ({', '.join(f'`{n}`' for n in in_tree)}) | {channel} | "
                 f"Apache-2.0 OR MIT (exceptions in the notice) | both | {refs(in_tree_ids)} |")
-    gaps = []
+    def key(name):
+        return name.replace("-", "_")
+
+    covered = set()
     for name in sorted(names - SYSROOT_IN_TREE - set(SYSROOT_NOT_LINKED)):
-        key = name.replace("-", "_")
-        listed = {nv: info for nv, info in toolchain["crates"].items() if nv[0].replace("-", "_") == key}
-        found = sorted(v for n, v in detected_std_deps if n.replace("-", "_") == key)
+        locked = {(n, v): c for n, versions in std_deps.items() if key(n) == key(name) for v, c in versions.items()}
+        if not locked:
+            raise KitError(f"the sysroot crate {name} is neither in the Rust repository nor in the standard library's "
+                           "Cargo.lock, so its notices can't be obtained")
+        found = sorted(v for n, v in detected_std_deps if key(n) == key(name))
         arches = "both" if all(name in s for s in std_names.values()) else ", ".join(a for a, s in sorted(std_names.items()) if name in s)
-        chosen = {nv: info for nv, info in listed.items() if nv[1] in found} if found else listed
-        if not chosen:
-            gaps.append(f"`{name}` {' '.join(found) or '(version not visible in the binaries)'}")
-            continue
-        for (crate_name, version), (spdx, files) in sorted(chosen.items()):
-            ids = [notice(text, f"Rust {channel} standard library dependency {crate_name} {version}: `{f}`") for f, text in files]
-            note = "" if found else " (listed by the toolchain; the version in the binary is not visible)"
-            rows.append(f"| `{crate_name}` (a dependency of the standard library){note} | {version} | {md_cell(spdx)} | "
-                        f"{arches} | {refs(ids)} |")
+        chosen = {nv: c for nv, c in locked.items() if nv[1] in found} if found else locked
+        if found and len(chosen) != len(set(found)):
+            raise KitError(f"the binaries contain {name} {', '.join(found)}, the standard library's Cargo.lock has "
+                           f"{', '.join(v for _, v in sorted(locked))}")
+        for (crate_name, version), checksum in sorted(chosen.items()):
+            covered.add((key(crate_name), version))
+            label = f"Rust {channel} standard library dependency {crate_name} {version}"
+            listed = toolchain["crates"].get((crate_name, version))
+            if listed:
+                spdx, files = listed
+                ids = [notice(text, f"{label}: `{f}`") for f, text in files]
+                source = ""
+            else:
+                spdx, ids = crate_notices(label, std_crate_files(crate_name, version, checksum), toolchain["licenses"], notice)
+                source = f"; notices from the crates.io archive, sha256 `{checksum}`"
+            if not ids:
+                raise KitError(f"{label}: no notice text")
+            note = "" if found else "; the version (from the toolchain's library/Cargo.lock) is not visible in the binaries"
+            rows.append(f"| `{crate_name}` (a dependency of the standard library{note}{source}) | {version} | "
+                        f"{md_cell(spdx)} | {arches} | {refs(ids)} |")
+    unknown = sorted(f"{n} {v}" for n, v in detected_std_deps if (key(n), v) not in covered)
+    if unknown:
+        raise KitError("the binaries contain standard library dependencies without notices: " + ", ".join(unknown))
     musl = {arch: musl_version(sysroot, triple) for arch, triple in ARCHES.items()}
     if any(version != MUSL_VERSION for version in musl.values()):
         raise KitError(f"the toolchain's self-contained musl is {musl}, native.py has the COPYRIGHT of musl "
@@ -1425,10 +1572,6 @@ def toolchain_rows(entry, toolchain, std_names, detected_std_deps, channel, sysr
     rows.append(f"| LLVM libunwind (`libunwind.a`) and compiler-rt `crtbegin.o`/`crtend.o`, from Rust's self-contained "
                 f"musl | as shipped with Rust {channel} | Apache-2.0 WITH LLVM-exception AND NCSA | both | {refs(llvm_ids)} |")
     rows.append("")
-    if gaps:
-        rows.append("The toolchain's notice file has no entry for these standard library dependencies, so their "
-                    "notices are not reproduced here: " + ", ".join(gaps) + ".")
-        rows.append("")
     rows.append("Not linked (sysroot crates a release helper does not use): "
                 + "; ".join(f"`{n}`: {why}" for n, why in sorted(SYSROOT_NOT_LINKED.items())
                             if any(n in s for s in std_names.values())) + ".")
