@@ -60,7 +60,7 @@ opens the Web UI, `p` starts or stops syncing and `s` opens Settings. Esc
 closes (or leaves Settings), and Tab or Shift+Tab moves to the next bar panel.
 In Settings and Add folder, Tab walks the controls.
 
-IPC (4.5: `omarchy-shell foamy.syncthing <fn>`, both versions:
+IPC (`omarchy-shell foamy.syncthing <fn>` or
 `qs ipc call foamy.syncthing <fn>`): `open`, `close`, `toggle`, `show`,
 `hide`, `settings`, `overview`. `qs ipc call foamy.syncthing.status state`
 returns a JSON health summary.
@@ -170,9 +170,12 @@ bridge was never used); the Web UI opens in your browser.
 ```sh
 node --test tests/*.test.js tests/*.test.cjs
 python3 -I -m unittest discover -s tests -p 'test_*.py'
+FOAMY_HELPER='["bin/aarch64/foamy-syncthing-helper"]' \
+  python3 -I -m unittest discover -s tests -p 'test_*.py'   # the aarch64 build (qemu binfmt)
 python3 tests/runtime.py              # offscreen on 4.5 (needs foamy-kit)
 python3 tests/i18n-runtime.py         # live language switch (OMARCHY_PATH picks another tree)
 bash tests/kit-check.sh               # kit files and the native pin
+"$FOAMY_KIT"/check.sh .               # the kit's design lint (FOAMY_KIT: a foamy-kit checkout)
 omarchy-plugin-validate .
 ```
 
