@@ -15,14 +15,20 @@ without --desktop-authorized; the install probe stops once Syncthing is
 online; snapshots with the same folders start no conflict walk; .stversions
 is ignored and conflicts are flagged per folder; the popup body is built on
 open only; row delegates survive a snapshot (keyed model); settings open; a
-crash-looping core keeps being retried and right-click/open starts it now.
+folder chooser left open goes with its Panel (the real pick-folder helper,
+blocked on a session bus that never answers, is gone once the Panel is
+destroyed and nothing of it outlives the run); a crash-looping core keeps
+being retried and right-click/open starts it now.
 Requires ~/GitHub/Personal/foamy-kit (or FOAMY_KIT)."""
 import json
 import os
 import platform
 import shutil
+import socket
+import struct
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 KIT = Path(os.environ.get("FOAMY_KIT", Path.home() / "GitHub/Personal/foamy-kit"))
@@ -63,6 +69,7 @@ ShellRoot {
   Component { id: barComponent; MockBar { barSize: 34 } }
   FileView { id: probeLog; path: PROBE_LOG; watchChanges: true; printErrors: false; onFileChanged: reload() }
   FileView { id: coreLog; path: CORE_LOG; watchChanges: true; printErrors: false; onFileChanged: reload() }
+  FileView { id: pickerLog; path: PICKER_LOG; watchChanges: true; printErrors: false; onFileChanged: reload() }
   Connections {
     target: shell.service ? shell.service.conflictScan : null
     function onRunningChanged() { if (shell.service.conflictScan.running) shell.scans++ }
@@ -134,8 +141,15 @@ ShellRoot {
       } else if (n === 5) {
         check(panels[2].opened && panels[2].editingSettings, "openSettings() on a closed popup shows Settings")
         panels[2].close()
-        panels[0].destroy()
+        // The folder chooser: the helper connects to a bus that never answers.
+        panels[0].open()
+        panels[0].browseFolder()
       } else if (n === 6) {
+        check(panels[0].returningFromBrowser, "the chooser runs")
+        check(pickerLog.text().indexOf("connected foamy-syncthing") >= 0, "pick-folder reached the session bus: " + pickerLog.text())
+        panels[0].destroy()
+      } else if (n === 7) {
+        check(pickerLog.text().indexOf("closed") >= 0, "the chooser's helper went with its Panel: " + pickerLog.text())
         check(Kit.FoamyShared.memberCount("syncthing") === 2, "leader left, re-elected")
         console.log("FOAMY CHECKS " + checks)
         console.log("FOAMY DONE")
@@ -231,17 +245,82 @@ def prepare(work):
     return plugin
 
 
+class SilentBus:
+    """A session bus (abstract socket) that accepts and never answers, so
+    pick-folder waits on it. Each client's "connected <comm>" and, when its
+    socket closes (the process is gone), "closed" go to `log`."""
+
+    def __init__(self, log):
+        self.log = log
+        self.pids = []
+        self.name = f"foamy-syncthing-picker-{os.getpid()}-{id(self)}"
+        self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        self.server.bind("\0" + self.name)
+        self.server.listen(4)
+        threading.Thread(target=self.accept, daemon=True).start()
+
+    @property
+    def address(self):
+        return f"unix:abstract={self.name}"
+
+    def write(self, line):
+        with open(self.log, "a") as output:
+            output.write(line + "\n")
+
+    def accept(self):
+        while True:
+            try:
+                client, _ = self.server.accept()
+            except OSError:
+                return
+            threading.Thread(target=self.hold, args=(client,), daemon=True).start()
+
+    def hold(self, client):
+        pid = struct.unpack("3i", client.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))[0]
+        self.pids.append(pid)
+        try:
+            comm = Path(f"/proc/{pid}/comm").read_text().strip()
+        except OSError:
+            comm = "?"
+        self.write(f"connected {comm} {pid}")
+        while True:
+            try:
+                if not client.recv(4096):
+                    break
+            except OSError:
+                break
+        self.write(f"closed {pid}")
+        client.close()
+
+    def survivors(self):
+        """Clients still alive (killed here, so none is left behind)."""
+        left = [pid for pid in self.pids if Path(f"/proc/{pid}").exists()]
+        for pid in left:
+            try:
+                os.kill(pid, 9)
+            except OSError:
+                pass
+        return left
+
+    def close(self):
+        self.server.close()
+
+
 def run(host, shell, crash=False):
     work = Path(tempfile.mkdtemp(prefix=f"foamy-syncthing-runtime-{host}-"))
+    bus = None
     try:
         plugin = prepare(work)
         qml = shell.replace("PROBE_LOG", json.dumps(str(work / "probe.log"))).replace("CORE_LOG", json.dumps(str(work / "core.log")))
+        qml = qml.replace("PICKER_LOG", json.dumps(str(work / "picker.log")))
         (work / "probe.log").touch()
         (work / "core.log").touch()
+        (work / "picker.log").touch()
+        bus = SilentBus(work / "picker.log")
         runner = harness.Run(host, qml, plugin=plugin, prefix=f"foamy-syncthing-qs-{host}-")
         runner.env.update({"FAKE_CORE_SNAPSHOT": str(work / "snapshot.json"), "FAKE_CORE_LOG": str(work / "core.log"),
                            "FAKE_CORE_HELPER": str(work / "foamy-syncthing-helper"),
-                           "FOAMY_PROBE_LOG": str(work / "probe.log")})
+                           "FOAMY_PROBE_LOG": str(work / "probe.log"), "FAKE_PICKER_BUS": bus.address})
         if crash:
             runner.env["FAKE_CORE_EXIT"] = "1"
         runner.run(timeout=90)
@@ -250,6 +329,9 @@ def run(host, shell, crash=False):
         warnings = [line for line in lines if "WARN" in line and "/plugin/" in line and "/plugin/kit/" not in line]
         checks = [line.split("FOAMY CHECKS")[1].strip() for line in lines if "FOAMY CHECKS" in line]
         label = f"{host}{' crash' if crash else ''}"
+        left = bus.survivors()
+        if left:
+            warnings.append(f"FOAMY FAIL the folder chooser's helper outlived the run (pid {left})")
         if runner.ok and not warnings:
             print(f"{label}: runtime passed ({checks[0] if checks else '?'} checks)")
             runner.cleanup()
@@ -258,6 +340,8 @@ def run(host, shell, crash=False):
         print("\n".join(warnings + runner.failures() or lines[-30:]))
         return False
     finally:
+        if bus:
+            bus.close()
         shutil.rmtree(work, ignore_errors=True)
 
 
