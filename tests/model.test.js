@@ -367,6 +367,17 @@ test("the pick-folder reply gives a path, a cancel or an error code", () => {
   assert.deepEqual(reply(1, '{"ok":true,"path":"/a"}'), { error: "FAILED" });
 });
 
+test("folder paths resolve as Syncthing's: ~ and relative paths from HOME", () => {
+  // Shared by the folder rows, "Open folder" and the conflict scan.
+  const panel = model("models/PanelModel.js");
+  assert.equal(panel.resolveFolderPath("~", "/home/me"), "/home/me");
+  assert.equal(panel.resolveFolderPath("~/Sync", "/home/me"), "/home/me/Sync");
+  assert.equal(panel.resolveFolderPath("Sync/a", "/home/me"), "/home/me/Sync/a");
+  assert.equal(panel.resolveFolderPath("/srv/Sync", "/home/me"), "/srv/Sync");
+  assert.equal(panel.resolveFolderPath("~other/x", "/home/me"), "/home/me/~other/x");
+  assert.equal(panel.resolveFolderPath("Sync", ""), "Sync");
+});
+
 test("the folder chooser is the helper's pick-folder, under a timeout, with no picker script", () => {
   const panel = fs.readFileSync(path.join(__dirname, "../Panel.qml"), "utf8");
   assert.match(panel, /\["timeout", "--kill-after=5s", "1830s"\]\.concat\(FoamyNative\.command\(/);

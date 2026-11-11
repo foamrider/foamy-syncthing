@@ -101,16 +101,8 @@ Panel {
   function openWebUi() {
     if (syncthing && syncthing.online && syncthing.baseUrl) Qt.openUrlExternally(syncthing.baseUrl)
   }
-  function resolveFolderPath(value) {
-    var home = Quickshell.env("HOME") || ""
-    var path = String(value || "")
-    if (path === "~") return home
-    if (path.indexOf("~/") === 0) return home + path.slice(1)
-    if (path.charAt(0) === "/" || !home) return path
-    return home + "/" + path
-  }
   function openFolder(folder) {
-    var path = resolveFolderPath(folder ? folder.path : "")
+    var path = PanelModel.resolveFolderPath(folder ? folder.path : "", Quickshell.env("HOME") || "")
     if (path) Quickshell.execDetached(["uwsm-app", "--", "xdg-open", path])
   }
 
