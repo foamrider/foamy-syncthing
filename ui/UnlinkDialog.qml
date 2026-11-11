@@ -1,7 +1,6 @@
 import QtQuick
 import qs.Commons
 import qs.Commons as Commons
-import qs.Ui
 import "../kit"
 
 // A modal confirmation over the popup (unlink a folder). It owns the keys
