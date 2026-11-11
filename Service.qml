@@ -373,7 +373,11 @@ QtObject {
     var scanned = folders.filter(function(folder) { return !!folder.path })
     scannedFolderKey = folderKey
     if (!scanned.length) { conflictFolderIds = ({}); conflictScanError = ""; return }
-    var payload = JSON.stringify(scanned.map(function(folder) { return folder.path }))
+    // Syncthing keeps a folder path as entered ("~/Sync"); the helper walks
+    // paths literally, so expand it here as the folder rows do.
+    var payload = JSON.stringify(scanned.map(function(folder) {
+      return PanelModel.resolveFolderPath(folder.path, root.homePath)
+    }))
     // Bound UTF-8 below the helper's 1 MiB limit without putting paths in argv.
     if (payload.length > 262144) {
       conflictScanError = root.tr("Could not check for Syncthing conflicts")

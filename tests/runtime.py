@@ -13,8 +13,9 @@ otherwise it prints a SKIP line.
 Checks: one service and one settings leader for three bars; the core starts
 without --desktop-authorized; the install probe stops once Syncthing is
 online; snapshots with the same folders start no conflict walk; .stversions
-is ignored and conflicts are flagged per folder; the popup body is built on
-open only; row delegates survive a snapshot (keyed model); settings open; a
+is ignored and conflicts are flagged per folder, a "~/" folder path included;
+the popup body is built on open only; row delegates survive a snapshot (keyed
+model); settings open; a
 folder chooser left open goes with its Panel (the real pick-folder helper,
 blocked on a session bus that never answers, is gone once the Panel is
 destroyed and nothing of it outlives the run); a crash-looping core keeps
@@ -219,7 +220,14 @@ def prepare(work):
     shutil.copyfile(SOURCE / "tests/fake-core.py", core)
     core.chmod(0o755)
     (plugin / "scripts/syncthing-install.sh").write_text(PROBE_STUB)
-    docs = work / "Docs"
+    return plugin
+
+
+def write_snapshot(work, home):
+    """The fake core's state. Docs lives in the shell's HOME and is configured
+    as `~/Docs`: Syncthing keeps a folder path as entered, so the conflict scan
+    has to expand it before the helper walks it."""
+    docs = home / "Docs"
     (docs / "notes").mkdir(parents=True)
     (docs / "notes/plan.sync-conflict-20260101-000000-ABCDEFG.md").touch()
     photos = work / "Photos"
@@ -234,7 +242,7 @@ def prepare(work):
         "devices": [{"id": "LOCAL", "name": "this", "connected": True}, {"id": "PEER1", "name": "laptop", "connected": True},
                     {"id": "PEER2", "name": "phone", "connected": False}],
         "folders": [
-            {"id": "docs", "label": "Documents", "path": str(docs), "devices": [{"id": "PEER1"}],
+            {"id": "docs", "label": "Documents", "path": "~/Docs", "devices": [{"id": "PEER1"}],
              "status": {"state": "idle", "globalFiles": 3, "globalBytes": 1000}},
             {"id": "photos", "label": "", "path": str(photos), "devices": [{"id": "PEER2"}],
              "status": {"state": "idle", "globalFiles": 9, "globalBytes": 90000}},
@@ -242,7 +250,6 @@ def prepare(work):
         "pendingFolders": {},
     }
     (work / "snapshot.json").write_text(json.dumps(snapshot))
-    return plugin
 
 
 class SilentBus:
@@ -318,6 +325,7 @@ def run(host, shell, crash=False):
         (work / "picker.log").touch()
         bus = SilentBus(work / "picker.log")
         runner = harness.Run(host, qml, plugin=plugin, prefix=f"foamy-syncthing-qs-{host}-")
+        write_snapshot(work, Path(runner.env["HOME"]))
         runner.env.update({"FAKE_CORE_SNAPSHOT": str(work / "snapshot.json"), "FAKE_CORE_LOG": str(work / "core.log"),
                            "FAKE_CORE_HELPER": str(work / "foamy-syncthing-helper"),
                            "FOAMY_PROBE_LOG": str(work / "probe.log"), "FAKE_PICKER_BUS": bus.address})

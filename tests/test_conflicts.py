@@ -238,6 +238,8 @@ class ConflictTests(unittest.TestCase):
             helper_dir.mkdir(parents=True)
             (base / "kit").mkdir()
             shutil.copy(ROOT / "kit/FoamyNative.js", base / "kit/FoamyNative.js")
+            (base / "models").mkdir()
+            shutil.copy(ROOT / "models/PanelModel.js", base / "models/PanelModel.js")
             stub = helper_dir / "foamy-syncthing-helper"
             state = base / "delivered.jsonl"
             stub.write_text('''#!/usr/bin/python3
@@ -259,9 +261,11 @@ else: print(json.dumps([path == "found" for path in paths]))
             (base / "Scanner.qml").write_text('''import QtQuick
 import Quickshell.Io
 import "kit/FoamyNative.js" as FoamyNative
+import "models/PanelModel.js" as PanelModel
 QtObject {
   id: root
   property string pluginRoot: %s
+  property string homePath: ""
   property bool online: true
   property var folders: []
   function tr(key) { return key }
@@ -303,6 +307,10 @@ ShellRoot {
           compare(scanner.hasConflicts, true)
           scan(["clean", "found", "other"])
           compare(JSON.stringify(scanner.conflictFolderIds), JSON.stringify({f1: true}))
+          // Syncthing's "~/" paths reach the helper expanded.
+          scanner.homePath = "/home/me"
+          scan(["~/Sync"])
+          scanner.homePath = ""
         }
         function test_2_failure_retains_status_and_recovery() {
           scanner.conflictFolderIds = {f0: true}
@@ -411,6 +419,7 @@ ShellRoot {
             self.assertIn("CONFLICT_SCAN passed=8 failed=0", output)
             records = [json.loads(line) for line in state.read_text().splitlines()]
             self.assertEqual(records[0]["paths"], ['private-Canary-847 📁 "quote"\n--exec', '-leading-dash'])
+            self.assertIn(["/home/me/Sync"], [record["paths"] for record in records])
             for record in records:
                 # The paths travel on stdin only.
                 self.assertEqual(record["cmdline"].split("\x00")[:-1], ["/usr/bin/python3", str(stub), "conflicts"])
