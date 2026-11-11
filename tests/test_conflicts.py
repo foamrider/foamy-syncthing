@@ -14,6 +14,8 @@ import tempfile
 import time
 import unittest
 
+import hostenv
+
 ROOT = Path(__file__).resolve().parents[1]
 MAX_INPUT_BYTES = 1048576
 GENERIC = b"Could not check for Syncthing conflicts.\n"
@@ -410,8 +412,8 @@ ShellRoot {
             shell.write_text(shell.read_text().replace("STUB", json.dumps(str(stub))))
             runtime = base / "runtime"
             runtime.mkdir(mode=0o700)
-            env = dict(os.environ, QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software",
-                       QT_QPA_PLATFORMTHEME="", XDG_RUNTIME_DIR=str(runtime), TEST_CONFLICT_STATE=str(state))
+            env = hostenv.shell_env(QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software",
+                                    QT_QPA_PLATFORMTHEME="", XDG_RUNTIME_DIR=str(runtime), TEST_CONFLICT_STATE=str(state))
             result = subprocess.run([runner, "-p", str(base), "--no-color"], env=env,
                                     text=True, capture_output=True, timeout=15)
             output = result.stdout + result.stderr

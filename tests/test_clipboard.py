@@ -9,6 +9,8 @@ import tempfile
 import time
 import unittest
 
+import hostenv
+
 
 ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "kit/clipboard.sh"
@@ -51,8 +53,8 @@ class ClipboardTests(unittest.TestCase):
             path = self.base / name
             path.write_text(MOCK)
             path.chmod(0o755)
-        self.env = dict(os.environ, TEST_CLIPBOARD_STATE=str(self.state),
-                        PATH=f"{self.base}:{os.environ['PATH']}")
+        self.env = hostenv.shell_env(TEST_CLIPBOARD_STATE=str(self.state),
+                                     PATH=f"{self.base}:{os.environ['PATH']}")
 
     def read(self, mode, selection="clipboard"):
         self.state.write_text(mode)

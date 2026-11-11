@@ -6,6 +6,8 @@ import shutil
 import subprocess
 import tempfile
 
+import hostenv
+
 source = Path(__file__).resolve().parents[1]
 omarchy = Path(os.environ.get('OMARCHY_PATH', '/usr/share/omarchy'))
 native = (omarchy / 'shell/Commons/Translations.qml').exists()
@@ -56,9 +58,9 @@ ShellRoot {
 '''
     qml = qml.replace('ONE_NO', json.dumps(catalog["%1 devices"]['one'].replace('%1', '1'))).replace('LANGUAGE_FILE', json.dumps(str(language))).replace('TRANSLATED', json.dumps(catalog[key])).replace('KEY', json.dumps(key)).replace('NATIVE', str(native).lower())
     (app / 'shell.qml').write_text(qml)
-    env = dict(os.environ, OMARCHY_PATH=str(omarchy), OMARCHY_LANGUAGE_FILE=str(language),
-               XDG_RUNTIME_DIR=str(runtime), QT_QPA_PLATFORM='offscreen',
-               QT_QPA_PLATFORMTHEME='generic', QT_QUICK_BACKEND='software')
+    env = hostenv.shell_env(OMARCHY_PATH=str(omarchy), OMARCHY_LANGUAGE_FILE=str(language),
+                            XDG_RUNTIME_DIR=str(runtime), QT_QPA_PLATFORM='offscreen',
+                            QT_QPA_PLATFORMTHEME='generic', QT_QUICK_BACKEND='software')
     env.pop('WAYLAND_DISPLAY', None)
     result = subprocess.run(['quickshell', '-p', str(app), '--no-color'], env=env,
                             capture_output=True, text=True, timeout=10)
