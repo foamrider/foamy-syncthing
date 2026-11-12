@@ -39,11 +39,14 @@ plugin's helper isn't available for this CPU." and nothing retries.
   conflict files. Yellow when fewer devices than your warning threshold are
   connected. Dimmed while Syncthing is unreachable. Left-click opens the
   popup; right-click refreshes (and restarts a stopped core).
-- **Popup:** the tinted header band shows how many devices are online, has
-  start/stop (or install) and Web UI buttons, and holds the overall state with
-  its progress ring. Below it are the **Folders** and **Devices** tabs. Expand a row for
+- **Popup:** the tinted header band shows how many devices are online and,
+  after them, this computer's Syncthing version (left out when Syncthing
+  doesn't report it). It has start/stop (or install) and Web UI buttons, and
+  holds the overall state with the total files and size and its progress
+  ring. Below it are the **Folders** and **Devices** tabs. Expand a row for
   its path, errors, remaining items, progress and the devices or folders it
-  is shared with. Folder rows have **Open folder**.
+  is shared with. Folder rows have **Open folder**. A connected device's row
+  shows its Syncthing version; a disconnected one shows none.
 - Folder names are Syncthing's own folder labels (as in its Web UI), or the
   directory name when a folder has no label.
 - An idle folder with outstanding items shows **Out of sync**. A folder with
@@ -78,7 +81,7 @@ returns a JSON health summary.
 | `openRefreshIntervalSec` | 5 | Refresh while a popup is open, 2–60 s |
 | `probeIntervalSec` | 15 | Installation check while Syncthing is offline (5–300 s); also the core's systemd probe interval |
 
-All five are in Omarchy's widget settings (`barWidget.schema`); the popup's
+All four are in Omarchy's widget settings (`barWidget.schema`); the popup's
 Settings page has the device warning and both refresh intervals.
 Settings save in place (`bar.shell.updateEntryInline`, else `omarchy bar set`).
 

@@ -76,6 +76,11 @@ PanelKeyCatcher {
   // The title row's meta: how many devices are online. When Syncthing is not
   // reachable the hero title already says why, so the meta stays empty.
   readonly property string deviceLine: service && service.online ? FoamyI18n.t("{connected} / {total} devices online", counts) : ""
+  // Our Syncthing version ends the meta (an overlong one is what gets elided);
+  // it is left out when unknown.
+  readonly property string headerMeta: [deviceLine, service ? String(service.syncthingVersion || "") : ""].filter(function (part) {
+    return part !== ""
+  }).join(" · ")
 
   // ---- keyed rows (built only while shown) -------------------------------------
   readonly property var liveRows: opened && !editingSettings && !addOpen ? OverviewModel.rows(service, folderRows, FoamyI18n.t, PanelModel.formatBytes, PanelModel.formatCount, FoamyI18n.tn) : null
@@ -364,7 +369,7 @@ PanelKeyCatcher {
       Layout.fillWidth: true
       iconName: "sync"
       title: FoamyI18n.t("Syncthing")
-      meta: root.deviceLine
+      meta: root.headerMeta
       settingsHasCursor: cursor.at(root.settingsStop)
       onSettingsClicked: root.settingsRequested()
       onSettingsHovered: function (hovered) {

@@ -9,7 +9,9 @@ function devices(values) {
       deviceID: String(device.id || ""),
       name: String(device.name || ""),
       untrusted: device.untrusted === true,
-      connected: device.connected === true
+      connected: device.connected === true,
+      // The core keeps only short printable versions, and only while connected.
+      version: String(device.version || "")
     })
   }
   return projected

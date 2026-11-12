@@ -39,6 +39,9 @@ os.environ.setdefault("FOAMY_HOST_45", "/usr/share/omarchy/shell")
 sys.path.insert(0, str(KIT / "preview"))
 import harness  # noqa: E402
 
+import core_harness  # noqa: E402
+import fake_syncthing  # noqa: E402
+
 SOURCE = Path(__file__).resolve().parents[1]
 
 PROBE_STUB = """#!/bin/bash
@@ -260,16 +263,73 @@ ShellRoot {
 }
 """
 
+# The real core against tests/fake_syncthing.py: the header's version and
+# device line, and each peer's version, end to end (Syncthing → helper →
+# Service → view). FOAMY_EXPECT_* say what this run's fake reports.
+LIVE_SHELL = r"""
+import QtQuick
+import Quickshell
+import "harness"
+import "plugin" as Plugin
 
-def prepare(work):
+ShellRoot {
+  id: shell
+  property var service: null
+  property var panel: null
+  property int checks: 0
+  readonly property string version: Quickshell.env("FOAMY_EXPECT_VERSION")
+  readonly property string peer: Quickshell.env("FOAMY_EXPECT_PEER")
+  function check(ok, what) { checks++; if (!ok) console.log("FOAMY FAIL " + what) }
+  function device(view, name) {
+    var devices = view && view.liveRows ? view.liveRows.devices : []
+    for (var i = 0; i < devices.length; i++)
+      if (devices[i].label === name) return devices[i]
+    return null
+  }
+  FloatingWindow {
+    implicitWidth: 400; implicitHeight: 300
+    Item { id: host; width: 400; height: 300 }
+  }
+  Component { id: barComponent; MockBar { barSize: 34 } }
+  FoamyWait { id: wait }
+  Component.onCompleted: {
+    service = Qt.createComponent(Qt.resolvedUrl("plugin/Service.qml")).createObject(null)
+    panel = Qt.createComponent(Qt.resolvedUrl("plugin/Panel.qml")).createObject(host, {
+      bar: barComponent.createObject(shell, { moduleName: "foamy.syncthing" }), moduleName: "foamy.syncthing", width: 40, height: 34 })
+    wait.waitFor(function() { return service.online && service.folderRows.length === 1 && service.devices.length === 3 }, 30000, function(ok) {
+      check(ok, "the real core brings the fake Syncthing online (" + service.phase + " " + service.lastError + ")")
+      panel.open()
+      wait.waitFor(function() { return panel.popup.bodyItem !== null && shell.device(panel.popup.bodyItem, "laptop") !== null }, 10000, function(ok) {
+        var view = panel.popup.bodyItem
+        check(ok, "the popup shows the devices")
+        check(service.syncthingVersion === version, "our version: '" + service.syncthingVersion + "'")
+        check(view.headerMeta === "2 / 3 devices online" + (version ? " · " + version : ""), "header meta: " + view.headerMeta)
+        check(view.summary.title === "Up to date" && view.summary.detail === "", "no folder count under Up to date: " + JSON.stringify(view.summary))
+        check(view.errorText === "", "no error: " + view.errorText)
+        var laptop = shell.device(view, "laptop")
+        check(laptop && laptop.connected && laptop.subtitle === peer, "connected peer: " + (laptop && laptop.subtitle))
+        var phone = shell.device(view, "<phone & co>")
+        check(phone && !phone.connected && phone.subtitle === "0 shared folders", "disconnected peer, no version: " + (phone && phone.subtitle))
+        console.log("FOAMY CHECKS " + checks)
+        console.log("FOAMY DONE")
+        Qt.quit()
+      }, "the popup opens")
+    })
+  }
+}
+"""
+
+
+def prepare(work, real_core=False):
     plugin = work / "plugin"
     shutil.copytree(SOURCE, plugin, ignore=shutil.ignore_patterns(".git", "__pycache__", "preview.png", "target"))
-    # The fake core answers `stream`; `conflicts` goes to the real helper.
-    core = plugin / "bin" / platform.machine() / "foamy-syncthing-helper"
-    shutil.copyfile(core, work / "foamy-syncthing-helper")
-    (work / "foamy-syncthing-helper").chmod(0o755)
-    shutil.copyfile(SOURCE / "tests/fake-core.py", core)
-    core.chmod(0o755)
+    if not real_core:
+        # The fake core answers `stream`; `conflicts` goes to the real helper.
+        core = plugin / "bin" / platform.machine() / "foamy-syncthing-helper"
+        shutil.copyfile(core, work / "foamy-syncthing-helper")
+        (work / "foamy-syncthing-helper").chmod(0o755)
+        shutil.copyfile(SOURCE / "tests/fake-core.py", core)
+        core.chmod(0o755)
     (plugin / "scripts/syncthing-install.sh").write_text(PROBE_STUB)
     return plugin
 
@@ -435,11 +495,86 @@ def run(host, shell, crash=False, blocked=False):
         shutil.rmtree(work, ignore_errors=True)
 
 
+def run_live(host, failing_version=False):
+    """LIVE_SHELL with the real core, a fake Syncthing in the shell's HOME and
+    fake systemctl/syncthing first on PATH (no real service is ever asked).
+    failing_version: /rest/system/version fails and the peer reports a
+    version with an escape sequence; neither may show."""
+    work = Path(tempfile.mkdtemp(prefix=f"foamy-syncthing-live-{host}-"))
+    syncthing = None
+    try:
+        plugin = prepare(work, real_core=True)
+        runner = harness.Run(
+            host,
+            LIVE_SHELL,
+            plugin=plugin,
+            prefix=f"foamy-syncthing-live-{host}-",
+            fakebin={"systemctl": core_harness.SYSTEMCTL, "syncthing": core_harness.SYNCTHING},
+        )
+        home = Path(runner.env["HOME"])
+        syncthing = fake_syncthing.FakeSyncthing(home)
+        (home / "Docs").mkdir()
+        syncthing.state["folders"] = [fake_syncthing.folder(home / "Docs")]
+        if failing_version:
+            syncthing.overrides[("GET", "/rest/system/version")] = (500, b"boom")
+            syncthing.state["connections"][fake_syncthing.PEER_ID]["clientVersion"] = "v2.0.9\x1b[31m"
+        config = Path(runner.env["XDG_STATE_HOME"]) / "syncthing"
+        config.mkdir(parents=True)
+        syncthing.state["paths"]["config"] = str(config / "config.xml")
+        (config / "config.xml").write_text(
+            f'<configuration><gui tls="false"><address>{syncthing.address}</address>'
+            f"<apikey>{fake_syncthing.API_KEY}</apikey></gui></configuration>\n"
+        )
+        systemctl = work / "systemctl.json"
+        systemctl.write_text(
+            json.dumps(
+                {
+                    "LoadState": "loaded",
+                    "ActiveState": "active",
+                    "UnitFileState": "enabled",
+                    "FragmentPath": "/usr/lib/systemd/user/syncthing.service",
+                    "ExecStart": "{ path=/usr/bin/syncthing ; argv[]=/usr/bin/syncthing serve --no-browser ; }",
+                }
+            )
+        )
+        for name in ("STCONFDIR", "STHOMEDIR"):
+            runner.env.pop(name, None)
+        runner.env.update(
+            {
+                "FAKE_CALLS": str(work / "calls.jsonl"),
+                "FAKE_SYSTEMCTL_STATE": str(systemctl),
+                "FOAMY_EXPECT_VERSION": "" if failing_version else "v2.0.10",
+                "FOAMY_EXPECT_PEER": "1 shared folder" if failing_version else "1 shared folder · v2.0.9",
+            }
+        )
+        runner.run(timeout=90)
+        lines = runner.log.splitlines()
+        warnings = [line for line in lines if "WARN" in line and "/plugin/" in line and "/plugin/kit/" not in line]
+        warnings += [f"FOAMY FAIL host command ran: {line}" for line in runner.host_commands()]
+        checks = [line.split("FOAMY CHECKS")[1].strip() for line in lines if "FOAMY CHECKS" in line]
+        label = f"{host} live{' failing version' if failing_version else ''}"
+        if runner.ok and not warnings:
+            print(f"{label}: runtime passed ({checks[0] if checks else '?'} checks)")
+            runner.cleanup()
+            return True
+        print(f"{label}: runtime FAILED; log at {runner.base}/qs.log")
+        print("\n".join(warnings + runner.failures() or lines[-30:]))
+        return False
+    finally:
+        if syncthing:
+            syncthing.close()
+        shutil.rmtree(work, ignore_errors=True)
+
+
 status = 0
 if not run("4.5", SHELL):
     status = 1
 if not run("4.5", CRASH_SHELL, crash=True):
     status = 1
 if not run("4.5", BLOCKED_SHELL, blocked=True):
+    status = 1
+if not run_live("4.5"):
+    status = 1
+if not run_live("4.5", failing_version=True):
     status = 1
 sys.exit(status)

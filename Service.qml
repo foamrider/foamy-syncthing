@@ -50,6 +50,8 @@ QtObject {
   readonly property string recoveryWarning: core.starting ? root.tr("Starting the native core") : Facade.truncated(truncation) ? root.tr("Some Syncthing items exceed panel limits; use the Web UI for the hidden entries") : ""
   readonly property string baseUrl: String(webUi.url || "")
   readonly property string localDeviceId: String(identity.deviceId || "")
+  // This Syncthing's version ("v2.0.10"); "" while offline or when the core couldn't read it.
+  readonly property string syncthingVersion: online ? String(identity.version || "") : ""
   readonly property var devices: Facade.devices(state.devices)
   readonly property var folders: Facade.folders(state.folders)
   readonly property var pendingFolders: state.pendingFolders || ({})

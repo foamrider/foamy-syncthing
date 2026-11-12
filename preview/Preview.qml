@@ -10,7 +10,7 @@ Item {
   id: preview
   required property QtObject bar
   required property Item anchorItem
-  property var previewStates: ["folders", "syncing", "devices", "conflicts", "stopped", "not-installed", "empty", "settings", "add-folder", "unlink"]
+  property var previewStates: ["folders", "up-to-date", "syncing", "devices", "conflicts", "unavailable", "stopped", "not-installed", "empty", "settings", "add-folder", "unlink"]
   property string previewState: "folders"
   property int settleMs: 700
   readonly property Item popup: popupWindow
@@ -71,7 +71,7 @@ Item {
       id: "work-z8y7x",
       label: "",
       path: home + "/Work/Shared",
-      paused: true,
+      paused: previewState !== "up-to-date" && previewState !== "devices",
       devices: [
         {
           id: "LAPTOP"
@@ -90,7 +90,10 @@ Item {
     readonly property bool stopped: preview.previewState === "stopped"
     readonly property bool missing: preview.previewState === "not-installed"
     readonly property bool empty: preview.previewState === "empty"
-    readonly property bool online: !stopped && !missing
+    // Syncthing doesn't answer (the core's error), the unit still runs.
+    readonly property bool unavailable: preview.previewState === "unavailable"
+    readonly property bool online: !stopped && !missing && !unavailable
+    readonly property string syncthingVersion: online ? "v2.0.10" : ""
     readonly property string localDeviceId: "LOCAL"
     readonly property var devices: Facade.devices(online ? [
       {
@@ -101,12 +104,14 @@ Item {
       {
         id: "LAPTOP",
         name: "ThinkPad",
-        connected: true
+        connected: true,
+        version: "v2.0.10"
       },
       {
         id: "PHONE",
         name: "Pixel 9",
-        connected: preview.previewState !== "devices"
+        connected: preview.previewState !== "devices",
+        version: preview.previewState !== "devices" ? "v1.30.0" : ""
       }
     ] : [])
     readonly property var folders: Facade.folders(online && !empty ? preview.rawFolders : [])
@@ -136,12 +141,12 @@ Item {
     readonly property bool tooFewDevices: false
     readonly property bool hasProblems: hasConflicts
     readonly property bool serviceAvailable: !missing
-    readonly property bool serviceActive: online
+    readonly property bool serviceActive: online || unavailable
     readonly property string installationState: missing ? "missing" : "existing"
     readonly property bool canInstall: missing
     readonly property bool canControlService: !missing
     readonly property bool serviceActionRunning: false
-    readonly property string summaryText: missing ? FoamyI18n.t("Syncthing is not installed") : stopped ? FoamyI18n.t("Syncing stopped") : ""
+    readonly property string summaryText: missing ? FoamyI18n.t("Syncthing is not installed") : stopped ? FoamyI18n.t("Syncing stopped") : unavailable ? FoamyI18n.t("Syncthing unavailable") : ""
     readonly property var compactSummary: PanelModel.compactSummary(mock, folderRows, FoamyI18n.t, function (key, count, values) {
       return FoamyI18n.tn(key, count, values)
     })
@@ -153,7 +158,7 @@ Item {
     readonly property string packageStatus: ""
     readonly property string packageError: ""
     readonly property string conflictScanError: ""
-    readonly property string lastError: ""
+    readonly property string lastError: unavailable ? "Syncthing returned HTTP 500" : ""
     readonly property string controlError: ""
     readonly property string folderPreparationError: ""
     readonly property bool folderPreparationBusy: false
@@ -188,7 +193,7 @@ Item {
       return
     view.forgetFolderId = ""
     view.addOpen = false
-    view.tab = previewState === "devices" ? "devices" : "folders"
+    view.tab = previewState === "devices" || previewState === "up-to-date" ? "devices" : "folders"
     var expanded = ({})
     if (previewState === "syncing")
       expanded["folders:docs-x7k2p"] = true
