@@ -180,9 +180,7 @@ omarchy-plugin-validate .
 ```
 
 The offscreen tests run on Omarchy 4.5, the installed `/usr/share/omarchy/shell`
-(`FOAMY_HOST_45` picks another 4.5 tree). `tests/runtime.py` also runs on 4.0
-when `FOAMY_HOST_40` names a 4.0 shell tree; otherwise it prints a SKIP line
-for it.
+(`FOAMY_HOST_45` picks another 4.5 tree).
 
 The tests need Python 3 (development only). `tests/test_stream.py` runs the
 real core against a fake Syncthing (`tests/fake_syncthing.py`) and a fake

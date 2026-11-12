@@ -4,11 +4,10 @@ monitor) in an isolated offscreen Quickshell against a host shell, through
 foamy-kit's harness, with tests/fake-core.py in place of the native core and
 a counting stub for the install probe.
 
-  python3 tests/runtime.py [4.0|4.5 ...]     (default: both)
+  python3 tests/runtime.py
 
-The 4.5 host is the installed /usr/share/omarchy/shell (FOAMY_HOST_45 picks
-another 4.5 tree). 4.0 runs only when FOAMY_HOST_40 names a 4.0 shell tree;
-otherwise it prints a SKIP line.
+The host is Omarchy 4.5, the installed /usr/share/omarchy/shell
+(FOAMY_HOST_45 picks another 4.5 tree).
 
 Checks: one service and one settings leader for three bars; the core starts
 without --desktop-authorized; the install probe stops once Syncthing is
@@ -354,12 +353,8 @@ def run(host, shell, crash=False):
 
 
 status = 0
-for name in (sys.argv[1:] or ["4.0", "4.5"]):
-    if name == "4.0" and not os.environ.get("FOAMY_HOST_40"):
-        print("4.0: SKIP (set FOAMY_HOST_40 to a 4.0 shell tree to run it)")
-        continue
-    if not run(name, SHELL):
-        status = 1
-    if not run(name, CRASH_SHELL, crash=True):
-        status = 1
+if not run("4.5", SHELL):
+    status = 1
+if not run("4.5", CRASH_SHELL, crash=True):
+    status = 1
 sys.exit(status)
