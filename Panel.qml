@@ -24,8 +24,8 @@ Panel {
   readonly property bool editingSettings: settingsState.editing
   property string pickerError: ""
   property bool returningFromBrowser: false
-  readonly property alias popup: popup
-  readonly property var view: popup.bodyItem
+  readonly property alias popup: popupWindow
+  readonly property var view: popupWindow.bodyItem
   readonly property var syncthing: Plugin.ServiceRegistry.instance
   readonly property int openRefreshIntervalSec: prefs.value("openRefreshIntervalSec")
 
@@ -175,7 +175,7 @@ Panel {
   }
 
   FoamyPopup {
-    id: popup
+    id: popupWindow
     anchorItem: button
     bar: root.bar
     owner: root
