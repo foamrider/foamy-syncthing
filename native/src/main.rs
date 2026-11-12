@@ -32,7 +32,11 @@
 //! `core/` at commit `7318f1404e765f274df3d079e35d0ad32b5c1701` (v0.1.9, see
 //! `LICENSE-SYNCSHELL`). Its output is byte for byte the Go core's for the
 //! same Syncthing replies (field order, `omitempty`, `null` for empty lists,
-//! Go's `<`/`>`/`&` escaping); only the `hello` build version differs.
+//! Go's `<`/`>`/`&` escaping); only the `hello` build version differs, and
+//! two additions the panel shows: `identity.version` is read once per
+//! connection and per Syncthing restart (a failed read leaves it out, never an
+//! error), and a connected device carries `version` (its `clientVersion`).
+//! Both are kept only when they are at most 40 printable ASCII characters.
 //!
 //! - Flags (Go `flag` syntax: `-x` or `--x`, `=value` or the next argument,
 //!   booleans only as `=value`; the last repetition wins): `--config`,

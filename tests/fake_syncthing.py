@@ -32,12 +32,17 @@ def default_state(home):
         "myID": LOCAL_ID,
         "tilde": str(home),
         "version": "v2.0.10",
+        "startTime": "2026-11-12T08:00:00.000000000+01:00",
         "devices": [
             {"deviceID": PEER_ID, "name": "laptop", "untrusted": False, "addresses": ["dynamic"]},
             {"deviceID": LOCAL_ID, "name": "this", "untrusted": False},
             {"deviceID": OTHER_ID, "name": "<phone & co>", "untrusted": True},
         ],
-        "connections": {PEER_ID: {"connected": True}, OTHER_ID: {"connected": False}},
+        # Syncthing keeps a disconnected peer's last clientVersion.
+        "connections": {
+            PEER_ID: {"connected": True, "clientVersion": "v2.0.9"},
+            OTHER_ID: {"connected": False, "clientVersion": "v1.27.0"},
+        },
         "folders": [],
         "status": {},
         "errors": {},
@@ -350,7 +355,12 @@ class FakeSyncthing:
 
         if method == "GET":
             simple = {
-                "/rest/system/status": lambda: {"myID": state["myID"], "tilde": state["tilde"], "uptime": 5},
+                "/rest/system/status": lambda: {
+                    "myID": state["myID"],
+                    "tilde": state["tilde"],
+                    "startTime": state["startTime"],
+                    "uptime": 5,
+                },
                 "/rest/system/version": lambda: {"version": state["version"], "os": "linux"},
                 "/rest/config/devices": lambda: state["devices"],
                 "/rest/config/folders": lambda: folders,

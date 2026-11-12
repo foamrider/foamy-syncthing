@@ -32,6 +32,10 @@ pub struct Session {
     config: Mutex<Operational>,
     config_changed: AtomicBool,
     pub activity: Mutex<super::activity::Activities>,
+    /// This Syncthing's version, keyed by its device ID and start time: read
+    /// once per connection (dropped when the connection fails) and per
+    /// Syncthing restart, not on every refresh. "" when the read failed.
+    version: Mutex<Option<(String, String)>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -66,6 +70,7 @@ impl Session {
             config: Mutex::new(config),
             config_changed: AtomicBool::new(false),
             activity: Mutex::new(super::activity::Activities::default()),
+            version: Mutex::new(None),
         }
     }
 
@@ -117,6 +122,7 @@ impl Session {
             ..Snapshot::default()
         };
         if let Err(error) = self.client.health() {
+            *lock(&self.version) = None;
             snapshot.connection.phase = "error".into();
             snapshot.connection.error = Some(public_error(&error));
             snapshot.lifecycle = self.failure_lifecycle(*latched);
@@ -126,6 +132,7 @@ impl Session {
         let status = match self.client.status() {
             Ok(status) => status,
             Err(error) => {
+                *lock(&self.version) = None;
                 snapshot.connection.phase = "error".into();
                 snapshot.connection.error = Some(public_error(&error));
                 snapshot.lifecycle = external(self.failure_lifecycle(*latched));
@@ -176,8 +183,26 @@ impl Session {
         (snapshot, None)
     }
 
+    /// The version is decoration: a failed read leaves it empty, never an error.
+    fn syncthing_version(&self, status: &client::SystemStatus) -> String {
+        let key = format!("{}\n{}", status.my_id, status.start_time);
+        let mut cached = lock(&self.version);
+        if let Some((cached_key, version)) = cached.as_ref()
+            && *cached_key == key
+        {
+            return version.clone();
+        }
+        let version = self
+            .client
+            .version()
+            .map(|v| bounded_version(&v.version))
+            .unwrap_or_default();
+        *cached = Some((key, version.clone()));
+        version
+    }
+
     fn load_authenticated(&self, status: &client::SystemStatus) -> Result<Hydrated, client::Error> {
-        let version = self.client.version()?;
+        let version = self.syncthing_version(status);
         let devices = self.client.devices()?;
         let folders = self.client.folders()?;
         let connections = self.client.connections()?;
@@ -206,7 +231,7 @@ impl Session {
         Ok(Hydrated {
             identity: Identity {
                 device_id: bounded_identifier(&status.my_id),
-                version: bounded_label(&version.version),
+                version,
             },
             devices: normalize_devices(&devices, &connections),
             folders: normalized_folders,
@@ -377,6 +402,13 @@ fn normalize_devices(wire: &[client::Device], connections: &client::Connections)
                 .connections
                 .get(&device.device_id)
                 .is_some_and(|c| c.connected),
+            // Known only while connected; a disconnected peer shows none.
+            version: connections
+                .connections
+                .get(&device.device_id)
+                .filter(|c| c.connected)
+                .map(|c| bounded_version(&c.client_version))
+                .unwrap_or_default(),
         })
         .collect();
     result.sort_by(|a, b| a.id.cmp(&b.id));

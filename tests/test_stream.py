@@ -88,7 +88,7 @@ class SnapshotTests(CoreTest):
             state["devices"],
             [
                 {"id": LOCAL_ID, "name": "this", "untrusted": False, "connected": False},
-                {"id": PEER_ID, "name": "laptop", "untrusted": False, "connected": True},
+                {"id": PEER_ID, "name": "laptop", "untrusted": False, "connected": True, "version": "v2.0.9"},
                 {"id": OTHER_ID, "name": "<phone & co>", "untrusted": True, "connected": False},
             ],
         )
@@ -1015,6 +1015,74 @@ class FailureTests(CoreTest):
         self.assertTrue(core.latest_state()["connection"]["online"])
         core.request("shutdown", "2")
         core.finish()
+
+
+class VersionTests(CoreTest):
+    def version_reads(self, core):
+        return len(core.syncthing.calls("GET", "/rest/system/version"))
+
+    def test_our_version_is_read_once_per_connection_and_restart(self):
+        core = self.core()
+        self.assertEqual(core.ready()["state"]["identity"]["version"], "v2.0.10")
+        for request_id in ("1", "2"):
+            self.assertTrue(core.request("refresh", request_id)["ok"])
+        self.assertEqual(self.version_reads(core), 1, "not on every refresh")
+        # A Syncthing restart (new start time) reads it again.
+        with core.syncthing.lock:
+            core.syncthing.state["startTime"] = "2026-11-12T09:00:00+01:00"
+            core.syncthing.state["version"] = "v2.0.11"
+        core.request("refresh", "3")
+        self.assertEqual(self.version_reads(core), 2)
+        self.assertEqual(core.latest_state()["identity"]["version"], "v2.0.11")
+        # So does a new connection after the old one failed.
+        core.syncthing.overrides[("GET", "/rest/noauth/health")] = (503, b"down")
+        core.request("refresh", "4")
+        self.assertFalse(core.latest_state()["connection"]["online"])
+        del core.syncthing.overrides[("GET", "/rest/noauth/health")]
+        core.request("refresh", "5")
+        self.assertTrue(core.latest_state()["connection"]["online"])
+        self.assertEqual(self.version_reads(core), 3)
+        core.request("shutdown", "6")
+        core.finish()
+
+    def test_a_failed_version_read_hides_it_without_an_error(self):
+        core = self.core(start=False)
+        core.syncthing.overrides[("GET", "/rest/system/version")] = (500, b"boom")
+        core.start()
+        state = core.ready()["state"]
+        self.assertEqual(state["connection"]["phase"], "ready")
+        self.assertTrue(state["connection"]["online"])
+        self.assertNotIn("error", state["connection"])
+        self.assertEqual(state["identity"], {"deviceId": LOCAL_ID})
+        core.request("shutdown", "1")
+        core.finish()
+
+    def test_untrusted_versions_are_bounded_and_printable(self):
+        cases = [
+            (" v2.0.9 ", "v2.0.9"),
+            ("v2.1.0-rc.2+12-g0123abc", "v2.1.0-rc.2+12-g0123abc"),
+            ("v" + "1" * 39, "v" + "1" * 39),
+            ("v" + "1" * 40, None),
+            ("v2.0.9\x1b[31m", None),
+            ("v2.0.9\nforged", None),
+            ("v2.0.9 <b>x</b>", None),
+            ("v2.0.9\u202e", None),
+            ("", None),
+        ]
+        for value, expected in cases:
+            with self.subTest(value=value):
+                core = self.core(start=False)
+                with core.syncthing.lock:
+                    core.syncthing.state["connections"][PEER_ID]["clientVersion"] = value
+                    core.syncthing.state["version"] = value
+                core.start()
+                state = core.ready()["state"]
+                peer = next(d for d in state["devices"] if d["id"] == PEER_ID)
+                self.assertTrue(peer["connected"])
+                self.assertEqual(peer.get("version"), expected)
+                self.assertEqual(state["identity"].get("version"), expected)
+                core.request("shutdown", "1")
+                core.finish()
 
 
 class EventTests(CoreTest):
