@@ -250,6 +250,17 @@ function deviceCounts(service) {
   }
 }
 
+// The header's device line: the other devices only, so it matches the
+// Devices tab (deviceCounts above includes this computer, which the
+// minimum-devices warning and its setting count). Empty while Syncthing is
+// offline and when there are no other devices (the tab says 0).
+function remoteDeviceLine(service, translate) {
+  if (!service || !service.online) return ""
+  var total = Number(service.deviceCount || 0)
+  if (total <= 0) return ""
+  return translate("{connected} / {total} devices online", {connected: Number(service.connectedDeviceCount || 0), total: total})
+}
+
 function compactFolderState(folder, online, stopped, hasActivity) {
   if (stopped) return "Stopped"
   if (!online) return "Unavailable"

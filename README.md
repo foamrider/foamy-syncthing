@@ -39,7 +39,8 @@ plugin's helper isn't available for this CPU." and nothing retries.
   conflict files. Yellow when fewer devices than your warning threshold are
   connected. Dimmed while Syncthing is unreachable. Left-click opens the
   popup; right-click refreshes (and restarts a stopped core).
-- **Popup:** the tinted header band shows how many devices are online and,
+- **Popup:** the tinted header band shows how many of your other devices are
+  online (the same devices as the Devices tab; nothing when there are none) and,
   after them, this computer's Syncthing version (left out when Syncthing
   doesn't report it). It has start/stop (or install) and Web UI buttons, and
   holds the overall state with the total files and size and its progress

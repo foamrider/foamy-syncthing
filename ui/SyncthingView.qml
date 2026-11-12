@@ -75,7 +75,7 @@ PanelKeyCatcher {
   }
   // The title row's meta: how many devices are online. When Syncthing is not
   // reachable the hero title already says why, so the meta stays empty.
-  readonly property string deviceLine: service && service.online ? FoamyI18n.t("{connected} / {total} devices online", counts) : ""
+  readonly property string deviceLine: PanelModel.remoteDeviceLine(service, FoamyI18n.t)
   // Our Syncthing version ends the meta (an overlong one is what gets elided);
   // it is left out when unknown.
   readonly property string headerMeta: [deviceLine, service ? String(service.syncthingVersion || "") : ""].filter(function (part) {

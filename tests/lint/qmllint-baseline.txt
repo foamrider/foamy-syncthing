@@ -99,7 +99,6 @@ ui/SyncthingView.qml: missing-property: Member "hasProblems" not found on type "
 ui/SyncthingView.qml: missing-property: Member "installSyncthing" not found on type "QObject" | service.installSyncthing()
 ui/SyncthingView.qml: missing-property: Member "lastError" not found on type "QObject" | return service.folderMutationError || service.controlError || service.folderPreparationError || service.packageError || service.conflictScanError || service.las
 ui/SyncthingView.qml: missing-property: Member "online" not found on type "QObject" | readonly property bool online: !!service && service.online
-ui/SyncthingView.qml: missing-property: Member "online" not found on type "QObject" | readonly property string deviceLine: service && service.online ? FoamyI18n.t("{connected} / {total} devices online", counts) : ""
 ui/SyncthingView.qml: missing-property: Member "packageError" not found on type "QObject" | return service.folderMutationError || service.controlError || service.folderPreparationError || service.packageError || service.conflictScanError || service.las
 ui/SyncthingView.qml: missing-property: Member "packageStatus" not found on type "QObject" | text: root.service ? FoamyI18n.t(root.service.packageStatus) : ""
 ui/SyncthingView.qml: missing-property: Member "pendingOfferRows" not found on type "QObject" | readonly property var pendingOffers: service ? service.pendingOfferRows : []

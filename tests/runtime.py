@@ -303,7 +303,8 @@ ShellRoot {
         var view = panel.popup.bodyItem
         check(ok, "the popup shows the devices")
         check(service.syncthingVersion === version, "our version: '" + service.syncthingVersion + "'")
-        check(view.headerMeta === "2 / 3 devices online" + (version ? " · " + version : ""), "header meta: " + view.headerMeta)
+        // The other devices only, like the Devices tab: laptop online, phone not.
+        check(view.headerMeta === "1 / 2 devices online" + (version ? " · " + version : ""), "header meta: " + view.headerMeta)
         check(view.summary.title === "Up to date" && view.summary.detail === "", "no folder count under Up to date: " + JSON.stringify(view.summary))
         check(view.errorText === "", "no error: " + view.errorText)
         var laptop = shell.device(view, "laptop")
