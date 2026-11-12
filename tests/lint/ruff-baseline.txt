@@ -1,0 +1,4 @@
+# ruff findings accepted when the check was adopted. tests/validate.sh fails on any
+# finding not listed here. Regenerate with `tests/validate.sh --update-baseline ruff`
+# only to drop fixed entries or after reviewing every added one; never to pass a check.
+tests/fake_syncthing.py: C901: `route` is too complex (> 15) | def route(self, method, path, query, body): [20]
