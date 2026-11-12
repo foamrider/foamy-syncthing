@@ -42,8 +42,20 @@ operation_running() {
   ((code == 75))
 }
 
+# The file that keeps a missing Syncthing from being installed: a leftover
+# command link or user unit (never replaced or enabled by the install).
+blocking_file() {
+  local path
+  for path in "$bin_link" "$service_file"; do
+    if [[ -e $path || -L $path ]]; then
+      printf '%s\n' "$path"
+      return 0
+    fi
+  done
+}
+
 detect_status() {
-  local executable="" executable_path="" lock=""
+  local executable="" executable_path="" blocking="" lock=""
   local flatpak_id="com.github.zocker_160.SyncThingy"
   local label="Not installed" state="missing"
 
@@ -62,22 +74,26 @@ detect_status() {
   if [[ -n $executable_path ]]; then
     state="existing"
     label="Existing installation found: working"
-  elif [[ -e $bin_link || -L $bin_link || -e $service_file ||
-          -L $service_file ]]; then
-    state="incomplete"
-    label="Incomplete installation: non-working"
+  else
+    blocking="$(blocking_file)"
+    if [[ -n $blocking ]]; then
+      state="incomplete"
+      label="Incomplete installation: non-working"
+    fi
   fi
 
   jq -n \
     --arg state "$state" \
     --arg label "$label" \
     --arg executable "$executable_path" \
+    --arg blocking "$blocking" \
     --argjson operationRunning \
       "$(operation_running "$lock" && echo true || echo false)" \
     '{
       state: $state,
       label: $label,
       executable: $executable,
+      blocking: $blocking,
       operationRunning: $operationRunning
     }'
 }

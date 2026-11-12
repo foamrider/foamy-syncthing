@@ -18,6 +18,7 @@
   "Connected. A shared folder is syncing locally.": "Connected. A shared folder is syncing locally.",
   "Syncthing is not installed": "Syncthing is not installed",
   "Installation needs cleanup": "Installation needs cleanup",
+  "{path} exists, but Syncthing isn't installed": "{path} exists, but Syncthing isn't installed",
   "Finding Syncthing": "Finding Syncthing",
   "Reading status": "Reading status",
   "{count} items remaining": {

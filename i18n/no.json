@@ -18,6 +18,7 @@
   "Connected. A shared folder is syncing locally.": "Tilkoblet. En delt mappe synkroniseres lokalt.",
   "Syncthing is not installed": "Syncthing er ikke installert",
   "Installation needs cleanup": "Installasjonen trenger opprydding",
+  "{path} exists, but Syncthing isn't installed": "{path} finnes, men Syncthing er ikke installert",
   "Finding Syncthing": "Finner Syncthing",
   "Reading status": "Leser status",
   "{count} items remaining": {

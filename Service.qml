@@ -80,6 +80,7 @@ QtObject {
   readonly property int encryptedPendingOfferCount: PanelModel.encryptedPendingOfferCount(root)
 
   readonly property string installationState: online ? "existing" : packageController.state
+  readonly property string installationBlocker: installationState === "incomplete" ? packageController.blockingPath : ""
   readonly property bool canInstall: !online && packageController.canInstall
   readonly property string packageStatus: packageController.packageStatus
   readonly property string packageError: packageController.packageError

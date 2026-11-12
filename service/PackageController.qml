@@ -13,6 +13,8 @@ QtObject {
   property bool probing: true
   property string state: "checking"
   property string executablePath: ""
+  // The leftover file that keeps an "incomplete" installation from installing.
+  property string blockingPath: ""
   property bool operationRunning: false
   property bool refreshing: false
   property bool packageActionRunning: false
@@ -55,6 +57,7 @@ QtObject {
     }
     state = nextState
     executablePath = String(data.executable || "")
+    blockingPath = nextState === "incomplete" && typeof data.blocking === "string" ? data.blocking.slice(0, 4096) : ""
     operationRunning = data.operationRunning === true
     reconcilePackageOperation()
     statusApplied()

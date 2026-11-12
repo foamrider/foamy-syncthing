@@ -275,6 +275,9 @@ function compactSummary(service, rows, translate, translatePlural) {
   }
   if (!service.online) {
     result.title = service.summaryText || result.title
+    // Name the file to clean up; the bar tooltip shows only the title.
+    if (service.installationState === "incomplete" && service.installationBlocker)
+      result.detail = tr("{path} exists, but Syncthing isn't installed", {path: service.installationBlocker})
     return result
   }
   if (service.hasConflicts || stateCount(rows, "problem") > 0) {

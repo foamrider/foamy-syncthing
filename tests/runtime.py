@@ -18,7 +18,8 @@ model); settings open; a
 folder chooser left open goes with its Panel (the real pick-folder helper,
 blocked on a session bus that never answers, is gone once the Panel is
 destroyed and nothing of it outlives the run); a crash-looping core keeps
-being retried and right-click/open starts it now.
+being retried and right-click/open starts it now; a leftover user unit
+blocking the install is named in the popup summary, not in the bar tooltip.
 Requires ~/GitHub/Personal/foamy-kit (or FOAMY_KIT)."""
 import json
 import os
@@ -41,7 +42,12 @@ SOURCE = Path(__file__).resolve().parents[1]
 
 PROBE_STUB = """#!/bin/bash
 printf '%s\\n' "$1" >> "$FOAMY_PROBE_LOG"
-printf '{"state":"existing","label":"Existing installation found: working","executable":"/usr/bin/syncthing","operationRunning":false}\\n'
+if [ -n "${FAKE_PROBE_BLOCKING:-}" ]; then
+  jq -cn --arg blocking "$FAKE_PROBE_BLOCKING" \\
+    '{state:"incomplete",label:"Incomplete installation: non-working",executable:"",blocking:$blocking,operationRunning:false}'
+else
+  printf '{"state":"existing","label":"Existing installation found: working","executable":"/usr/bin/syncthing","blocking":"","operationRunning":false}\\n'
+fi
 """
 
 SHELL = r'''
@@ -213,6 +219,46 @@ ShellRoot {
 }
 '''
 
+# Syncthing missing, but a leftover user unit is in the way: the popup's
+# summary names it, the bar tooltip (title only) does not.
+BLOCKED_SHELL = r'''
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import "harness"
+import "plugin" as Plugin
+
+ShellRoot {
+  id: shell
+  property var service: null
+  property var panel: null
+  property int checks: 0
+  readonly property string blocking: Quickshell.env("FAKE_PROBE_BLOCKING")
+  function check(ok, what) { checks++; if (!ok) console.log("FOAMY FAIL " + what) }
+  FloatingWindow {
+    implicitWidth: 400; implicitHeight: 300
+    Item { id: host; width: 400; height: 300 }
+  }
+  Component { id: barComponent; MockBar { barSize: 34 } }
+  FoamyWait { id: wait }
+  Component.onCompleted: {
+    service = Qt.createComponent(Qt.resolvedUrl("plugin/Service.qml")).createObject(null)
+    panel = Qt.createComponent(Qt.resolvedUrl("plugin/Panel.qml")).createObject(host, {
+      bar: barComponent.createObject(shell, { moduleName: "foamy.syncthing" }), moduleName: "foamy.syncthing", width: 40, height: 34 })
+    wait.waitFor(function() { return !service.online && service.installationState === "incomplete" }, 20000, function(ok) {
+      check(ok, "the probe reports an incomplete installation (" + service.installationState + ")")
+      check(service.compactSummary.title === "Installation needs cleanup", "title: " + service.compactSummary.title)
+      check(service.compactSummary.detail === blocking + " exists, but Syncthing isn't installed", "detail: " + service.compactSummary.detail)
+      check(!service.canInstall, "Install stays disabled")
+      check(panel.tooltip.indexOf(blocking) < 0 && panel.tooltip.indexOf("Installation needs cleanup") >= 0, "tooltip: " + panel.tooltip)
+      console.log("FOAMY CHECKS " + checks)
+      console.log("FOAMY DONE")
+      Qt.quit()
+    })
+  }
+}
+'''
+
 
 def prepare(work):
     plugin = work / "plugin"
@@ -317,7 +363,7 @@ class SilentBus:
         self.server.close()
 
 
-def run(host, shell, crash=False):
+def run(host, shell, crash=False, blocked=False):
     work = Path(tempfile.mkdtemp(prefix=f"foamy-syncthing-runtime-{host}-"))
     bus = None
     try:
@@ -333,14 +379,16 @@ def run(host, shell, crash=False):
         runner.env.update({"FAKE_CORE_SNAPSHOT": str(work / "snapshot.json"), "FAKE_CORE_LOG": str(work / "core.log"),
                            "FAKE_CORE_HELPER": str(work / "foamy-syncthing-helper"),
                            "FOAMY_PROBE_LOG": str(work / "probe.log"), "FAKE_PICKER_BUS": bus.address})
-        if crash:
+        if crash or blocked:
             runner.env["FAKE_CORE_EXIT"] = "1"
+        if blocked:
+            runner.env["FAKE_PROBE_BLOCKING"] = str(Path(runner.env["HOME"]) / ".config/systemd/user/syncthing.service")
         runner.run(timeout=90)
         lines = runner.log.splitlines()
         # Any QML warning from the plugin's own files fails the run too.
         warnings = [line for line in lines if "WARN" in line and "/plugin/" in line and "/plugin/kit/" not in line]
         checks = [line.split("FOAMY CHECKS")[1].strip() for line in lines if "FOAMY CHECKS" in line]
-        label = f"{host}{' crash' if crash else ''}"
+        label = f"{host}{' crash' if crash else ''}{' blocked' if blocked else ''}"
         left = bus.survivors()
         if left:
             warnings.append(f"FOAMY FAIL the folder chooser's helper outlived the run (pid {left})")
@@ -363,5 +411,7 @@ status = 0
 if not run("4.5", SHELL):
     status = 1
 if not run("4.5", CRASH_SHELL, crash=True):
+    status = 1
+if not run("4.5", BLOCKED_SHELL, blocked=True):
     status = 1
 sys.exit(status)

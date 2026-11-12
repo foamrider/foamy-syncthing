@@ -19,7 +19,10 @@ service, or use the popup's install button. That opens an Omarchy terminal
 that runs `omarchy pkg add syncthing`, then
 `systemctl --user enable --now syncthing.service`. It runs only when you
 press it, one install at a time (a lock in `$XDG_RUNTIME_DIR`, which the
-session must set). Disable any other Syncthing shell plugin before enabling this one.
+session must set). When Syncthing is missing but `~/.local/bin/syncthing` or
+a user `syncthing.service` is still there, the popup says "Installation
+needs cleanup" and names that file; Install stays off, so the plugin never
+replaces or enables a unit of yours. Disable any other Syncthing shell plugin before enabling this one.
 
 ```sh
 omarchy plugin add https://github.com/foamrider/foamy-syncthing.git --enable

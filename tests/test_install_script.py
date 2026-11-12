@@ -1,5 +1,5 @@
 """scripts/syncthing-install.sh against fake commands in a temporary HOME:
-the operation lock and its runtime directory.
+the operation lock, its runtime directory and the blocking-file report.
 
 Nothing here installs anything or opens a terminal: `omarchy`, `systemctl`
 and `uwsm-app` are logging fakes, and PATH holds only them and the few real
@@ -139,6 +139,30 @@ class InstallScriptTests(unittest.TestCase):
         self.finish(run)
         self.assertTrue(Path(f"/proc/{daemon}").exists(), "the stand-in daemon outlives the run")
         self.assertFalse(self.status()["operationRunning"])
+
+    def test_status_names_the_file_that_blocks_the_install(self):
+        self.assertEqual(self.status()["state"], "missing")
+        self.assertEqual(self.status()["blocking"], "")
+        unit = self.home / ".config/systemd/user/syncthing.service"
+        unit.parent.mkdir(parents=True)
+        unit.write_text("[Service]\n")
+        status = self.status()
+        self.assertEqual((status["state"], status["blocking"]), ("incomplete", str(unit)))
+        link = self.home / ".local/bin/syncthing"
+        link.parent.mkdir(parents=True)
+        link.symlink_to(self.base / "gone")
+        status = self.status()
+        self.assertEqual((status["state"], status["blocking"]), ("incomplete", str(link)))
+        custom = self.base / "config"
+        status = self.status(dict(self.env, XDG_CONFIG_HOME=str(custom)))
+        self.assertEqual(status["blocking"], str(link))
+        link.unlink()
+        self.assertEqual(self.status(dict(self.env, XDG_CONFIG_HOME=str(custom)))["state"], "missing")
+        # The install refuses a blocked state and changes nothing.
+        result = self.script("run", "install-package", stdin="\n")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("state: incomplete", result.stderr)
+        self.assertEqual(self.calls(), [])
 
 
 if __name__ == "__main__":

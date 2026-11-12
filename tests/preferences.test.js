@@ -103,6 +103,16 @@ test('localized summary translates counts without translating folder names', () 
   assert.equal(panel.compactSummary(ready, [{state: 'idle', paused: true}], tr, tn).detail, '1 av 1 mapper er satt på pause');
   assert.equal(panel.compactSummary(ready, [{state: 'syncing', label: 'Settings', syncing: true, needBytes: 1024, globalBytes: 2048}], tr, tn).detail, 'Settings · 1.0 KiB gjenstår');
   assert.equal(panel.compactSummary({...ready, hasConflicts: true}, [{state: 'idle', conflict: true}], tr, tn).detail, 'Synkroniseringskonflikter i 1 mappe');
+  // "Installation needs cleanup" names the file in the way, literally.
+  const unit = '/home/me/.config/systemd/user/syncthing.service';
+  const blocked = {online: false, installationState: 'incomplete', installationBlocker: unit, summaryText: 'Installation needs cleanup'};
+  const summary = panel.compactSummary(blocked, [], tr, tn);
+  assert.equal(summary.title, 'Installation needs cleanup');
+  assert.equal(summary.detail, `${unit} finnes, men Syncthing er ikke installert`);
+  const odd = '/home/{path} %1/syncthing';
+  assert.equal(panel.compactSummary({...blocked, installationBlocker: odd}, [], tr, tn).detail.startsWith(odd + ' finnes'), true);
+  assert.equal(panel.compactSummary({...blocked, installationBlocker: ''}, [], tr, tn).detail, 'Waiting for the local service');
+  assert.equal(panel.compactSummary({...blocked, installationState: 'missing'}, [], tr, tn).detail, 'Waiting for the local service');
   // Decimals follow the language once the service registers FoamyI18n.number.
   panel.setNumberFormat((value, decimals) => Number(value).toFixed(decimals).replace('.', ','));
   assert.equal(panel.formatBytes(1536), '1,5 KiB');
