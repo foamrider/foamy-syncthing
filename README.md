@@ -18,7 +18,11 @@ the helper asks it over the session bus).
 service, or use the popup's install button. That opens an Omarchy terminal
 that runs `omarchy pkg add syncthing`, then
 `systemctl --user enable --now syncthing.service`. It runs only when you
-press it. Disable any other Syncthing shell plugin before enabling this one.
+press it, one install at a time (a lock in `$XDG_RUNTIME_DIR`, which the
+session must set). When Syncthing is missing but `~/.local/bin/syncthing` or
+a user `syncthing.service` is still there, the popup says "Installation
+needs cleanup" and names that file; Install stays off, so the plugin never
+replaces or enables a unit of yours. Disable any other Syncthing shell plugin before enabling this one.
 
 ```sh
 omarchy plugin add https://github.com/foamrider/foamy-syncthing.git --enable
@@ -35,11 +39,15 @@ plugin's helper isn't available for this CPU." and nothing retries.
   conflict files. Yellow when fewer devices than your warning threshold are
   connected. Dimmed while Syncthing is unreachable. Left-click opens the
   popup; right-click refreshes (and restarts a stopped core).
-- **Popup:** the tinted header band shows how many devices are online, has
-  start/stop (or install) and Web UI buttons, and holds the overall state with
-  its progress ring. Below it are the **Folders** and **Devices** tabs. Expand a row for
+- **Popup:** the tinted header band shows how many of your other devices are
+  online (the same devices as the Devices tab; nothing when there are none) and,
+  after them, this computer's Syncthing version (left out when Syncthing
+  doesn't report it). It has start/stop (or install) and Web UI buttons, and
+  holds the overall state with the total files and size and its progress
+  ring. Below it are the **Folders** and **Devices** tabs. Expand a row for
   its path, errors, remaining items, progress and the devices or folders it
-  is shared with. Folder rows have **Open folder**.
+  is shared with. Folder rows have **Open folder**. A connected device's row
+  shows its Syncthing version; a disconnected one shows none.
 - Folder names are Syncthing's own folder labels (as in its Web UI), or the
   directory name when a folder has no label.
 - An idle folder with outstanding items shows **Out of sync**. A folder with
@@ -60,7 +68,7 @@ opens the Web UI, `p` starts or stops syncing and `s` opens Settings. Esc
 closes (or leaves Settings), and Tab or Shift+Tab moves to the next bar panel.
 In Settings and Add folder, Tab walks the controls.
 
-IPC (4.5: `omarchy-shell foamy.syncthing <fn>`, both versions:
+IPC (`omarchy-shell foamy.syncthing <fn>` or
 `qs ipc call foamy.syncthing <fn>`): `open`, `close`, `toggle`, `show`,
 `hide`, `settings`, `overview`. `qs ipc call foamy.syncthing.status state`
 returns a JSON health summary.
@@ -73,9 +81,8 @@ returns a JSON health summary.
 | `refreshIntervalSec` | 60 | Full status refresh, 60–3600 s. File activity arrives live through Syncthing's event stream |
 | `openRefreshIntervalSec` | 5 | Refresh while a popup is open, 2–60 s |
 | `probeIntervalSec` | 15 | Installation check while Syncthing is offline (5–300 s); also the core's systemd probe interval |
-| `serviceState` | `enabled` | Passed to the native core as the intended autostart state; the panel doesn't act on it |
 
-All five are in Omarchy's widget settings (`barWidget.schema`); the popup's
+All four are in Omarchy's widget settings (`barWidget.schema`); the popup's
 Settings page has the device warning and both refresh intervals.
 Settings save in place (`bar.shell.updateEntryInline`, else `omarchy bar set`).
 
@@ -168,18 +175,29 @@ bridge was never used); the Web UI opens in your browser.
 ## Validate
 
 ```sh
+mise install                          # once: the tool versions mise.toml pins
+tests/validate.sh                     # every check below, the linters and the native tests
+tests/validate.sh --ci                # what CI runs: no Quickshell, no Omarchy host
+```
+
+`tests/validate.sh` runs the linters and formatters (findings that existed
+at adoption are in `tests/lint/`), `kit/native/build-native.sh . --test`
+and then `tests/suite.sh`, which runs the tests one by one:
+
+```sh
 node --test tests/*.test.js tests/*.test.cjs
 python3 -I -m unittest discover -s tests -p 'test_*.py'
+FOAMY_HELPER='["bin/aarch64/foamy-syncthing-helper"]' \
+  python3 -I -m unittest discover -s tests -p 'test_*.py'   # the aarch64 build (qemu binfmt)
 python3 tests/runtime.py              # offscreen on 4.5 (needs foamy-kit)
-python3 tests/i18n-runtime.py         # live language switch (OMARCHY_PATH picks another tree)
+python3 "$FOAMY_KIT"/preview/i18n_runtime.py .   # live language switch (the kit's catalog check)
 bash tests/kit-check.sh               # kit files and the native pin
+"$FOAMY_KIT"/check.sh .               # the kit's design lint (FOAMY_KIT: a foamy-kit checkout)
 omarchy-plugin-validate .
 ```
 
 The offscreen tests run on Omarchy 4.5, the installed `/usr/share/omarchy/shell`
-(`FOAMY_HOST_45` picks another 4.5 tree). `tests/runtime.py` also runs on 4.0
-when `FOAMY_HOST_40` names a 4.0 shell tree; otherwise it prints a SKIP line
-for it.
+(`FOAMY_HOST_45` picks another 4.5 tree).
 
 The tests need Python 3 (development only). `tests/test_stream.py` runs the
 real core against a fake Syncthing (`tests/fake_syncthing.py`) and a fake

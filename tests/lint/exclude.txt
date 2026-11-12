@@ -1,0 +1,1 @@
+preview/Before.qml  qmllint  # render.py --trio's Before scene: loaded only in a git-archive copy of an old dev tree (its hosts/omarchy imports exist only there) under the harness-staged qs.Ui

@@ -1,0 +1,123 @@
+# qmllint findings accepted when the check was adopted. tests/validate.sh fails on any
+# finding not listed here. Regenerate with `tests/validate.sh --update-baseline qmllint`
+# only to drop fixed entries or after reviewing every added one; never to pass a check.
+Panel.qml: missing-property: Member "foreground" not found on type "QObject" | return bar ? bar.foreground : Commons.Color.foreground
+Panel.qml: missing-property: Member "urgent" not found on type "QObject" | return bar ? bar.urgent : Commons.Color.urgent
+Service.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | for (var i = 0; i < flags.length; i++)
+Service.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | for (var i = 0; i < folders.length; i++) {
+Service.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | var next = ({})
+ServiceRegistry.qml: import: Type ServiceRegistry not declared as singleton in qmldir but using pragma Singleton
+preview/Preview.qml: unqualified: Unqualified access | editingSettings: ["settings", "add-folder", "unlink"].indexOf(preview.previewState) >= 0
+preview/Preview.qml: unqualified: Unqualified access | preview.apply(view)
+preview/Preview.qml: unqualified: Unqualified access | preview.apply(view)
+preview/Preview.qml: unqualified: Unqualified access | service: mock
+preview/Preview.qml: unqualified: Unqualified access | target: preview
+service/CoreProcess.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | for (var index = 0; index < ids.length; index++) {
+service/CoreProcess.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | for (var index = 0; index < keys.length; index++) {
+service/CoreProcess.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | var callback = pending[id]
+service/CoreProcess.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | var id = ids[index]
+service/PackageController.qml: missing-property: Member "ticks" not found on type PackageController::operationPollTimer with type QQmlTimer | operationPollTimer.ticks = 0
+ui/AddFolderForm.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | var choice = JSON.parse(pendingFolderValue)
+ui/AddFolderForm.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | var deviceId = choice instanceof Array && choice.length === 2 ? String(choice[1] || "") : ""
+ui/AddFolderForm.qml: missing-property: Member "addFolder" not found on type "QObject" | submitted = service.addFolder(pathField.text, label, idField.text.trim(), selectedDeviceIds, pendingDeviceId())
+ui/AddFolderForm.qml: missing-property: Member "body" not found on type "QObject" | font.pixelSize: FoamyStyle.font.body
+ui/AddFolderForm.qml: missing-property: Member "body" not found on type "QObject" | font.pixelSize: FoamyStyle.font.body
+ui/AddFolderForm.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+ui/AddFolderForm.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+ui/AddFolderForm.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+ui/AddFolderForm.qml: missing-property: Member "encryptedPendingOfferCount" not found on type "QObject" | readonly property int encryptedCount: service ? service.encryptedPendingOfferCount : 0
+ui/AddFolderForm.qml: missing-property: Member "folderIdSuggestion" not found on type "QObject" | idField.text = root.service.folderIdSuggestion
+ui/AddFolderForm.qml: missing-property: Member "folderMutationAction" not found on type "QObject" | busy: root.busy && root.service.folderMutationAction === "add"
+ui/AddFolderForm.qml: missing-property: Member "folderMutationAction" not found on type "QObject" | text: root.busy && root.service.folderMutationAction === "add" ? FoamyI18n.t("Adding…") : FoamyI18n.t("Add folder")
+ui/AddFolderForm.qml: missing-property: Member "folderMutationBusy" not found on type "QObject" | readonly property bool busy: !!service && service.folderMutationBusy
+ui/AddFolderForm.qml: missing-property: Member "folderMutationError" not found on type "QObject" | if (root.service.folderMutationError !== "")
+ui/AddFolderForm.qml: missing-property: Member "folderMutationError" not found on type "QObject" | text: root.pasteError !== "" ? FoamyI18n.t(root.pasteError) : root.service ? root.service.folderPreparationError || root.service.folderMutationError : ""
+ui/AddFolderForm.qml: missing-property: Member "folderMutationNotice" not found on type "QObject" | if (root.submitted && root.service.folderMutationNotice !== "") {
+ui/AddFolderForm.qml: missing-property: Member "folderPreparationBusy" not found on type "QObject" | actionEnabled: !!root.service && !root.service.folderPreparationBusy && !root.busy
+ui/AddFolderForm.qml: missing-property: Member "folderPreparationBusy" not found on type "QObject" | placeholderText: root.service && root.service.folderPreparationBusy ? FoamyI18n.t("Generating…") : FoamyI18n.t("Folder identity")
+ui/AddFolderForm.qml: missing-property: Member "folderPreparationBusy" not found on type "QObject" | spinning: !!root.service && root.service.folderPreparationBusy
+ui/AddFolderForm.qml: missing-property: Member "folderPreparationError" not found on type "QObject" | text: root.pasteError !== "" ? FoamyI18n.t(root.pasteError) : root.service ? root.service.folderPreparationError || root.service.folderMutationError : ""
+ui/AddFolderForm.qml: missing-property: Member "online" not found on type "QObject" | readonly property bool canSubmit: !!service && service.online && !busy && pathField.text.trim() !== "" && idField.text.trim() !== ""
+ui/AddFolderForm.qml: missing-property: Member "pendingFolders" not found on type "QObject" | var pending = service && service.pendingFolders ? service.pendingFolders[id] || ({}) : ({})
+ui/AddFolderForm.qml: missing-property: Member "pendingFolders" not found on type "QObject" | var pending = service && service.pendingFolders ? service.pendingFolders[id] || ({}) : ({})
+ui/AddFolderForm.qml: missing-property: Member "pendingOfferRows" not found on type "QObject" | readonly property var pendingOffers: service ? service.pendingOfferRows : []
+ui/AddFolderForm.qml: missing-property: Member "requestFolderIdSuggestion" not found on type "QObject" | root.service.requestFolderIdSuggestion()
+ui/AddFolderForm.qml: missing-property: Member "requestFolderIdSuggestion" not found on type "QObject" | service.requestFolderIdSuggestion()
+ui/SyncthingProgress.qml: missing-property: Member "heading" not found on type "QObject" | font.pixelSize: FoamyStyle.font.heading
+ui/SyncthingView.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | for (var i = 0; i < model.count; i++) {
+ui/SyncthingView.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | for (var i = 0; i < pendingOffers.length; i++)
+ui/SyncthingView.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | for (var i = 1; i <= maximum; ++i)
+ui/SyncthingView.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | var item = rowItem(i)
+ui/SyncthingView.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | var row = root.cursorRow()
+ui/SyncthingView.qml: missing-property: Member "body" not found on type "QObject" | font.pixelSize: FoamyStyle.font.body
+ui/SyncthingView.qml: missing-property: Member "body" not found on type "QObject" | font.pixelSize: FoamyStyle.font.body
+ui/SyncthingView.qml: missing-property: Member "body" not found on type "QObject" | font.pixelSize: FoamyStyle.font.body
+ui/SyncthingView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+ui/SyncthingView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+ui/SyncthingView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+ui/SyncthingView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+ui/SyncthingView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+ui/SyncthingView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+ui/SyncthingView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+ui/SyncthingView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+ui/SyncthingView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+ui/SyncthingView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+ui/SyncthingView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+ui/SyncthingView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+ui/SyncthingView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+ui/SyncthingView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+ui/SyncthingView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+ui/SyncthingView.qml: missing-property: Member "bodySmall" not found on type "QObject" | font.pixelSize: FoamyStyle.font.bodySmall
+ui/SyncthingView.qml: missing-property: Member "canControlService" not found on type "QObject" | actionEnabled: !!root.service && (root.service.canInstall || root.service.canControlService) && !root.service.serviceActionRunning && !root.service.folderMutati
+ui/SyncthingView.qml: missing-property: Member "canControlService" not found on type "QObject" | else if (service.canControlService && !service.serviceActionRunning && !service.folderMutationBusy)
+ui/SyncthingView.qml: missing-property: Member "canInstall" not found on type "QObject" | actionEnabled: !!root.service && (root.service.canInstall || root.service.canControlService) && !root.service.serviceActionRunning && !root.service.folderMutati
+ui/SyncthingView.qml: missing-property: Member "canInstall" not found on type "QObject" | iconName: root.service && root.service.canInstall ? "download" : root.service && root.service.serviceActive ? "pause" : "play"
+ui/SyncthingView.qml: missing-property: Member "canInstall" not found on type "QObject" | if (service.canInstall)
+ui/SyncthingView.qml: missing-property: Member "canInstall" not found on type "QObject" | tooltipText: root.service && root.service.canInstall ? FoamyI18n.t("Install Syncthing") : FoamyI18n.t(root.service && root.service.serviceActive ? "Stop syncing
+ui/SyncthingView.qml: missing-property: Member "caption" not found on type "QObject" | font.pixelSize: FoamyStyle.font.caption
+ui/SyncthingView.qml: missing-property: Member "caption" not found on type "QObject" | font.pixelSize: FoamyStyle.font.caption
+ui/SyncthingView.qml: missing-property: Member "clearFolderMutationMessage" not found on type "QObject" | service.clearFolderMutationMessage()
+ui/SyncthingView.qml: missing-property: Member "compactSummary" not found on type "QObject" | readonly property var summary: service ? service.compactSummary : ({
+ui/SyncthingView.qml: missing-property: Member "conflictScanError" not found on type "QObject" | return service.folderMutationError || service.controlError || service.folderPreparationError || service.packageError || service.conflictScanError || service.las
+ui/SyncthingView.qml: missing-property: Member "controlError" not found on type "QObject" | return service.folderMutationError || service.controlError || service.folderPreparationError || service.packageError || service.conflictScanError || service.las
+ui/SyncthingView.qml: missing-property: Member "deviceCounts" not found on type "QObject" | readonly property var counts: service ? service.deviceCounts : ({
+ui/SyncthingView.qml: missing-property: Member "display" not found on type "QObject" | font.pixelSize: FoamyStyle.font.display
+ui/SyncthingView.qml: missing-property: Member "folderMutationAction" not found on type "QObject" | if (service && service.folderMutationBusy && service.folderMutationAction === "add")
+ui/SyncthingView.qml: missing-property: Member "folderMutationAction" not found on type "QObject" | saving: !!root.service && root.service.folderMutationBusy && root.service.folderMutationAction === "add"
+ui/SyncthingView.qml: missing-property: Member "folderMutationBusy" not found on type "QObject" | actionEnabled: !!root.service && (root.service.canInstall || root.service.canControlService) && !root.service.serviceActionRunning && !root.service.folderMutati
+ui/SyncthingView.qml: missing-property: Member "folderMutationBusy" not found on type "QObject" | else if (service.canControlService && !service.serviceActionRunning && !service.folderMutationBusy)
+ui/SyncthingView.qml: missing-property: Member "folderMutationBusy" not found on type "QObject" | if (service && service.folderMutationBusy && service.folderMutationAction === "add")
+ui/SyncthingView.qml: missing-property: Member "folderMutationBusy" not found on type "QObject" | readonly property bool canManage: online && !service.folderMutationBusy
+ui/SyncthingView.qml: missing-property: Member "folderMutationBusy" not found on type "QObject" | saving: !!root.service && root.service.folderMutationBusy && root.service.folderMutationAction === "add"
+ui/SyncthingView.qml: missing-property: Member "folderMutationError" not found on type "QObject" | return service.folderMutationError || service.controlError || service.folderPreparationError || service.packageError || service.conflictScanError || service.las
+ui/SyncthingView.qml: missing-property: Member "folderMutationError" not found on type "QObject" | text: root.service ? root.service.folderMutationError : ""
+ui/SyncthingView.qml: missing-property: Member "folderMutationNotice" not found on type "QObject" | readonly property string notice: service ? service.folderMutationNotice : ""
+ui/SyncthingView.qml: missing-property: Member "folderPreparationError" not found on type "QObject" | return service.folderMutationError || service.controlError || service.folderPreparationError || service.packageError || service.conflictScanError || service.las
+ui/SyncthingView.qml: missing-property: Member "folderRows" not found on type "QObject" | readonly property var folderRows: service ? service.folderRows : []
+ui/SyncthingView.qml: missing-property: Member "hasProblems" not found on type "QObject" | color: root.service && root.service.hasProblems ? Commons.Color.urgent : FoamyPalette.text
+ui/SyncthingView.qml: missing-property: Member "installSyncthing" not found on type "QObject" | service.installSyncthing()
+ui/SyncthingView.qml: missing-property: Member "lastError" not found on type "QObject" | return service.folderMutationError || service.controlError || service.folderPreparationError || service.packageError || service.conflictScanError || service.las
+ui/SyncthingView.qml: missing-property: Member "online" not found on type "QObject" | readonly property bool online: !!service && service.online
+ui/SyncthingView.qml: missing-property: Member "packageError" not found on type "QObject" | return service.folderMutationError || service.controlError || service.folderPreparationError || service.packageError || service.conflictScanError || service.las
+ui/SyncthingView.qml: missing-property: Member "packageStatus" not found on type "QObject" | text: root.service ? FoamyI18n.t(root.service.packageStatus) : ""
+ui/SyncthingView.qml: missing-property: Member "pendingOfferRows" not found on type "QObject" | readonly property var pendingOffers: service ? service.pendingOfferRows : []
+ui/SyncthingView.qml: missing-property: Member "recover" not found on type "QObject" | root.service.recover()
+ui/SyncthingView.qml: missing-property: Member "recoveryWarning" not found on type "QObject" | text: root.service ? root.service.recoveryWarning : ""
+ui/SyncthingView.qml: missing-property: Member "refresh" not found on type "QObject" | root.service.refresh(true)
+ui/SyncthingView.qml: missing-property: Member "requestFolderIdSuggestion" not found on type "QObject" | service.requestFolderIdSuggestion()
+ui/SyncthingView.qml: missing-property: Member "serviceActionRunning" not found on type "QObject" | actionEnabled: !!root.service && (root.service.canInstall || root.service.canControlService) && !root.service.serviceActionRunning && !root.service.folderMutati
+ui/SyncthingView.qml: missing-property: Member "serviceActionRunning" not found on type "QObject" | else if (service.canControlService && !service.serviceActionRunning && !service.folderMutationBusy)
+ui/SyncthingView.qml: missing-property: Member "serviceActionRunning" not found on type "QObject" | spinning: root.opened && !!root.service && root.service.serviceActionRunning
+ui/SyncthingView.qml: missing-property: Member "serviceActive" not found on type "QObject" | iconName: root.service && root.service.canInstall ? "download" : root.service && root.service.serviceActive ? "pause" : "play"
+ui/SyncthingView.qml: missing-property: Member "serviceActive" not found on type "QObject" | text: folderRow.folder.problem || folderRow.folder.conflict ? PanelModel.folderMeta(folderRow.folder, FoamyI18n.t, FoamyI18n.tn) : FoamyI18n.t(PanelModel.compac
+ui/SyncthingView.qml: missing-property: Member "serviceActive" not found on type "QObject" | tooltipText: root.service && root.service.canInstall ? FoamyI18n.t("Install Syncthing") : FoamyI18n.t(root.service && root.service.serviceActive ? "Stop syncing
+ui/SyncthingView.qml: missing-property: Member "serviceAvailable" not found on type "QObject" | text: folderRow.folder.problem || folderRow.folder.conflict ? PanelModel.folderMeta(folderRow.folder, FoamyI18n.t, FoamyI18n.tn) : FoamyI18n.t(PanelModel.compac
+ui/SyncthingView.qml: missing-property: Member "setFolderPaused" not found on type "QObject" | onClicked: root.service.setFolderPaused(folderRow.folder.id, !folderRow.folder.paused)
+ui/SyncthingView.qml: missing-property: Member "syncthingVersion" not found on type "QObject" | readonly property string headerMeta: [deviceLine, service ? String(service.syncthingVersion || "") : ""].filter(function (part) {
+ui/SyncthingView.qml: missing-property: Member "title" not found on type "QObject" | font.pixelSize: FoamyStyle.font.title
+ui/SyncthingView.qml: missing-property: Member "toggleService" not found on type "QObject" | service.toggleService()
+ui/SyncthingView.qml: missing-property: Member "tooFewDevices" not found on type "QObject" | text: root.service && root.service.tooFewDevices ? FoamyI18n.tn("Fewer than %1 devices are connected", Prefs.value(Schema.fields, root.settings, "minimumConnect
+ui/SyncthingView.qml: missing-property: Member "unlinkFolder" not found on type "QObject" | service.unlinkFolder(id)
+ui/UnlinkDialog.qml: missing-property: Member "background" not found on type "QObject" | color: Commons.Color.popups.background
+ui/UnlinkDialog.qml: missing-property: Member "background" not found on type "QObject" | color: Qt.alpha(Commons.Color.popups.background, 0.82)
+ui/UnlinkDialog.qml: missing-property: Member "body" not found on type "QObject" | font.pixelSize: FoamyStyle.font.body

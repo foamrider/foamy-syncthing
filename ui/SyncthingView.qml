@@ -30,15 +30,15 @@ PanelKeyCatcher {
   // The folder chooser is open (the popup closes meanwhile; keep the form).
   property bool browsing: false
 
-  signal closeRequestedByView()
-  signal settingsRequested()
-  signal settingsClosed()
+  signal closeRequestedByView
+  signal settingsRequested
+  signal settingsClosed
   signal saveRequested(string key, var value)
-  signal retryRequested()
+  signal retryRequested
   signal switchPanelRequested(int direction)
-  signal openWebUiRequested()
+  signal openWebUiRequested
   signal openFolderRequested(var folder)
-  signal browseRequested()
+  signal browseRequested
 
   property string tab: "folders"
   property var expanded: ({})
@@ -48,53 +48,71 @@ PanelKeyCatcher {
   // The picked incoming share, else the first one (never an empty dropdown).
   readonly property string currentPendingOffer: {
     for (var i = 0; i < pendingOffers.length; i++)
-      if (pendingOffers[i].value === selectedPendingOffer) return selectedPendingOffer
+      if (pendingOffers[i].value === selectedPendingOffer)
+        return selectedPendingOffer
     return pendingOffers.length ? String(pendingOffers[0].value) : ""
   }
   property string lastNotice: ""
 
   readonly property bool online: !!service && service.online
   readonly property bool canManage: online && !service.folderMutationBusy
-  readonly property var summary: service ? service.compactSummary : ({ title: "Syncthing unavailable", detail: "", progress: -1 })
-  readonly property var counts: service ? service.deviceCounts : ({ connected: 0, total: 0 })
+  readonly property var summary: service ? service.compactSummary : ({
+      title: "Syncthing unavailable",
+      detail: "",
+      progress: -1
+    })
+  readonly property var counts: service ? service.deviceCounts : ({
+      connected: 0,
+      total: 0
+    })
   readonly property var folderRows: service ? service.folderRows : []
   readonly property var pendingOffers: service ? service.pendingOfferRows : []
   readonly property string notice: service ? service.folderMutationNotice : ""
   readonly property string errorText: {
-    if (!service) return ""
-    return service.folderMutationError || service.controlError || service.folderPreparationError
-      || service.packageError || service.conflictScanError || service.lastError || ""
+    if (!service)
+      return ""
+    return service.folderMutationError || service.controlError || service.folderPreparationError || service.packageError || service.conflictScanError || service.lastError || ""
   }
-  readonly property string deviceLine: !service ? FoamyI18n.t("Syncthing unavailable")
-    : service.online && service.serviceActive ? FoamyI18n.t("{connected} / {total} devices online", counts)
-    : service.installationState === "missing" ? FoamyI18n.t("Syncthing is not installed")
-    : !service.serviceActive ? FoamyI18n.t("Service is not running")
-    : FoamyI18n.t("Syncthing unavailable")
+  // The title row's meta: how many devices are online. When Syncthing is not
+  // reachable the hero title already says why, so the meta stays empty.
+  readonly property string deviceLine: PanelModel.remoteDeviceLine(service, FoamyI18n.t)
+  // Our Syncthing version ends the meta (an overlong one is what gets elided);
+  // it is left out when unknown.
+  readonly property string headerMeta: [deviceLine, service ? String(service.syncthingVersion || "") : ""].filter(function (part) {
+    return part !== ""
+  }).join(" · ")
 
   // ---- keyed rows (built only while shown) -------------------------------------
-  readonly property var liveRows: opened && !editingSettings && !addOpen
-    ? OverviewModel.rows(service, folderRows, FoamyI18n.t, PanelModel.formatBytes, PanelModel.formatCount, FoamyI18n.tn)
-    : null
+  readonly property var liveRows: opened && !editingSettings && !addOpen ? OverviewModel.rows(service, folderRows, FoamyI18n.t, PanelModel.formatBytes, PanelModel.formatCount, FoamyI18n.tn) : null
   readonly property var liveSettingsRows: opened && editingSettings ? folderRows : null
   property var folderMap: ({})
   property var deviceMap: ({})
   property var settingsMap: ({})
-  ListModel { id: folderKeys }
-  ListModel { id: deviceKeys }
-  ListModel { id: settingsKeys }
+  ListModel {
+    id: folderKeys
+  }
+  ListModel {
+    id: deviceKeys
+  }
+  ListModel {
+    id: settingsKeys
+  }
   onLiveRowsChanged: {
-    if (!liveRows) return
+    if (!liveRows)
+      return
     folderMap = Keyed.index(liveRows.folders)
     deviceMap = Keyed.index(liveRows.devices)
     Keyed.sync(folderKeys, Keyed.keys(liveRows.folders))
     Keyed.sync(deviceKeys, Keyed.keys(liveRows.devices))
   }
   onLiveSettingsRowsChanged: {
-    if (!liveSettingsRows) return
+    if (!liveSettingsRows)
+      return
     settingsMap = Keyed.index(liveSettingsRows)
     Keyed.sync(settingsKeys, Keyed.keys(liveSettingsRows))
   }
-  onNoticeChanged: if (notice !== "") lastNotice = notice
+  onNoticeChanged: if (notice !== "")
+    lastNotice = notice
 
   // ---- cursor: tabs, rows, then the header actions ------------------------------
   readonly property int rowCount: tab === "folders" ? folderKeys.count : deviceKeys.count
@@ -102,38 +120,52 @@ PanelKeyCatcher {
   readonly property int toggleStop: firstRowStop + rowCount
   readonly property int webStop: toggleStop + 1
   readonly property int settingsStop: toggleStop + 2
-  FoamyCursor { id: cursor; count: root.settingsStop + 1 }
+  FoamyCursor {
+    id: cursor
+    count: root.settingsStop + 1
+  }
 
   implicitWidth: FoamyStyle.popupWidth
-  implicitHeight: !editingSettings ? content.implicitHeight
-    : addOpen ? addPage.implicitHeight : settingsPage.implicitHeight
+  implicitHeight: !editingSettings ? content.implicitHeight : addOpen ? addPage.implicitHeight : settingsPage.implicitHeight
   blocked: editingSettings || addOpen || forgetFolderId !== ""
 
-  onMoveRequested: function(dx, dy) {
-    if (dy !== 0) cursor.move(dy)
+  onMoveRequested: function (dx, dy) {
+    if (dy !== 0)
+      cursor.move(dy)
     else if (cursor.index >= 0 && cursor.index < firstRowStop) {
       setTab(dx > 0 ? "devices" : "folders")
       cursor.hover(dx > 0 ? 1 : 0)
-    } else cursor.move(dx)
+    } else
+      cursor.move(dx)
   }
   onActivateRequested: root.activate(cursor.index)
   onCloseRequested: root.closeRequestedByView()
-  onTabRequested: function(direction) { root.switchPanelRequested(direction) }
-  onTextKey: function(text, modifiers) {
-    // Ctrl/Alt/Meta shortcuts belong to the shell (modifiers is undefined on 4.0).
-    if (!cursor.plain(modifiers)) return
+  onTabRequested: function (direction) {
+    root.switchPanelRequested(direction)
+  }
+  onTextKey: function (text, modifiers) {
+    // Ctrl/Alt/Meta shortcuts belong to the shell.
+    if (!cursor.plain(modifiers))
+      return
     var key = text.toLowerCase()
-    if (key === "s") root.settingsRequested()
-    else if (key === "r" && root.service) { root.service.recover(); root.service.refresh(true) }
-    else if (key === "w") root.openWebUiRequested()
-    else if (key === "p") root.toggleService()
+    if (key === "s")
+      root.settingsRequested()
+    else if (key === "r" && root.service) {
+      root.service.recover()
+      root.service.refresh(true)
+    } else if (key === "w")
+      root.openWebUiRequested()
+    else if (key === "p")
+      root.toggleService()
     else if (key === "o") {
       var row = root.cursorRow()
-      if (row && row.folder) root.openFolderRequested(row.folder)
+      if (row && row.folder)
+        root.openFolderRequested(row.folder)
     }
   }
   onOpenedChanged: {
-    if (opened) return
+    if (opened)
+      return
     cursor.reset()
     if (!browsing) {
       addOpen = false
@@ -147,7 +179,9 @@ PanelKeyCatcher {
     } else {
       addOpen = false
       forgetFolderId = ""
-      Qt.callLater(function() { root.forceActiveFocus() })
+      Qt.callLater(function () {
+        root.forceActiveFocus()
+      })
     }
   }
 
@@ -155,19 +189,24 @@ PanelKeyCatcher {
     target: cursor
     function onIndexChanged() {
       var i = cursor.index - root.firstRowStop
-      if (i < 0 || i >= root.rowCount) return
+      if (i < 0 || i >= root.rowCount)
+        return
       var item = root.rowItem(i)
-      if (item) root.keepVisible(item)
+      if (item)
+        root.keepVisible(item)
     }
   }
 
   // The overview list's wheel scrolling (tests).
   readonly property QtObject listWheel: wheel
   // The delegate for overview row `index` (tests, scrolling).
-  function rowItem(index) { return rowRepeater.itemAt(index) }
+  function rowItem(index) {
+    return rowRepeater.itemAt(index)
+  }
 
   function setTab(value) {
-    if (tab === value) return
+    if (tab === value)
+      return
     tab = value
     wheel.scrollTo(0, false)
   }
@@ -183,59 +222,81 @@ PanelKeyCatcher {
     var next = Object.assign({}, expanded)
     next[tab + ":" + key] = !next[tab + ":" + key]
     expanded = next
-    if (!next[tab + ":" + key]) return
+    if (!next[tab + ":" + key])
+      return
     // Scroll the opened row's details into view as they grow.
     var model = tab === "folders" ? folderKeys : deviceKeys
     for (var i = 0; i < model.count; i++) {
-      if (model.get(i).key !== key) continue
+      if (model.get(i).key !== key)
+        continue
       var item = rowItem(i)
-      if (item) Qt.callLater(function() { wheel.ensureVisible(item) })
+      if (item)
+        Qt.callLater(function () {
+          wheel.ensureVisible(item)
+        })
       return
     }
   }
   function keepVisible(item) {
     var top = item.y
     var bottom = item.y + item.height
-    if (top < list.contentY) list.contentY = top
-    else if (bottom > list.contentY + list.height) list.contentY = bottom - list.height
+    if (top < list.contentY)
+      list.contentY = top
+    else if (bottom > list.contentY + list.height)
+      list.contentY = bottom - list.height
   }
   function activate(index) {
-    if (index < 0) return
-    if (index === 0) setTab("folders")
-    else if (index === 1) setTab("devices")
-    else if (index < toggleStop) toggleRow(rowKey(index - firstRowStop))
-    else if (index === toggleStop) toggleService()
-    else if (index === webStop) openWebUiRequested()
-    else if (index === settingsStop) settingsRequested()
+    if (index < 0)
+      return
+    if (index === 0)
+      setTab("folders")
+    else if (index === 1)
+      setTab("devices")
+    else if (index < toggleStop)
+      toggleRow(rowKey(index - firstRowStop))
+    else if (index === toggleStop)
+      toggleService()
+    else if (index === webStop)
+      openWebUiRequested()
+    else if (index === settingsStop)
+      settingsRequested()
   }
   function toggleService() {
-    if (!service) return
-    if (service.canInstall) service.installSyncthing()
-    else if (service.canControlService && !service.serviceActionRunning && !service.folderMutationBusy) service.toggleService()
+    if (!service)
+      return
+    if (service.canInstall)
+      service.installSyncthing()
+    else if (service.canControlService && !service.serviceActionRunning && !service.folderMutationBusy)
+      service.toggleService()
   }
 
   // Add folder: opened from Settings; the Panel fills the path after browsing.
   function openAdd(pendingValue) {
-    if (!canManage) return
+    if (!canManage)
+      return
     service.clearFolderMutationMessage()
     addForm.reset()
     addOpen = true
     service.requestFolderIdSuggestion()
-    if (pendingValue) addForm.applyPendingFolder(pendingValue)
+    if (pendingValue)
+      addForm.applyPendingFolder(pendingValue)
     addPage.resetScroll()
     Qt.callLater(addForm.focusPath)
   }
   function closeAdd() {
-    if (service && service.folderMutationBusy && service.folderMutationAction === "add") return
+    if (service && service.folderMutationBusy && service.folderMutationAction === "add")
+      return
     addOpen = false
     Qt.callLater(settingsPage.focusBack)
   }
   function setAddPath(path) {
-    if (!addOpen) return
+    if (!addOpen)
+      return
     addForm.setPath(path)
   }
   function requestUnlink(folder) {
-    if (!folder || !canManage) return
+    if (!folder || !canManage)
+      return
     forgetFolderId = folder.id
     confirm.selectedIndex = 0
     Qt.callLater(confirm.forceActiveFocus)
@@ -243,7 +304,8 @@ PanelKeyCatcher {
   function confirmUnlink() {
     var id = forgetFolderId
     forgetFolderId = ""
-    if (service && id) service.unlinkFolder(id)
+    if (service && id)
+      service.unlinkFolder(id)
     Qt.callLater(settingsPage.focusBack)
   }
   function cancelUnlink() {
@@ -252,24 +314,36 @@ PanelKeyCatcher {
   }
 
   function statusColor(state) {
-    if (state === "Error" || state === "Out of sync" || state === "Conflicts") return FoamyPalette.onSurface(FoamyPalette.error)
-    if (state === "Syncing" || state === "Scanning" || state === "Checking") return Commons.Color.accent
-    if (state === "Connected" || state === "Up to date") return FoamyPalette.onSurface(FoamyPalette.success)
-    if (state === "Paused" || state === "Waiting to sync") return FoamyPalette.onSurface(FoamyPalette.warning)
+    if (state === "Error" || state === "Out of sync" || state === "Conflicts")
+      return FoamyPalette.onSurface(FoamyPalette.error)
+    if (state === "Syncing" || state === "Scanning" || state === "Checking")
+      return Commons.Color.accent
+    if (state === "Connected" || state === "Up to date")
+      return FoamyPalette.onSurface(FoamyPalette.success)
+    if (state === "Paused" || state === "Waiting to sync")
+      return FoamyPalette.onSurface(FoamyPalette.warning)
     return FoamyPalette.mutedText
   }
   function statusIcon(state) {
-    if (state === "Error" || state === "Out of sync" || state === "Conflicts") return "alert"
-    if (state === "Connected" || state === "Up to date") return "check"
-    if (state === "Paused") return "pause"
-    if (state === "Disconnected" || state === "Unavailable") return "disconnected"
+    if (state === "Error" || state === "Out of sync" || state === "Conflicts")
+      return "alert"
+    if (state === "Connected" || state === "Up to date")
+      return "check"
+    if (state === "Paused")
+      return "pause"
+    if (state === "Disconnected" || state === "Unavailable")
+      return "disconnected"
     return "sync"
   }
   function folderStateColor(folder) {
-    if (!folder) return FoamyPalette.mutedText
-    if (folder.outOfSync || folder.problem || folder.conflict) return FoamyPalette.onSurface(FoamyPalette.error)
-    if (folder.paused) return FoamyPalette.onSurface(FoamyPalette.warning)
-    if (folder.syncing || folder.scanning) return Commons.Color.accent
+    if (!folder)
+      return FoamyPalette.mutedText
+    if (folder.outOfSync || folder.problem || folder.conflict)
+      return FoamyPalette.onSurface(FoamyPalette.error)
+    if (folder.paused)
+      return FoamyPalette.onSurface(FoamyPalette.warning)
+    if (folder.syncing || folder.scanning)
+      return Commons.Color.accent
     return FoamyPalette.onSurface(FoamyPalette.success)
   }
 
@@ -295,22 +369,23 @@ PanelKeyCatcher {
       Layout.fillWidth: true
       iconName: "sync"
       title: FoamyI18n.t("Syncthing")
-      meta: root.deviceLine
+      meta: root.headerMeta
       settingsHasCursor: cursor.at(root.settingsStop)
       onSettingsClicked: root.settingsRequested()
-      onSettingsHovered: function(hovered) { if (hovered) cursor.hover(root.settingsStop) }
+      onSettingsHovered: function (hovered) {
+        if (hovered)
+          cursor.hover(root.settingsStop)
+      }
       trailing: [
         FoamyAction {
-          iconName: root.service && root.service.canInstall ? "download"
-            : root.service && root.service.serviceActive ? "pause" : "play"
-          tooltipText: root.service && root.service.canInstall ? FoamyI18n.t("Install Syncthing")
-            : FoamyI18n.t(root.service && root.service.serviceActive ? "Stop syncing" : "Start syncing") + " · P"
+          iconName: root.service && root.service.canInstall ? "download" : root.service && root.service.serviceActive ? "pause" : "play"
+          tooltipText: root.service && root.service.canInstall ? FoamyI18n.t("Install Syncthing") : FoamyI18n.t(root.service && root.service.serviceActive ? "Stop syncing" : "Start syncing") + " · P"
           spinning: root.opened && !!root.service && root.service.serviceActionRunning
-          actionEnabled: !!root.service && (root.service.canInstall || root.service.canControlService)
-            && !root.service.serviceActionRunning && !root.service.folderMutationBusy
+          actionEnabled: !!root.service && (root.service.canInstall || root.service.canControlService) && !root.service.serviceActionRunning && !root.service.folderMutationBusy
           hasCursor: cursor.at(root.toggleStop)
           foreground: FoamyPalette.secondaryText
-          onHoveredChanged: if (hovered) cursor.hover(root.toggleStop)
+          onHoveredChanged: if (hovered)
+            cursor.hover(root.toggleStop)
           onClicked: root.toggleService()
         },
         FoamyAction {
@@ -319,7 +394,8 @@ PanelKeyCatcher {
           actionEnabled: root.online
           hasCursor: cursor.at(root.webStop)
           foreground: FoamyPalette.secondaryText
-          onHoveredChanged: if (hovered) cursor.hover(root.webStop)
+          onHoveredChanged: if (hovered)
+            cursor.hover(root.webStop)
           onClicked: root.openWebUiRequested()
         }
       ]
@@ -352,7 +428,8 @@ PanelKeyCatcher {
             visible: root.online && root.folderRows.length > 0
             text: FoamyI18n.t("{count} files · {size}", {
               count: PanelModel.formatCount(PanelModel.total(root.folderRows, "globalFiles")),
-              size: PanelModel.formatBytes(PanelModel.total(root.folderRows, "globalBytes")) })
+              size: PanelModel.formatBytes(PanelModel.total(root.folderRows, "globalBytes"))
+            })
             color: FoamyPalette.secondaryText
             font.pixelSize: FoamyStyle.font.body
           }
@@ -384,8 +461,7 @@ PanelKeyCatcher {
       Label {
         Layout.fillWidth: true
         visible: text !== ""
-        text: root.service && root.service.tooFewDevices
-          ? FoamyI18n.tn("Fewer than %1 devices are connected", Prefs.value(Schema.fields, root.settings, "minimumConnectedDevices")) : ""
+        text: root.service && root.service.tooFewDevices ? FoamyI18n.tn("Fewer than %1 devices are connected", Prefs.value(Schema.fields, root.settings, "minimumConnectedDevices")) : ""
         wrapMode: Text.WordWrap
         color: FoamyPalette.onSurface(FoamyPalette.warning)
         font.pixelSize: FoamyStyle.font.bodySmall
@@ -415,7 +491,11 @@ PanelKeyCatcher {
         wrapMode: Text.WordWrap
         color: FoamyPalette.onSurface(FoamyPalette.success)
         font.pixelSize: FoamyStyle.font.bodySmall
-        Behavior on opacity { NumberAnimation { duration: FoamyMotion.slow } }
+        Behavior on opacity {
+          NumberAnimation {
+            duration: FoamyMotion.slow
+          }
+        }
       }
     }
 
@@ -426,8 +506,20 @@ PanelKeyCatcher {
       Layout.leftMargin: FoamyStyle.gapLarge
       Layout.rightMargin: FoamyStyle.gapLarge
       spacing: FoamyStyle.gapSmall
-      TabStop { view: "folders"; iconName: "folder"; stop: 0; label: FoamyI18n.t("Folders"); count: folderKeys.count }
-      TabStop { view: "devices"; iconName: "devices"; stop: 1; label: FoamyI18n.t("Devices"); count: deviceKeys.count }
+      TabStop {
+        view: "folders"
+        iconName: "folder"
+        stop: 0
+        label: FoamyI18n.t("Folders")
+        count: folderKeys.count
+      }
+      TabStop {
+        view: "devices"
+        iconName: "devices"
+        stop: 1
+        label: FoamyI18n.t("Devices")
+        count: deviceKeys.count
+      }
     }
 
     Flickable {
@@ -447,12 +539,19 @@ PanelKeyCatcher {
         visible: list.interactive
         width: FoamyStyle.gapSmall
         padding: 0
-        contentItem: Rectangle { implicitWidth: FoamyStyle.gapSmall; radius: FoamyStyle.pillRadius(width); color: FoamyPalette.mutedText }
+        contentItem: Rectangle {
+          implicitWidth: FoamyStyle.gapSmall
+          radius: FoamyStyle.pillRadius(width)
+          color: FoamyPalette.mutedText
+        }
         background: Item {}
       }
 
       // A wheel notch scrolls about three rows, however the mouse splits it.
-      FoamyWheelScroll { id: wheel; target: list }
+      FoamyWheelScroll {
+        id: wheel
+        target: list
+      }
 
       Column {
         id: rows
@@ -465,9 +564,7 @@ PanelKeyCatcher {
           width: parent.width - FoamyStyle.padding * 2
           topPadding: FoamyStyle.gap
           bottomPadding: FoamyStyle.gap
-          text: !root.online ? FoamyI18n.t("Current status is unavailable.")
-            : root.tab === "folders" ? FoamyI18n.t("No shared folders yet. Add one in Settings.")
-            : FoamyI18n.t("No remote devices configured.")
+          text: !root.online ? FoamyI18n.t("Current status is unavailable.") : root.tab === "folders" ? FoamyI18n.t("No shared folders yet. Add one in Settings.") : FoamyI18n.t("No remote devices configured.")
           wrapMode: Text.WordWrap
           color: FoamyPalette.mutedText
           font.pixelSize: FoamyStyle.font.bodySmall
@@ -502,8 +599,7 @@ PanelKeyCatcher {
       Label {
         visible: settingsKeys.count === 0
         width: parent.width
-        text: root.online ? FoamyI18n.t("No shared folders yet. Add an existing directory to get started.")
-          : FoamyI18n.t("Connect to Syncthing to manage folders.")
+        text: root.online ? FoamyI18n.t("No shared folders yet. Add an existing directory to get started.") : FoamyI18n.t("Connect to Syncthing to manage folders.")
         wrapMode: Text.WordWrap
         color: FoamyPalette.mutedText
         font.pixelSize: FoamyStyle.font.bodySmall
@@ -529,7 +625,11 @@ PanelKeyCatcher {
         wrapMode: Text.WordWrap
         color: FoamyPalette.onSurface(FoamyPalette.success)
         font.pixelSize: FoamyStyle.font.bodySmall
-        Behavior on opacity { NumberAnimation { duration: FoamyMotion.slow } }
+        Behavior on opacity {
+          NumberAnimation {
+            duration: FoamyMotion.slow
+          }
+        }
       }
       FoamyButton {
         objectName: "addFolderButton"
@@ -555,7 +655,9 @@ PanelKeyCatcher {
           label: FoamyI18n.t("Incoming shares")
           value: root.currentPendingOffer
           options: root.pendingOffers
-          onChanged: function(value) { root.selectedPendingOffer = value }
+          onChanged: function (value) {
+            root.selectedPendingOffer = value
+          }
         }
         FoamyButton {
           objectName: "acceptShareButton"
@@ -581,12 +683,23 @@ PanelKeyCatcher {
         value: String(Prefs.value(Schema.fields, root.settings, "minimumConnectedDevices"))
         options: {
           var current = Prefs.value(Schema.fields, root.settings, "minimumConnectedDevices")
-          var rows = [{ value: "0", label: FoamyI18n.t("No warning") }]
+          var rows = [
+            {
+              value: "0",
+              label: FoamyI18n.t("No warning")
+            }
+          ]
           var maximum = Math.min(100, Math.max(5, root.counts.total, current))
-          for (var i = 1; i <= maximum; ++i) rows.push({ value: String(i), label: FoamyI18n.tn("%1 devices", i) })
+          for (var i = 1; i <= maximum; ++i)
+            rows.push({
+              value: String(i),
+              label: FoamyI18n.tn("%1 devices", i)
+            })
           return rows
         }
-        onChanged: function(value) { root.saveRequested("minimumConnectedDevices", Number(value)) }
+        onChanged: function (value) {
+          root.saveRequested("minimumConnectedDevices", Number(value))
+        }
       }
     }
 
@@ -601,12 +714,26 @@ PanelKeyCatcher {
         label: FoamyI18n.t("Refresh every")
         value: String(Prefs.value(Schema.fields, root.settings, "refreshIntervalSec"))
         options: [
-          { value: "60", label: FoamyI18n.tn("%1 minutes", 1) },
-          { value: "300", label: FoamyI18n.tn("%1 minutes", 5) },
-          { value: "900", label: FoamyI18n.tn("%1 minutes", 15) },
-          { value: "3600", label: FoamyI18n.tn("%1 hours", 1) }
+          {
+            value: "60",
+            label: FoamyI18n.tn("%1 minutes", 1)
+          },
+          {
+            value: "300",
+            label: FoamyI18n.tn("%1 minutes", 5)
+          },
+          {
+            value: "900",
+            label: FoamyI18n.tn("%1 minutes", 15)
+          },
+          {
+            value: "3600",
+            label: FoamyI18n.tn("%1 hours", 1)
+          }
         ]
-        onChanged: function(value) { root.saveRequested("refreshIntervalSec", Number(value)) }
+        onChanged: function (value) {
+          root.saveRequested("refreshIntervalSec", Number(value))
+        }
       }
       FoamyDropdown {
         objectName: "openRefreshDropdown"
@@ -615,12 +742,26 @@ PanelKeyCatcher {
         label: FoamyI18n.t("Refresh while the popup is open every")
         value: String(Prefs.value(Schema.fields, root.settings, "openRefreshIntervalSec"))
         options: [
-          { value: "2", label: FoamyI18n.tn("%1 seconds", 2) },
-          { value: "5", label: FoamyI18n.tn("%1 seconds", 5) },
-          { value: "10", label: FoamyI18n.tn("%1 seconds", 10) },
-          { value: "30", label: FoamyI18n.tn("%1 seconds", 30) }
+          {
+            value: "2",
+            label: FoamyI18n.tn("%1 seconds", 2)
+          },
+          {
+            value: "5",
+            label: FoamyI18n.tn("%1 seconds", 5)
+          },
+          {
+            value: "10",
+            label: FoamyI18n.tn("%1 seconds", 10)
+          },
+          {
+            value: "30",
+            label: FoamyI18n.tn("%1 seconds", 30)
+          }
         ]
-        onChanged: function(value) { root.saveRequested("openRefreshIntervalSec", Number(value)) }
+        onChanged: function (value) {
+          root.saveRequested("openRefreshIntervalSec", Number(value))
+        }
       }
     }
   }
@@ -653,12 +794,10 @@ PanelKeyCatcher {
     opened: root.forgetFolderId !== ""
     message: {
       var folder = PanelModel.folderById(root.folderRows, root.forgetFolderId)
-      return folder
-        ? FoamyI18n.t("Unlink {name} ({id}) from Syncthing?", {name: folder.label, id: folder.id}) + "\n\n"
-          + FoamyI18n.t("This removes its Syncthing configuration. Local files will be kept.") + " "
-          + (folder.markerName === ".stfolder" ? FoamyI18n.t("Syncthing may remove its internal .stfolder marker.") + " " : "")
-          + FoamyI18n.t("Keep this folder ID to rejoin the same remote folder.")
-        : FoamyI18n.t("Unlink this folder from Syncthing? Local files will be kept.")
+      return folder ? FoamyI18n.t("Unlink {name} ({id}) from Syncthing?", {
+        name: folder.label,
+        id: folder.id
+      }) + "\n\n" + FoamyI18n.t("This removes its Syncthing configuration. Local files will be kept.") + " " + (folder.markerName === ".stfolder" ? FoamyI18n.t("Syncthing may remove its internal .stfolder marker.") + " " : "") + FoamyI18n.t("Keep this folder ID to rejoin the same remote folder.") : FoamyI18n.t("Unlink this folder from Syncthing? Local files will be kept.")
     }
     confirmText: FoamyI18n.t("Unlink")
     cancelText: FoamyI18n.t("Cancel")
@@ -708,7 +847,10 @@ PanelKeyCatcher {
     id: rowItem
     required property string key
     required property int index
-    readonly property var row: (root.tab === "folders" ? root.folderMap : root.deviceMap)[key] || ({ related: [], progress: -1 })
+    readonly property var row: (root.tab === "folders" ? root.folderMap : root.deviceMap)[key] || ({
+        related: [],
+        progress: -1
+      })
     readonly property bool isExpanded: !!root.expanded[root.tab + ":" + key]
     readonly property bool isFolder: root.tab === "folders"
     x: FoamyStyle.gapLarge
@@ -782,7 +924,11 @@ PanelKeyCatcher {
           name: "chevron"
           rotation: rowItem.isExpanded ? (FoamyI18n.rightToLeft ? -90 : 90) : 0
           color: FoamyPalette.mutedText
-          Behavior on rotation { NumberAnimation { duration: FoamyMotion.toggle } }
+          Behavior on rotation {
+            NumberAnimation {
+              duration: FoamyMotion.toggle
+            }
+          }
         }
       }
 
@@ -809,8 +955,7 @@ PanelKeyCatcher {
             width: parent.width
             text: String(rowItem.row.detail || "")
             wrapMode: Text.WrapAnywhere
-            color: rowItem.row.state === "Error" || rowItem.row.state === "Out of sync" || rowItem.row.state === "Conflicts"
-              ? Commons.Color.urgent : FoamyPalette.secondaryText
+            color: rowItem.row.state === "Error" || rowItem.row.state === "Out of sync" || rowItem.row.state === "Conflicts" ? Commons.Color.urgent : FoamyPalette.secondaryText
             font.pixelSize: FoamyStyle.font.bodySmall
           }
           RowLayout {
@@ -830,7 +975,9 @@ PanelKeyCatcher {
               }
             }
             Text {
-              text: FoamyI18n.t("{percent}%", { percent: FoamyI18n.number(Math.max(0, Number(rowItem.row.progress))) })
+              text: FoamyI18n.t("{percent}%", {
+                percent: FoamyI18n.number(Math.max(0, Number(rowItem.row.progress)))
+              })
               textFormat: Text.PlainText
               color: Commons.Color.accent
               font.family: FoamyStyle.fontFamily
@@ -870,7 +1017,8 @@ PanelKeyCatcher {
             label: FoamyI18n.t("Open folder")
             tooltipText: FoamyI18n.t("Open in the file manager") + " · O"
             foreground: FoamyPalette.secondaryText
-            onClicked: if (rowItem.row.folder) root.openFolderRequested(rowItem.row.folder)
+            onClicked: if (rowItem.row.folder)
+              root.openFolderRequested(rowItem.row.folder)
           }
         }
       }
@@ -908,10 +1056,7 @@ PanelKeyCatcher {
       }
       Label {
         Layout.fillWidth: true
-        text: folderRow.folder.problem || folderRow.folder.conflict
-          ? PanelModel.folderMeta(folderRow.folder, FoamyI18n.t, FoamyI18n.tn)
-          : FoamyI18n.t(PanelModel.compactFolderState(folderRow.folder, root.online,
-              !!root.service && root.service.serviceAvailable && !root.service.serviceActive, false))
+        text: folderRow.folder.problem || folderRow.folder.conflict ? PanelModel.folderMeta(folderRow.folder, FoamyI18n.t, FoamyI18n.tn) : FoamyI18n.t(PanelModel.compactFolderState(folderRow.folder, root.online, !!root.service && root.service.serviceAvailable && !root.service.serviceActive, false))
         wrapMode: Text.WordWrap
         color: root.folderStateColor(folderRow.folder)
         font.pixelSize: FoamyStyle.font.caption
@@ -920,7 +1065,9 @@ PanelKeyCatcher {
     FoamyAction {
       iconName: folderRow.folder.paused ? "play" : "pause"
       focusable: true
-      tooltipText: FoamyI18n.t(folderRow.folder.paused ? "Resume synchronization for {name}" : "Pause synchronization for {name}", { name: String(folderRow.folder.label || "") })
+      tooltipText: FoamyI18n.t(folderRow.folder.paused ? "Resume synchronization for {name}" : "Pause synchronization for {name}", {
+        name: String(folderRow.folder.label || "")
+      })
       actionEnabled: root.canManage
       foreground: FoamyPalette.secondaryText
       onClicked: root.service.setFolderPaused(folderRow.folder.id, !folderRow.folder.paused)
@@ -929,7 +1076,9 @@ PanelKeyCatcher {
       iconName: "unlink"
       focusable: true
       destructive: true
-      tooltipText: FoamyI18n.t("Unlink {name} from Syncthing; keep local files", { name: String(folderRow.folder.label || "") })
+      tooltipText: FoamyI18n.t("Unlink {name} from Syncthing; keep local files", {
+        name: String(folderRow.folder.label || "")
+      })
       actionEnabled: root.canManage
       foreground: FoamyPalette.secondaryText
       onClicked: root.requestUnlink(folderRow.folder)
@@ -937,7 +1086,10 @@ PanelKeyCatcher {
     FoamyAction {
       iconName: "folder"
       focusable: true
-      tooltipText: FoamyI18n.t("Open {path}\nFolder ID: {id}", { path: String(folderRow.folder.path || ""), id: String(folderRow.folder.id || "") })
+      tooltipText: FoamyI18n.t("Open {path}\nFolder ID: {id}", {
+        path: String(folderRow.folder.path || ""),
+        id: String(folderRow.folder.id || "")
+      })
       actionEnabled: String(folderRow.folder.path || "") !== ""
       foreground: FoamyPalette.secondaryText
       onClicked: root.openFolderRequested(folderRow.folder)

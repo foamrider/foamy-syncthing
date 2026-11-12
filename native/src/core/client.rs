@@ -138,6 +138,9 @@ pub struct SystemStatus {
     pub my_id: String,
     #[serde(default, deserialize_with = "nullable")]
     pub tilde: String,
+    /// When this Syncthing process started; a restart changes it.
+    #[serde(rename = "startTime", default, deserialize_with = "nullable")]
+    pub start_time: String,
 }
 
 #[derive(Deserialize, Default)]
@@ -223,10 +226,13 @@ pub struct Connections {
     pub connections: BTreeMap<String, Connection>,
 }
 
-#[derive(Deserialize, Default, Clone, Copy)]
+#[derive(Deserialize, Default, Clone)]
 pub struct Connection {
     #[serde(default, deserialize_with = "nullable")]
     pub connected: bool,
+    /// The remote device's Syncthing version (remote, untrusted text).
+    #[serde(rename = "clientVersion", default, deserialize_with = "nullable")]
+    pub client_version: String,
 }
 
 #[derive(Deserialize, Default, Clone)]

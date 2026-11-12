@@ -18,6 +18,7 @@
   "Connected. A shared folder is syncing locally.": "Connected. A shared folder is syncing locally.",
   "Syncthing is not installed": "Syncthing is not installed",
   "Installation needs cleanup": "Installation needs cleanup",
+  "{path} exists, but Syncthing isn't installed": "{path} exists, but Syncthing isn't installed",
   "Finding Syncthing": "Finding Syncthing",
   "Reading status": "Reading status",
   "{count} items remaining": {
@@ -60,7 +61,6 @@
   "Incoming shares": "Incoming shares",
   "Accept": "Accept",
   "Accept incoming share": "Accept incoming share",
-  "Service is not running": "Service is not running",
   "Running": "Running",
   "Install Syncthing": "Install Syncthing",
   "Directory": "Directory",
@@ -106,7 +106,6 @@
     "one": "{count} shared folder",
     "other": "{count} shared folders"
   },
-  "{paused} of {total} folders paused": "{paused} of {total} folders paused",
   "{count} folders": {
     "one": "{count} folder",
     "other": "{count} folders"

@@ -39,7 +39,8 @@ function rows(service, folders, translate, formatBytes, formatCount, translatePl
     var id = String(device.deviceID || "")
     if (!id || id === service.localDeviceId || byId[id]) continue
     var row = {id: id, label: device.name || tr("Device {id}", {id: id.slice(0, 7)}),
-      connected: device.connected === true, state: "", subtitle: "", detail: "", related: [], icon: "devices", progress: -1}
+      connected: device.connected === true, version: String(device.version || ""),
+      state: "", subtitle: "", detail: "", related: [], icon: "devices", progress: -1}
     byId[id] = row
     deviceRows.push(row)
   }
@@ -87,7 +88,9 @@ function rows(service, folders, translate, formatBytes, formatCount, translatePl
       else if (row.related.some(function(folder) { return folder.state === "Out of sync" })) row.state = "Out of sync"
       else if (row.related.some(function(folder) { return folder.state === "Syncing" })) row.state = "Syncing"
     }
-    row.subtitle = tn("{count} shared folders", row.related.length, {count: row.related.length})
+    var shared = tn("{count} shared folders", row.related.length, {count: row.related.length})
+    // A peer's Syncthing version is known only while it is connected.
+    row.subtitle = row.version && row.state !== "Unavailable" && row.connected ? shared + " · " + row.version : shared
     row.detail = row.state === "Error" ? tr("Connected. A shared folder has a local error.")
       : row.state === "Out of sync" ? tr("Connected. A shared folder is out of sync locally.")
       : row.state === "Syncing" ? tr("Connected. A shared folder is syncing locally.")

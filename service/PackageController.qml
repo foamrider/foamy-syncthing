@@ -13,6 +13,8 @@ QtObject {
   property bool probing: true
   property string state: "checking"
   property string executablePath: ""
+  // The leftover file that keeps an "incomplete" installation from installing.
+  property string blockingPath: ""
   property bool operationRunning: false
   property bool refreshing: false
   property bool packageActionRunning: false
@@ -25,8 +27,7 @@ QtObject {
 
   signal statusApplied
 
-  readonly property bool canInstall: state === "missing"
-    && !refreshing && !packageActionRunning
+  readonly property bool canInstall: state === "missing" && !refreshing && !packageActionRunning
 
   function updateStatus() {
     if (statusProcess.running) {
@@ -55,14 +56,17 @@ QtObject {
     }
     state = nextState
     executablePath = String(data.executable || "")
+    blockingPath = nextState === "incomplete" && typeof data.blocking === "string" ? data.blocking.slice(0, 4096) : ""
     operationRunning = data.operationRunning === true
     reconcilePackageOperation()
     statusApplied()
   }
 
   function reconcilePackageOperation() {
-    if (packageActionRunning && operationRunning) _operationSeen = true
-    if (!packageActionRunning || !_operationSeen || operationRunning) return
+    if (packageActionRunning && operationRunning)
+      _operationSeen = true
+    if (!packageActionRunning || !_operationSeen || operationRunning)
+      return
     packageActionRunning = false
     packageStatus = FoamyI18n.t("Installation terminal closed")
     _operationSeen = false
@@ -71,7 +75,8 @@ QtObject {
   }
 
   function install() {
-    if (!canInstall) return
+    if (!canInstall)
+      return
     packageActionRunning = true
     packageError = ""
     packageStatus = FoamyI18n.t("Complete installation in the Omarchy terminal")
@@ -124,16 +129,17 @@ QtObject {
       onStreamFinished: root._statusErrorOutput = text
     }
 
-    onExited: function(exitCode) {
+    onExited: function (exitCode) {
       var rerun = root._statusRefreshPending
       root.refreshing = false
-      if (exitCode === 0) root.applyStatus(root._statusOutput)
+      if (exitCode === 0)
+        root.applyStatus(root._statusOutput)
       else {
-        root.packageError = String(root._statusErrorOutput
-          || FoamyI18n.t("Could not check Syncthing installation")).trim()
+        root.packageError = String(root._statusErrorOutput || FoamyI18n.t("Could not check Syncthing installation")).trim()
       }
       root._statusRefreshPending = false
-      if (rerun) Qt.callLater(root.updateStatus)
+      if (rerun)
+        Qt.callLater(root.updateStatus)
     }
   }
 }

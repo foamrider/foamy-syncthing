@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use foamy_helper::child::Bounded;
 use quick_xml::events::Event;
+use rustix::fs::{Mode, OFlags};
 
 use super::client::{ApiKey, Code, Error};
 use super::gocompat::{self, abs, clean, dir, join, regular_file, trim_space};
@@ -257,6 +258,11 @@ fn target_from_explicit(options: &Options) -> Result<Target, Error> {
 }
 
 /// A regular file (not a link) readable by its owner only, at most 4 KiB.
+///
+/// The path is opened once and everything after that uses the descriptor:
+/// the checks are on the open file (`fstat`), and the bounded read is from
+/// the same file, so a rename or symlink swapped in after the check can't
+/// substitute another file, and an oversized one is never buffered whole.
 fn read_protected_credential(path: &str) -> Result<String, Error> {
     let private = || {
         failure(
@@ -264,12 +270,19 @@ fn read_protected_credential(path: &str) -> Result<String, Error> {
             "credential file must be a private regular file",
         )
     };
-    let metadata = fs::symlink_metadata(path).map_err(|_| private())?;
+    // NOFOLLOW: a symlink in the last component fails (ELOOP). NONBLOCK: a
+    // FIFO planted there can't hang the open; it fails the regular-file check.
+    let flags =
+        OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::NONBLOCK | OFlags::NOCTTY | OFlags::CLOEXEC;
+    let file = fs::File::from(rustix::fs::open(path, flags, Mode::empty()).map_err(|_| private())?);
+    let metadata = file.metadata().map_err(|_| private())?;
     if !metadata.file_type().is_file() || metadata.permissions().mode() & 0o077 != 0 {
         return Err(private());
     }
-    let contents =
-        fs::read(path).map_err(|_| failure(Code::Credential, "could not read credential file"))?;
+    let mut contents = Vec::new();
+    file.take(MAX_CREDENTIAL_BYTES + 1)
+        .read_to_end(&mut contents)
+        .map_err(|_| failure(Code::Credential, "could not read credential file"))?;
     if contents.len() as u64 > MAX_CREDENTIAL_BYTES {
         return Err(failure(Code::Credential, "credential file is too large"));
     }
@@ -605,6 +618,123 @@ pub fn is_loopback(host: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::symlink;
+
+    fn credential_dir(name: &str) -> std::path::PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("foamy-credential-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir(&dir).unwrap();
+        dir
+    }
+
+    fn write_mode(path: &std::path::Path, text: &[u8], mode: u32) {
+        fs::write(path, text).unwrap();
+        fs::set_permissions(path, fs::Permissions::from_mode(mode)).unwrap();
+    }
+
+    fn message(result: Result<String, Error>) -> String {
+        match result {
+            Ok(text) => format!("ok {text}"),
+            Err(error) => error.message,
+        }
+    }
+
+    #[test]
+    fn a_credential_file_must_be_private_regular_and_small() {
+        let dir = credential_dir("rules");
+        let read =
+            |name: &str| message(read_protected_credential(dir.join(name).to_str().unwrap()));
+        write_mode(&dir.join("ok"), b" key-Canary-1 \n", 0o600);
+        assert_eq!(read("ok"), "ok key-Canary-1");
+        write_mode(&dir.join("public"), b"key", 0o644);
+        assert_eq!(
+            read("public"),
+            "credential file must be a private regular file"
+        );
+        symlink(dir.join("ok"), dir.join("link")).unwrap();
+        assert_eq!(
+            read("link"),
+            "credential file must be a private regular file"
+        );
+        assert_eq!(
+            read("missing"),
+            "credential file must be a private regular file"
+        );
+        fs::create_dir(dir.join("dir")).unwrap();
+        fs::set_permissions(dir.join("dir"), fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!(
+            read("dir"),
+            "credential file must be a private regular file"
+        );
+        // A FIFO with no writer would block a plain open forever.
+        rustix::fs::mkfifoat(
+            rustix::fs::CWD,
+            dir.join("fifo"),
+            Mode::from_raw_mode(0o600),
+        )
+        .unwrap();
+        assert_eq!(
+            read("fifo"),
+            "credential file must be a private regular file"
+        );
+        write_mode(
+            &dir.join("limit"),
+            &vec![b'k'; MAX_CREDENTIAL_BYTES as usize],
+            0o600,
+        );
+        assert_eq!(read("limit").len(), 3 + MAX_CREDENTIAL_BYTES as usize);
+        write_mode(
+            &dir.join("large"),
+            &vec![b'k'; MAX_CREDENTIAL_BYTES as usize + 1],
+            0o600,
+        );
+        assert_eq!(read("large"), "credential file is too large");
+        write_mode(&dir.join("lines"), b"a\nb", 0o600);
+        assert_eq!(read("lines"), "credential file is invalid");
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A private file checked and then swapped (rename over the path) for a
+    /// symlink to a public file must never yield the public file's text.
+    #[test]
+    fn a_file_swapped_in_after_the_check_is_never_read() {
+        let dir = credential_dir("swap");
+        let path = dir.join("credential");
+        write_mode(&dir.join("private"), b"private-key", 0o600);
+        write_mode(&dir.join("public"), b"public-Canary-7", 0o644);
+        let stop = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let swapper = {
+            let (dir, path, stop) = (dir.clone(), path.clone(), stop.clone());
+            std::thread::spawn(move || {
+                let mut round = 0u64;
+                while !stop.load(std::sync::atomic::Ordering::Relaxed) {
+                    round += 1;
+                    let staged = dir.join(format!("staged-{}", round % 2));
+                    let _ = fs::remove_file(&staged);
+                    if round.is_multiple_of(2) {
+                        fs::copy(dir.join("private"), &staged).unwrap();
+                        fs::set_permissions(&staged, fs::Permissions::from_mode(0o600)).unwrap();
+                    } else {
+                        symlink(dir.join("public"), &staged).unwrap();
+                    }
+                    fs::rename(&staged, &path).unwrap();
+                }
+            })
+        };
+        let started = std::time::Instant::now();
+        let mut read = 0;
+        while started.elapsed() < Duration::from_secs(2) {
+            if let Ok(text) = read_protected_credential(path.to_str().unwrap()) {
+                assert_eq!(text, "private-key", "read through a swapped-in link");
+                read += 1;
+            }
+        }
+        stop.store(true, std::sync::atomic::Ordering::Relaxed);
+        swapper.join().unwrap();
+        assert!(read > 0, "the private file was never read");
+        fs::remove_dir_all(&dir).unwrap();
+    }
 
     fn gui(text: &str) -> Option<(bool, String, String)> {
         parse_config(text.as_bytes()).map(|g| (g.tls, g.address, g.api_key))

@@ -2,7 +2,6 @@ pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
 import qs.Commons as Commons
-import qs.Ui
 import "../kit"
 import "../models/PanelModel.js" as PanelModel
 
@@ -20,16 +19,15 @@ Column {
   property bool labelFromOffer: false
   property bool submitted: false
 
-  signal browseRequested()
-  signal added()
+  signal browseRequested
+  signal added
 
   readonly property bool busy: !!service && service.folderMutationBusy
   readonly property var devices: service ? PanelModel.deviceOptions(service, FoamyI18n.t) : []
   readonly property var pendingOffers: service ? service.pendingOfferRows : []
   readonly property int encryptedCount: service ? service.encryptedPendingOfferCount : 0
   readonly property string pasteError: pathField.pasteError || labelField.pasteError || idField.pasteError
-  readonly property bool canSubmit: !!service && service.online && !busy
-    && pathField.text.trim() !== "" && idField.text.trim() !== ""
+  readonly property bool canSubmit: !!service && service.online && !busy && pathField.text.trim() !== "" && idField.text.trim() !== ""
 
   spacing: FoamyStyle.sectionGap
 
@@ -43,19 +41,25 @@ Column {
     labelFromOffer = false
     submitted = false
   }
-  function focusPath() { pathField.focusInput() }
+  function focusPath() {
+    pathField.focusInput()
+  }
   function setPath(path) {
     pathField.text = path
-    if (labelField.text === "") labelField.text = PanelModel.pathLabel(path)
+    if (labelField.text === "")
+      labelField.text = PanelModel.pathLabel(path)
     Qt.callLater(focusPath)
   }
   function toggleDevice(value) {
-    if (busy) return
+    if (busy)
+      return
     // Assign a new list so selection and pending-offer bindings update together.
     var next = selectedDeviceIds.slice()
     var index = next.indexOf(value)
-    if (index < 0) next.push(value)
-    else next.splice(index, 1)
+    if (index < 0)
+      next.push(value)
+    else
+      next.splice(index, 1)
     selectedDeviceIds = next
   }
   function applyPendingFolder(value) {
@@ -64,14 +68,21 @@ Column {
     if (!pendingFolderValue) {
       idEdited = false
       idField.text = ""
-      if (labelFromOffer) labelField.text = ""
+      if (labelFromOffer)
+        labelField.text = ""
       labelFromOffer = false
-      if (service) service.requestFolderIdSuggestion()
+      if (service)
+        service.requestFolderIdSuggestion()
       return
     }
     var choice = null
-    try { choice = JSON.parse(pendingFolderValue) } catch (error) { return }
-    if (!(choice instanceof Array) || choice.length !== 2) return
+    try {
+      choice = JSON.parse(pendingFolderValue)
+    } catch (error) {
+      return
+    }
+    if (!(choice instanceof Array) || choice.length !== 2)
+      return
     var id = String(choice[0] || "")
     var deviceId = String(choice[1] || "")
     var pending = service && service.pendingFolders ? service.pendingFolders[id] || ({}) : ({})
@@ -83,7 +94,8 @@ Column {
     selectedDeviceIds = deviceId ? [deviceId] : []
   }
   function pendingDeviceId() {
-    if (!pendingFolderValue) return ""
+    if (!pendingFolderValue)
+      return ""
     try {
       var choice = JSON.parse(pendingFolderValue)
       var deviceId = choice instanceof Array && choice.length === 2 ? String(choice[1] || "") : ""
@@ -93,7 +105,8 @@ Column {
     }
   }
   function submit() {
-    if (!canSubmit) return
+    if (!canSubmit)
+      return
     var label = labelField.text.trim() || PanelModel.pathLabel(pathField.text)
     submitted = service.addFolder(pathField.text, label, idField.text.trim(), selectedDeviceIds, pendingDeviceId())
   }
@@ -101,7 +114,8 @@ Column {
   Connections {
     target: root.service
     function onFolderIdSuggestionChanged() {
-      if (!root.idEdited && root.pendingFolderValue === "") idField.text = root.service.folderIdSuggestion
+      if (!root.idEdited && root.pendingFolderValue === "")
+        idField.text = root.service.folderIdSuggestion
     }
     function onFolderMutationNoticeChanged() {
       if (root.submitted && root.service.folderMutationNotice !== "") {
@@ -110,7 +124,8 @@ Column {
       }
     }
     function onFolderMutationErrorChanged() {
-      if (root.service.folderMutationError !== "") root.submitted = false
+      if (root.service.folderMutationError !== "")
+        root.submitted = false
     }
   }
 
@@ -145,10 +160,22 @@ Column {
       label: FoamyI18n.t("Incoming share")
       enabled: !root.busy
       value: root.pendingFolderValue
-      options: [{ value: "", label: FoamyI18n.t("Create a new folder identity") }].concat(root.pendingOffers.map(function(offer) {
-        return { value: offer.value, label: FoamyI18n.t("Accept {name}", { name: offer.label }) }
+      options: [
+        {
+          value: "",
+          label: FoamyI18n.t("Create a new folder identity")
+        }
+      ].concat(root.pendingOffers.map(function (offer) {
+        return {
+          value: offer.value,
+          label: FoamyI18n.t("Accept {name}", {
+            name: offer.label
+          })
+        }
       }))
-      onChanged: function(value) { root.applyPendingFolder(value) }
+      onChanged: function (value) {
+        root.applyPendingFolder(value)
+      }
     }
     Hint {
       visible: root.encryptedCount > 0
@@ -180,7 +207,12 @@ Column {
         onClicked: root.browseRequested()
       }
     }
-    Label { width: parent.width; text: FoamyI18n.t("Label"); color: FoamyPalette.secondaryText; font.pixelSize: FoamyStyle.font.bodySmall }
+    Label {
+      width: parent.width
+      text: FoamyI18n.t("Label")
+      color: FoamyPalette.secondaryText
+      font.pixelSize: FoamyStyle.font.bodySmall
+    }
     Field {
       id: labelField
       width: parent.width
@@ -188,7 +220,12 @@ Column {
       Accessible.name: FoamyI18n.t("Folder label, optional")
       onTextEdited: root.labelFromOffer = false
     }
-    Label { width: parent.width; text: FoamyI18n.t("Folder ID"); color: FoamyPalette.secondaryText; font.pixelSize: FoamyStyle.font.bodySmall }
+    Label {
+      width: parent.width
+      text: FoamyI18n.t("Folder ID")
+      color: FoamyPalette.secondaryText
+      font.pixelSize: FoamyStyle.font.bodySmall
+    }
     RowLayout {
       width: parent.width
       spacing: FoamyStyle.gap
@@ -216,15 +253,16 @@ Column {
         }
       }
     }
-    Hint { width: parent.width; text: FoamyI18n.t("Use the same ID to rejoin an existing shared folder.") }
+    Hint {
+      width: parent.width
+      text: FoamyI18n.t("Use the same ID to rejoin an existing shared folder.")
+    }
   }
 
   FoamySettingsSection {
     width: parent.width
     title: FoamyI18n.t("Share with devices")
-    description: root.selectedDeviceIds.length === 0
-      ? FoamyI18n.t("Local only — this folder will not sync with other devices.")
-      : FoamyI18n.t("Selected devices receive a share offer to accept.")
+    description: root.selectedDeviceIds.length === 0 ? FoamyI18n.t("Local only — this folder will not sync with other devices.") : FoamyI18n.t("Selected devices receive a share offer to accept.")
     Hint {
       visible: root.devices.length === 0
       width: parent.width
@@ -251,8 +289,7 @@ Column {
     Hint {
       visible: text !== ""
       width: parent.width
-      text: root.pasteError !== "" ? FoamyI18n.t(root.pasteError)
-        : root.service ? root.service.folderPreparationError || root.service.folderMutationError : ""
+      text: root.pasteError !== "" ? FoamyI18n.t(root.pasteError) : root.service ? root.service.folderPreparationError || root.service.folderMutationError : ""
       color: Commons.Color.urgent
       Accessible.role: Accessible.AlertMessage
     }

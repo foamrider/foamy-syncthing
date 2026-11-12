@@ -13,7 +13,9 @@ COMMIT = "7318f1404e765f274df3d079e35d0ad32b5c1701"
 class CoreLaunchTests(unittest.TestCase):
     def test_core_is_started_without_the_desktop_bridge(self):
         service = (ROOT / "Service.qml").read_text()
-        arguments = service[service.index("startupArguments: ["):service.index("]", service.index("startupArguments: ["))]
+        arguments = service[
+            service.index("startupArguments: [") : service.index("]", service.index("startupArguments: ["))
+        ]
         self.assertNotIn('"--desktop-authorized"', arguments)
         self.assertNotRegex(service, r'"webui\.(open|set-theme)"')
 

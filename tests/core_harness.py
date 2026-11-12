@@ -23,18 +23,27 @@ import fake_syncthing
 
 ROOT = Path(__file__).resolve().parents[1]
 UNIT = "syncthing.service"
-PLUGIN_FLAGS = ["--probe-interval-seconds", "15", "--desired-service-state", "enabled",
-                "--lifecycle-kind", "systemd-user", "--lifecycle-authorized", "--lifecycle-unit", UNIT]
+PLUGIN_FLAGS = [
+    "--probe-interval-seconds",
+    "15",
+    "--lifecycle-kind",
+    "systemd-user",
+    "--lifecycle-authorized",
+    "--lifecycle-unit",
+    UNIT,
+]
 
 
 def helper_prefix():
     if os.environ.get("FOAMY_HELPER"):
-        return [str(Path(part).resolve()) if i == 0 and not os.path.isabs(part) else part
-                for i, part in enumerate(json.loads(os.environ["FOAMY_HELPER"]))]
+        return [
+            str(Path(part).resolve()) if i == 0 and not os.path.isabs(part) else part
+            for i, part in enumerate(json.loads(os.environ["FOAMY_HELPER"]))
+        ]
     return [str(ROOT / "bin" / platform.machine() / "foamy-syncthing-helper")]
 
 
-SYSTEMCTL = r'''#!/usr/bin/python3 -I
+SYSTEMCTL = r"""#!/usr/bin/python3 -I
 import json, os, sys
 args = sys.argv[1:]
 with open(os.environ["FAKE_CALLS"], "a") as log:
@@ -56,22 +65,22 @@ elif len(args) == 3 and args[0] == "--user" and args[1] in ("start", "stop"):
         json.dump(state, output)
 else:
     sys.exit(2)
-'''
+"""
 
-SYNCTHING = r'''#!/usr/bin/python3 -I
+SYNCTHING = r"""#!/usr/bin/python3 -I
 import json, os, sys
 with open(os.environ["FAKE_CALLS"], "a") as log:
     log.write(json.dumps(["syncthing"] + sys.argv[1:]) + "\n")
 if sys.argv[1:] == ["paths"]:
     print("Configuration file:\n\t" + os.environ.get("FAKE_SYNCTHING_CONFIG", "") + "\n")
-'''
+"""
 
 
 # Runs argv[3:] in the user, mount and network namespace `unshare -rmn` made
 # for it, where loopback is up and /etc/resolv.conf (bind-mounted from
 # argv[2]) names one DNS server, on loopback, that takes queries and never
 # answers. argv[1] is the `ip` binary. Nothing outside the namespace changes.
-SILENT_DNS = r'''#!/usr/bin/python3 -I
+SILENT_DNS = r"""#!/usr/bin/python3 -I
 import os, socket, subprocess, sys
 ip, resolv = sys.argv[1], sys.argv[2]
 subprocess.run([ip, "link", "set", "lo", "up"], check=True)
@@ -80,7 +89,7 @@ server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 server.bind(("127.0.0.1", 53))
 os.set_inheritable(server.fileno(), True)
 os.execv(sys.argv[3], sys.argv[3:])
-'''
+"""
 # The resolver would wait 30 s for an answer (musl and Go read these options).
 SILENT_RESOLV = "nameserver 127.0.0.1\noptions timeout:30 attempts:1\n"
 
@@ -95,8 +104,18 @@ def silent_dns_prefix(directory):
     directory = Path(directory)
     (directory / "silent-dns.py").write_text(SILENT_DNS)
     (directory / "resolv.conf").write_text(SILENT_RESOLV)
-    prefix = [unshare, "--user", "--map-root-user", "--mount", "--net", "/usr/bin/python3", "-I",
-              str(directory / "silent-dns.py"), ip, str(directory / "resolv.conf")]
+    prefix = [
+        unshare,
+        "--user",
+        "--map-root-user",
+        "--mount",
+        "--net",
+        "/usr/bin/python3",
+        "-I",
+        str(directory / "silent-dns.py"),
+        ip,
+        str(directory / "resolv.conf"),
+    ]
     try:
         probe = subprocess.run(prefix + ["/usr/bin/true"], capture_output=True, timeout=10)
     except (OSError, subprocess.TimeoutExpired):
@@ -116,8 +135,17 @@ def proc_argv(pid):
 class Core:
     """One core process against one fake Syncthing."""
 
-    def __init__(self, tls=False, api_key=fake_syncthing.API_KEY, flags=None, config=True,
-                 systemctl=None, start=True, gui_address=None, unix_socket=None):
+    def __init__(
+        self,
+        tls=False,
+        api_key=fake_syncthing.API_KEY,
+        flags=None,
+        config=True,
+        systemctl=None,
+        start=True,
+        gui_address=None,
+        unix_socket=None,
+    ):
         self.temp = tempfile.TemporaryDirectory(prefix="foamy-syncthing-core-")
         self.home = Path(self.temp.name)
         self.bin = self.home / "bin"
@@ -138,15 +166,21 @@ class Core:
                 raise unittest.SkipTest("openssl is unavailable")
         # unix_socket: a file name in the temporary HOME for the fake's socket.
         self.syncthing = fake_syncthing.FakeSyncthing(
-            self.home, tls=certificate, unix=str(self.home / unix_socket) if unix_socket else None)
+            self.home, tls=certificate, unix=str(self.home / unix_socket) if unix_socket else None
+        )
         self.syncthing.state["paths"]["config"] = str(self.config_path)
         if config:
             self.write_config(tls=tls, api_key=api_key, address=gui_address or self.syncthing.address)
         self.set_systemctl(systemctl or {})
-        self.env = {"HOME": str(self.home), "XDG_CONFIG_HOME": str(self.home / "config"),
-                    "XDG_STATE_HOME": str(self.home / "state"), "PATH": str(self.bin),
-                    "FAKE_CALLS": str(self.calls_path), "FAKE_SYSTEMCTL_STATE": str(self.systemctl_path),
-                    "LANG": "C.UTF-8"}
+        self.env = {
+            "HOME": str(self.home),
+            "XDG_CONFIG_HOME": str(self.home / "config"),
+            "XDG_STATE_HOME": str(self.home / "state"),
+            "PATH": str(self.bin),
+            "FAKE_CALLS": str(self.calls_path),
+            "FAKE_SYSTEMCTL_STATE": str(self.systemctl_path),
+            "LANG": "C.UTF-8",
+        }
         self.flags = PLUGIN_FLAGS if flags is None else flags
         # An argv prefix the core runs under (silent_dns_prefix).
         self.wrapper = []
@@ -160,18 +194,23 @@ class Core:
         self.config_path.write_text(
             '<configuration version="37">\n'
             f'  <gui enabled="true" tls="{"true" if tls else "false"}" debugging="false">\n'
-            f'    <address>{address}</address>\n'
-            f'    <apikey>{api_key}</apikey>\n'
-            '    <theme>default</theme>\n'
-            '  </gui>\n'
-            '</configuration>\n')
+            f"    <address>{address}</address>\n"
+            f"    <apikey>{api_key}</apikey>\n"
+            "    <theme>default</theme>\n"
+            "  </gui>\n"
+            "</configuration>\n"
+        )
 
     def set_systemctl(self, overrides):
-        state = {"LoadState": "loaded", "ActiveState": "active", "UnitFileState": "enabled",
-                 "FragmentPath": "/usr/lib/systemd/user/syncthing.service",
-                 "ExecStart": "{ path=/usr/bin/syncthing ; argv[]=/usr/bin/syncthing serve --no-browser --no-restart ; "
-                              "ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }",
-                 "Environment": "STNORESTART=1"}
+        state = {
+            "LoadState": "loaded",
+            "ActiveState": "active",
+            "UnitFileState": "enabled",
+            "FragmentPath": "/usr/lib/systemd/user/syncthing.service",
+            "ExecStart": "{ path=/usr/bin/syncthing ; argv[]=/usr/bin/syncthing serve --no-browser --no-restart ; "
+            "ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }",
+            "Environment": "STNORESTART=1",
+        }
         state.update(overrides)
         self.systemctl_path.write_text(json.dumps(state))
 
@@ -182,8 +221,14 @@ class Core:
         return self.wrapper + helper_prefix() + ["stream"] + self.flags
 
     def start(self):
-        self.process = subprocess.Popen(self.argv(), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                        stderr=subprocess.PIPE, env=self.env, cwd=str(self.home))
+        self.process = subprocess.Popen(
+            self.argv(),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=self.env,
+            cwd=str(self.home),
+        )
         self.stderr = b""
         self.started = time.monotonic()
         threading.Thread(target=self._read, daemon=True).start()
@@ -240,8 +285,11 @@ class Core:
 
     def request(self, kind, request_id, timeout=20, **values):
         self.send(dict({"v": 2, "type": kind, "id": request_id}, **values))
-        return self.wait_for(lambda f: f["type"] in ("result", "fatal") and f.get("id", request_id) == request_id,
-                             timeout, f"result {request_id}")
+        return self.wait_for(
+            lambda f: f["type"] in ("result", "fatal") and f.get("id", request_id) == request_id,
+            timeout,
+            f"result {request_id}",
+        )
 
     def action(self, name, request_id, args=None, timeout=20):
         return self.request("action", request_id, timeout=timeout, action=name, args={} if args is None else args)
@@ -285,4 +333,3 @@ class Core:
                 pass
         self.syncthing.close()
         self.temp.cleanup()
-

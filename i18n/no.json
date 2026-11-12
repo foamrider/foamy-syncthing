@@ -18,6 +18,7 @@
   "Connected. A shared folder is syncing locally.": "Tilkoblet. En delt mappe synkroniseres lokalt.",
   "Syncthing is not installed": "Syncthing er ikke installert",
   "Installation needs cleanup": "Installasjonen trenger opprydding",
+  "{path} exists, but Syncthing isn't installed": "{path} finnes, men Syncthing er ikke installert",
   "Finding Syncthing": "Finner Syncthing",
   "Reading status": "Leser status",
   "{count} items remaining": {
@@ -60,7 +61,6 @@
   "Incoming shares": "Innkommende delinger",
   "Accept": "Godta",
   "Accept incoming share": "Godta innkommende deling",
-  "Service is not running": "Tjenesten kjører ikke",
   "Running": "Kjører",
   "Install Syncthing": "Installer Syncthing",
   "Directory": "Mappe",
@@ -106,7 +106,6 @@
     "one": "{count} delt mappe",
     "other": "{count} delte mapper"
   },
-  "{paused} of {total} folders paused": "{paused} av {total} mapper er satt på pause",
   "{count} folders": {
     "one": "{count} mappe",
     "other": "{count} mapper"

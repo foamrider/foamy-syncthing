@@ -10,11 +10,32 @@ from pathlib import Path
 import platform
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+KIT = Path(os.environ.get("FOAMY_KIT", Path.home() / "GitHub/Personal/foamy-kit"))
+
+
+def hostenv():
+    """The kit checkout's preview/hostenv.py. Imported on use, so the
+    helper-only tests run without a foamy-kit checkout."""
+    sys.path.insert(0, str(KIT / "preview"))
+    import hostenv
+
+    return hostenv
+
+
+def isolated_env(base, **overrides):
+    """os.environ with `overrides`, then the kit's host isolation
+    (hostenv.isolate: no Omarchy bin dir or AppImage libraries on PATH and
+    LD_LIBRARY_PATH, dead audio, system and session bus addresses, no
+    display)."""
+    return hostenv().isolate(dict(os.environ, **overrides), base)
+
+
 MAX_INPUT_BYTES = 1048576
 GENERIC = b"Could not check for Syncthing conflicts.\n"
 
@@ -28,8 +49,9 @@ def scanner():
 
 def scan(paths=None, raw=None, args=(), env=None, timeout=30):
     data = raw if raw is not None else json.dumps(paths, ensure_ascii=False).encode()
-    return subprocess.run(scanner() + list(args), input=data, capture_output=True, timeout=timeout,
-                          env=dict(os.environ, **(env or {})))
+    return subprocess.run(
+        scanner() + list(args), input=data, capture_output=True, timeout=timeout, env=dict(os.environ, **(env or {}))
+    )
 
 
 def flags(paths):
@@ -93,8 +115,9 @@ class ConflictTests(unittest.TestCase):
             (base / "conflicted" / "b.sync-conflict-x").touch()
             paths = [str(base / name) for name in ("clean", "conflicted", "missing", "also-clean")]
             result = scan(paths)
-            self.assertEqual((result.returncode, result.stdout, result.stderr),
-                             (0, b"[false, true, false, false]\n", b""))
+            self.assertEqual(
+                (result.returncode, result.stdout, result.stderr), (0, b"[false, true, false, false]\n", b"")
+            )
             self.assertEqual(scan([]).stdout, b"[]\n")
             self.assertEqual(flags([paths[1], paths[1]]), [True, True])
 
@@ -138,8 +161,20 @@ class ConflictTests(unittest.TestCase):
             self.assertEqual(scan(raw=b'  ["a"]  \n').stdout, b"[false]\n")
             self.assertEqual(scan(raw=b" " * MAX_INPUT_BYTES + b"[]").returncode, 1)
             self.assertEqual(scan(raw=b" " * (MAX_INPUT_BYTES - 2) + b"[]").stdout, b"[]\n")
-        invalid = [b"bad", b"\xff", b"{}", b"[7]", b'[""]', b'["nul\\u0000"]', b'["\\ud800"]', b"",
-                   b'["a"] ["b"]', b"\xef\xbb\xbf[]", b'["\xff"]', b" " * (MAX_INPUT_BYTES + 1)]
+        invalid = [
+            b"bad",
+            b"\xff",
+            b"{}",
+            b"[7]",
+            b'[""]',
+            b'["nul\\u0000"]',
+            b'["\\ud800"]',
+            b"",
+            b'["a"] ["b"]',
+            b"\xef\xbb\xbf[]",
+            b'["\xff"]',
+            b" " * (MAX_INPUT_BYTES + 1),
+        ]
         for raw in invalid:
             with self.subTest(raw=raw[:40]):
                 result = scan(raw=raw)
@@ -164,8 +199,9 @@ class ConflictTests(unittest.TestCase):
             folder.mkdir()
             (folder / "a.sync-conflict-test").touch()
             expected = [os.fsencode(part) for part in scanner()]
-            with subprocess.Popen(scanner(), stdin=subprocess.PIPE,
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
+            with subprocess.Popen(
+                scanner(), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            ) as process:
                 # Hold stdin open so the production worker is observable on procfs.
                 process.stdin.write(json.dumps([str(folder)], ensure_ascii=False).encode())
                 process.stdin.flush()
@@ -206,8 +242,13 @@ class ConflictTests(unittest.TestCase):
     def test_stalled_stdin_is_bounded_by_the_helper_deadline(self):
         # The scanner gives up after 25 s on its own (the Python one through
         # SIGALRM); FOAMY_SYNCTHING_CONFLICTS_DEADLINE shortens that for tests.
-        with subprocess.Popen(scanner(), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              env=dict(os.environ, FOAMY_SYNCTHING_CONFLICTS_DEADLINE="1")) as process:
+        with subprocess.Popen(
+            scanner(),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=dict(os.environ, FOAMY_SYNCTHING_CONFLICTS_DEADLINE="1"),
+        ) as process:
             started = time.monotonic()
             process.wait(timeout=30)
             output, error = process.communicate()
@@ -218,19 +259,20 @@ class ConflictTests(unittest.TestCase):
 
     def test_qml_stdin_failure_timeout_and_destruction(self):
         runner = shutil.which("qs")
-        if not runner:
+        if not runner or os.environ.get("FOAMY_TESTS_NO_QUICKSHELL"):
+            # tests/suite.sh --ci sets FOAMY_TESTS_NO_QUICKSHELL: no host QML there.
             self.skipTest("Quickshell is unavailable")
         source = (ROOT / "Service.qml").read_text()
         methods = []
         for name in ("scanConflicts", "finishConflictScan"):
             start = source.index("  function " + name + "(")
-            methods.append(source[start:source.index("\n  }", start) + 4])
+            methods.append(source[start : source.index("\n  }", start) + 4])
         start = source.index("  // Folder ids whose directory holds")
-        state_block = source[start:source.index("\n\n", start)]
+        state_block = source[start : source.index("\n\n", start)]
         start = source.index("  property Process conflictScan:")
-        process = source[start:source.index("  // One diagnostics target per shell", start)]
+        process = source[start : source.index("  // One diagnostics target per shell", start)]
         start = source.index("  Component.onDestruction:")
-        cleanup = source[start:source.index("    if (Plugin.ServiceRegistry", start)] + "  }"
+        cleanup = source[start : source.index("    if (Plugin.ServiceRegistry", start)] + "  }"
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             # The helper as FoamyNative launches it: bin/$HOSTTYPE/<name>.
@@ -238,9 +280,11 @@ class ConflictTests(unittest.TestCase):
             helper_dir.mkdir(parents=True)
             (base / "kit").mkdir()
             shutil.copy(ROOT / "kit/FoamyNative.js", base / "kit/FoamyNative.js")
+            (base / "models").mkdir()
+            shutil.copy(ROOT / "models/PanelModel.js", base / "models/PanelModel.js")
             stub = helper_dir / "foamy-syncthing-helper"
             state = base / "delivered.jsonl"
-            stub.write_text('''#!/usr/bin/python3
+            stub.write_text("""#!/usr/bin/python3
 import json, os, sys, time
 from pathlib import Path
 assert sys.argv[1:] == ["conflicts"], sys.argv
@@ -252,16 +296,19 @@ if paths == ["fail"]: sys.exit(1)
 if paths == ["invalid"]: print("unexpected")
 elif paths == ["short"]: print("[]")
 else: print(json.dumps([path == "found" for path in paths]))
-''')
+""")
             # Isolate the host adapter, while exercising the actual QML functions,
             # state, Process, deadline and destruction handler from Service.qml unchanged.
             stub.chmod(0o755)
-            (base / "Scanner.qml").write_text('''import QtQuick
+            (base / "Scanner.qml").write_text(
+                """import QtQuick
 import Quickshell.Io
 import "kit/FoamyNative.js" as FoamyNative
+import "models/PanelModel.js" as PanelModel
 QtObject {
   id: root
   property string pluginRoot: %s
+  property string homePath: ""
   property bool online: true
   property var folders: []
   function tr(key) { return key }
@@ -270,8 +317,10 @@ QtObject {
 %s
 %s
 }
-''' % (json.dumps(str(base)), state_block, "\n".join(methods), process, cleanup))
-            (base / "shell.qml").write_text('''import QtQuick
+"""
+                % (json.dumps(str(base)), state_block, "\n".join(methods), process, cleanup)
+            )
+            (base / "shell.qml").write_text("""import QtQuick
 import QtTest
 import Quickshell
 import Quickshell.Io
@@ -293,7 +342,20 @@ ShellRoot {
         function scan(paths) {
           scanner.folders = paths.map(function(path, index) { return {id:"f" + index, path:path} })
           scanner.scanConflicts(true)
-          tryCompare(scanner, "conflictInput", "", 3000)
+          tryCompare(scanner, "conflictInput", "", 20000)
+        }
+        // Runs `command` until it succeeds (at most 20 s): conditions that
+        // take a moment on a loaded machine, without a fixed wait.
+        function waitForCommand(command) {
+          root.probeFinished = false; root.probeExit = -1
+          tryVerify(function() {
+            if (!probe.running && !(root.probeFinished && root.probeExit === 0)) {
+              probe.command = command
+              root.probeFinished = false
+              probe.running = true
+            }
+            return root.probeFinished && root.probeExit === 0
+          }, 20000, String(command))
         }
         function test_1_stdin_results_per_folder() {
           scan(['private-Canary-847 📁 "quote"\\n--exec', '-leading-dash'])
@@ -303,6 +365,10 @@ ShellRoot {
           compare(scanner.hasConflicts, true)
           scan(["clean", "found", "other"])
           compare(JSON.stringify(scanner.conflictFolderIds), JSON.stringify({f1: true}))
+          // Syncthing's "~/" paths reach the helper expanded.
+          scanner.homePath = "/home/me"
+          scan(["~/Sync"])
+          scanner.homePath = ""
         }
         function test_2_failure_retains_status_and_recovery() {
           scanner.conflictFolderIds = {f0: true}
@@ -319,16 +385,19 @@ ShellRoot {
           compare(scanner.hasConflicts, false)
         }
         function test_3_deadline_and_busy() {
-          scanner.conflictDeadline.interval = 250
           scanner.conflictFolderIds = {f0: true}
           scanner.folders = [{id:"f0", path:"stall"}]
           scanner.scanConflicts()
           scanner.scanConflicts()
-          tryCompare(scanner, "conflictInput", "", 3000)
+          // Once the stalled scan really runs, a short deadline (a new
+          // interval restarts the running timer) has to end it.
+          // The stub logs a run first thing (its Python start can be slow).
+          waitForCommand(["/usr/bin/grep", "-qF", '"paths": ["stall"]', CONFLICT_STATE_FILE])
+          scanner.conflictDeadline.interval = 250
+          tryCompare(scanner, "conflictInput", "", 20000)
           verify(scanner.conflictScanError !== "")
           compare(scanner.hasConflicts, true)
-          wait(100)
-          compare(scanner.conflictScan.running, false)
+          tryCompare(scanner.conflictScan, "running", false, 20000)
           scanner.conflictDeadline.interval = 30000
           scan(["clear"])
           compare(scanner.conflictScanError, "")
@@ -350,19 +419,15 @@ ShellRoot {
           var worker = factory.createObject(root)
           worker.folders = [{id:"f0", path:"destroy"}]
           worker.scanConflicts()
-          tryVerify(function() { return Number(worker.conflictScan.processId) > 0 }, 1000)
+          tryVerify(function() { return Number(worker.conflictScan.processId) > 0 }, 20000)
           var pid = worker.conflictScan.processId
           worker.destroy()
-          wait(100)
-          probe.command = ["/usr/bin/test", "!", "-e", "/proc/" + pid]
-          root.probeFinished = false; probe.running = true
-          tryCompare(root, "probeFinished", true, 1000)
-          compare(root.probeExit, 0)
+          waitForCommand(["/usr/bin/test", "!", "-e", "/proc/" + pid])
         }
         function test_6_snapshots_with_the_same_folders_skip_the_walk() {
           scanner.folders = [{id:"a", path:"counted"}]
           scanner.scanConflicts()
-          tryCompare(scanner, "conflictInput", "", 3000)
+          tryCompare(scanner, "conflictInput", "", 20000)
           // A new snapshot rebuilds the array with the same folders: no walk.
           scanner.folders = [{id:"a", path:"counted"}]
           scanner.scanConflicts()
@@ -371,14 +436,14 @@ ShellRoot {
           // A changed folder set and the periodic timer (force) do walk.
           scanner.folders = [{id:"a", path:"counted"}, {id:"b", path:"counted"}]
           scanner.scanConflicts()
-          tryCompare(scanner, "conflictInput", "", 3000)
+          tryCompare(scanner, "conflictInput", "", 20000)
           scanner.scanConflicts(true)
-          tryCompare(scanner, "conflictInput", "", 3000)
+          tryCompare(scanner, "conflictInput", "", 20000)
         }
         function test_7_a_missing_helper_is_reported_once() {
           probe.command = ["/usr/bin/mv", STUB, STUB + ".off"]
           root.probeFinished = false; probe.running = true
-          tryCompare(root, "probeFinished", true, 1000)
+          tryCompare(root, "probeFinished", true, 20000)
           scanner.conflictFolderIds = {f0: true}
           scan(["found"])
           compare(scanner.conflictScanError, FoamyNative.UNAVAILABLE_TEXT)
@@ -397,20 +462,39 @@ ShellRoot {
     }
   }
 }
-''')
+""")
             shell = base / "shell.qml"
-            shell.write_text(shell.read_text().replace("STUB", json.dumps(str(stub))))
+            shell.write_text(
+                shell.read_text()
+                .replace("STUB", json.dumps(str(stub)))
+                .replace("CONFLICT_STATE_FILE", json.dumps(str(state)))
+            )
             runtime = base / "runtime"
             runtime.mkdir(mode=0o700)
-            env = dict(os.environ, QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software",
-                       QT_QPA_PLATFORMTHEME="", XDG_RUNTIME_DIR=str(runtime), TEST_CONFLICT_STATE=str(state))
-            result = subprocess.run([runner, "-p", str(base), "--no-color"], env=env,
-                                    text=True, capture_output=True, timeout=15)
-            output = result.stdout + result.stderr
-            self.assertEqual(result.returncode, 0, output)
+            env = isolated_env(
+                base,
+                QT_QPA_PLATFORM="offscreen",
+                QT_QUICK_BACKEND="software",
+                QT_QPA_PLATFORMTHEME="",
+                XDG_RUNTIME_DIR=str(runtime),
+                TEST_CONFLICT_STATE=str(state),
+            )
+            # Its own process group: stop() also ends any stub scan (a stalled
+            # one sleeps 30 s) that outlived the shell's own cleanup.
+            with tempfile.TemporaryFile("w+", errors="replace") as out:
+                with hostenv().ProcessGroup(
+                    [runner, "-p", str(base), "--no-color"], env=env, stdout=out, stderr=subprocess.STDOUT
+                ) as shell:
+                    status = shell.wait(180)
+                # After stop(): nothing in the group writes to it any more.
+                out.seek(0)
+                output = out.read()
+            self.assertIsNotNone(status, "qs did not finish within 180 s\n" + output)
+            self.assertEqual(status, 0, output)
             self.assertIn("CONFLICT_SCAN passed=8 failed=0", output)
             records = [json.loads(line) for line in state.read_text().splitlines()]
-            self.assertEqual(records[0]["paths"], ['private-Canary-847 📁 "quote"\n--exec', '-leading-dash'])
+            self.assertEqual(records[0]["paths"], ['private-Canary-847 📁 "quote"\n--exec', "-leading-dash"])
+            self.assertIn(["/home/me/Sync"], [record["paths"] for record in records])
             for record in records:
                 # The paths travel on stdin only.
                 self.assertEqual(record["cmdline"].split("\x00")[:-1], ["/usr/bin/python3", str(stub), "conflicts"])

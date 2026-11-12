@@ -16,7 +16,6 @@ use super::types::*;
 pub struct Operational {
     pub probe_interval: Duration,
     pub refresh_interval: Duration,
-    pub desired_service_state: String,
 }
 
 pub struct Session {
@@ -33,6 +32,10 @@ pub struct Session {
     config: Mutex<Operational>,
     config_changed: AtomicBool,
     pub activity: Mutex<super::activity::Activities>,
+    /// This Syncthing's version, keyed by its device ID and start time: read
+    /// once per connection (dropped when the connection fails) and per
+    /// Syncthing restart, not on every refresh. "" when the read failed.
+    version: Mutex<Option<(String, String)>>,
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
@@ -67,6 +70,7 @@ impl Session {
             config: Mutex::new(config),
             config_changed: AtomicBool::new(false),
             activity: Mutex::new(super::activity::Activities::default()),
+            version: Mutex::new(None),
         }
     }
 
@@ -118,6 +122,7 @@ impl Session {
             ..Snapshot::default()
         };
         if let Err(error) = self.client.health() {
+            *lock(&self.version) = None;
             snapshot.connection.phase = "error".into();
             snapshot.connection.error = Some(public_error(&error));
             snapshot.lifecycle = self.failure_lifecycle(*latched);
@@ -127,6 +132,7 @@ impl Session {
         let status = match self.client.status() {
             Ok(status) => status,
             Err(error) => {
+                *lock(&self.version) = None;
                 snapshot.connection.phase = "error".into();
                 snapshot.connection.error = Some(public_error(&error));
                 snapshot.lifecycle = external(self.failure_lifecycle(*latched));
@@ -177,8 +183,26 @@ impl Session {
         (snapshot, None)
     }
 
+    /// The version is decoration: a failed read leaves it empty, never an error.
+    fn syncthing_version(&self, status: &client::SystemStatus) -> String {
+        let key = format!("{}\n{}", status.my_id, status.start_time);
+        let mut cached = lock(&self.version);
+        if let Some((cached_key, version)) = cached.as_ref()
+            && *cached_key == key
+        {
+            return version.clone();
+        }
+        let version = self
+            .client
+            .version()
+            .map(|v| bounded_version(&v.version))
+            .unwrap_or_default();
+        *cached = Some((key, version.clone()));
+        version
+    }
+
     fn load_authenticated(&self, status: &client::SystemStatus) -> Result<Hydrated, client::Error> {
-        let version = self.client.version()?;
+        let version = self.syncthing_version(status);
         let devices = self.client.devices()?;
         let folders = self.client.folders()?;
         let connections = self.client.connections()?;
@@ -207,7 +231,7 @@ impl Session {
         Ok(Hydrated {
             identity: Identity {
                 device_id: bounded_identifier(&status.my_id),
-                version: bounded_label(&version.version),
+                version,
             },
             devices: normalize_devices(&devices, &connections),
             folders: normalized_folders,
@@ -233,9 +257,7 @@ impl Session {
     }
 
     fn probe_lifecycle(&self, api_online: bool) -> Lifecycle {
-        let mut state = systemd::probe(&self.binding, &self.target, api_online);
-        state.desired_state = lock(&self.config).desired_service_state.clone();
-        state
+        systemd::probe(&self.binding, &self.target, api_online)
     }
 
     /// The scheduled lifecycle probe between refreshes.
@@ -247,15 +269,12 @@ impl Session {
         }
         // Syncshell probed once as online and then again as offline when
         // offline; one probe with the right view gives the same state.
-        let mut state = if current.state.connection.online {
+        let state = if current.state.connection.online {
             self.probe_lifecycle(true)
         } else {
             self.failure_lifecycle(*latched)
         };
         let mut published = lock(&self.state);
-        if !published.state.lifecycle.desired_state.is_empty() {
-            state.desired_state = published.state.lifecycle.desired_state.clone();
-        }
         if published.state.lifecycle != state {
             published.state.lifecycle = state;
             published.revision += 1;
@@ -298,7 +317,7 @@ impl Session {
         if let Some(rejection) = validate_operational_config(config) {
             return rejection;
         }
-        let desired = {
+        {
             let mut current = lock(&self.config);
             if let Some(seconds) = config.probe_interval_seconds {
                 current.probe_interval = Duration::from_secs(seconds as u64);
@@ -306,17 +325,8 @@ impl Session {
             if let Some(seconds) = config.refresh_interval_seconds {
                 current.refresh_interval = Duration::from_secs(seconds as u64);
             }
-            if let Some(state) = &config.desired_service_state {
-                current.desired_service_state = state.clone();
-            }
-            current.desired_service_state.clone()
-        };
-        self.config_changed.store(true, Ordering::SeqCst);
-        let mut published = lock(&self.state);
-        if published.revision != 0 && published.state.lifecycle.desired_state != desired {
-            published.state.lifecycle.desired_state = desired;
-            published.revision += 1;
         }
+        self.config_changed.store(true, Ordering::SeqCst);
         ActionResult::ok()
     }
 }
@@ -329,8 +339,6 @@ pub struct OperationalConfig {
     pub probe_interval_seconds: Option<i64>,
     #[serde(rename = "refreshIntervalSeconds", default)]
     pub refresh_interval_seconds: Option<i64>,
-    #[serde(rename = "desiredServiceState", default)]
-    pub desired_service_state: Option<String>,
 }
 
 fn validate_operational_config(config: &OperationalConfig) -> Option<ActionResult> {
@@ -348,15 +356,6 @@ fn validate_operational_config(config: &OperationalConfig) -> Option<ActionResul
         return Some(ActionResult::rejected(
             "invalid_config",
             "refresh interval must be between 60 and 3600 seconds",
-        ));
-    }
-    if let Some(state) = &config.desired_service_state
-        && state != "enabled"
-        && state != "disabled"
-    {
-        return Some(ActionResult::rejected(
-            "invalid_config",
-            "desired service state must be enabled or disabled",
         ));
     }
     None
@@ -403,6 +402,13 @@ fn normalize_devices(wire: &[client::Device], connections: &client::Connections)
                 .connections
                 .get(&device.device_id)
                 .is_some_and(|c| c.connected),
+            // Known only while connected; a disconnected peer shows none.
+            version: connections
+                .connections
+                .get(&device.device_id)
+                .filter(|c| c.connected)
+                .map(|c| bounded_version(&c.client_version))
+                .unwrap_or_default(),
         })
         .collect();
     result.sort_by(|a, b| a.id.cmp(&b.id));

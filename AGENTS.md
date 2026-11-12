@@ -55,17 +55,31 @@ rules a change must keep.
 
 ## Tests
 
+Run `tests/validate.sh` (after `mise install`) before calling a change
+ready; `tests/validate.sh --ci` is what CI runs. It ends with
+`tests/suite.sh`, which runs these:
+
 ```sh
 export FOAMY_KIT=~/GitHub/Personal/foamy-kit   # or the foamy-kit checkout in use
 node --test tests/*.test.js tests/*.test.cjs
 python3 -I -m unittest discover -s tests -p 'test_*.py'
 FOAMY_HELPER='["bin/aarch64/foamy-syncthing-helper"]' python3 -I -m unittest discover -s tests -p 'test_*.py'
 python3 tests/runtime.py
-python3 tests/i18n-runtime.py
+python3 "$FOAMY_KIT"/preview/i18n_runtime.py .
 bash tests/kit-check.sh
 $FOAMY_KIT/check.sh .
 omarchy plugin validate .
 ```
 
 `tests/test_stream.py` is the core's black-box contract (fake Syncthing,
-fake `systemctl`); `tests/test_conflicts.py` the scan's.
+fake `systemctl`); `tests/test_conflicts.py` the scan's;
+`tests/test_install_script.py` the install script's (fake `omarchy`,
+`systemctl` and `uwsm-app`).
+
+<!-- foamy-kit review: begin; managed by foamy-kit sync.sh, edit outside this block -->
+## Code review
+
+Follow [REVIEW.md](REVIEW.md) when reviewing or preparing a change. It is the
+shared Foamy review standard, synced from foamy-kit. The rest of this file
+adds repository-specific rules.
+<!-- foamy-kit review: end -->

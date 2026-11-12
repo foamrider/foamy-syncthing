@@ -47,6 +47,20 @@ test("original panel totals include this computer", () => {
   assert.equal(panel.deviceCounts({localDeviceId: "", connectedDeviceCount: 0, deviceCount: 0}).total, 0);
 });
 
+test("the header counts only the other devices, like the Devices tab", () => {
+  const panel = model("models/PanelModel.js");
+  const tr = (key, values) => key.replace(/\{(\w+)\}/g, (m, k) => String(values[k]));
+  const service = {online: true, localDeviceId: "local", connectedDeviceCount: 2, deviceCount: 2};
+  assert.equal(panel.remoteDeviceLine(service, tr), "2 / 2 devices online");
+  assert.equal(panel.remoteDeviceLine({...service, connectedDeviceCount: 1}, tr), "1 / 2 devices online");
+  // No other devices: no count (the tab says 0); offline: the hero says why.
+  assert.equal(panel.remoteDeviceLine({...service, connectedDeviceCount: 0, deviceCount: 0}, tr), "");
+  assert.equal(panel.remoteDeviceLine({...service, online: false}, tr), "");
+  assert.equal(panel.remoteDeviceLine(null, tr), "");
+  // The minimum-devices warning still counts this computer.
+  assert.equal(panel.deviceCounts(service).connected, 3);
+});
+
 test("native snapshots feed the original folder cards without losing health", () => {
   const facade = model("service/Facade.js");
   const panel = model("models/PanelModel.js");
@@ -332,7 +346,7 @@ test("the core keeps retrying with backoff instead of staying down", () => {
   assert.deepEqual(timers, [250, 500, 1000, 30000, 60000, 120000, 240000, 300000, 300000]);
   assert.equal(context.desiredRunning, true, "never gives up");
   assert.equal(context.unavailable, true);
-  assert.match(source, /onTriggered: if \(root\.protocolReady\) root\.restartAttempts = 0/);
+  assert.match(source, /onTriggered: if \(root\.protocolReady\)\s*root\.restartAttempts = 0/);
   assert.match(source, /function retry\(\)[\s\S]*incompatible = false/);
 });
 
@@ -365,6 +379,17 @@ test("the pick-folder reply gives a path, a cancel or an error code", () => {
   assert.deepEqual(reply(0, '{"ok":true,"path":"Sync"}'), { error: "FAILED" });
   assert.deepEqual(reply(1, '{"ok":false,"code":"<b>x</b>"}'), { error: "FAILED" });
   assert.deepEqual(reply(1, '{"ok":true,"path":"/a"}'), { error: "FAILED" });
+});
+
+test("folder paths resolve as Syncthing's: ~ and relative paths from HOME", () => {
+  // Shared by the folder rows, "Open folder" and the conflict scan.
+  const panel = model("models/PanelModel.js");
+  assert.equal(panel.resolveFolderPath("~", "/home/me"), "/home/me");
+  assert.equal(panel.resolveFolderPath("~/Sync", "/home/me"), "/home/me/Sync");
+  assert.equal(panel.resolveFolderPath("Sync/a", "/home/me"), "/home/me/Sync/a");
+  assert.equal(panel.resolveFolderPath("/srv/Sync", "/home/me"), "/srv/Sync");
+  assert.equal(panel.resolveFolderPath("~other/x", "/home/me"), "/home/me/~other/x");
+  assert.equal(panel.resolveFolderPath("Sync", ""), "Sync");
 });
 
 test("the folder chooser is the helper's pick-folder, under a timeout, with no picker script", () => {

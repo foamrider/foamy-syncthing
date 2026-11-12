@@ -250,6 +250,17 @@ function deviceCounts(service) {
   }
 }
 
+// The header's device line: the other devices only, so it matches the
+// Devices tab (deviceCounts above includes this computer, which the
+// minimum-devices warning and its setting count). Empty while Syncthing is
+// offline and when there are no other devices (the tab says 0).
+function remoteDeviceLine(service, translate) {
+  if (!service || !service.online) return ""
+  var total = Number(service.deviceCount || 0)
+  if (total <= 0) return ""
+  return translate("{connected} / {total} devices online", {connected: Number(service.connectedDeviceCount || 0), total: total})
+}
+
 function compactFolderState(folder, online, stopped, hasActivity) {
   if (stopped) return "Stopped"
   if (!online) return "Unavailable"
@@ -275,6 +286,12 @@ function compactSummary(service, rows, translate, translatePlural) {
   }
   if (!service.online) {
     result.title = service.summaryText || result.title
+    // "Not installed" waits for nothing; the install button is the next step.
+    if (service.installationState === "missing")
+      result.detail = ""
+    // Name the file to clean up; the bar tooltip shows only the title.
+    if (service.installationState === "incomplete" && service.installationBlocker)
+      result.detail = tr("{path} exists, but Syncthing isn't installed", {path: service.installationBlocker})
     return result
   }
   if (service.hasConflicts || stateCount(rows, "problem") > 0) {
@@ -316,8 +333,9 @@ function compactSummary(service, rows, translate, translatePlural) {
   }
   var paused = stateCount(rows, "paused")
   if (paused > 0) {
+    // The title says it; the folder rows show which ones are paused.
     result.title = paused === rows.length ? "Syncing paused" : "Some folders paused"
-    result.detail = tr("{paused} of {total} folders paused", {paused: paused, total: rows.length})
+    result.detail = ""
     return result
   }
   if (rows.some(function(row) { return row.state !== "idle" })) {
@@ -325,8 +343,9 @@ function compactSummary(service, rows, translate, translatePlural) {
     result.detail = "Waiting for folder status"
     return result
   }
+  // The Folders tab carries the folder count.
   result.title = "Up to date"
-  result.detail = tn("{count} shared folders", rows.length, {count: rows.length})
+  result.detail = ""
   result.progress = 100
   return result
 }

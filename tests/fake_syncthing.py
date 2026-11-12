@@ -32,12 +32,17 @@ def default_state(home):
         "myID": LOCAL_ID,
         "tilde": str(home),
         "version": "v2.0.10",
+        "startTime": "2026-11-12T08:00:00.000000000+01:00",
         "devices": [
             {"deviceID": PEER_ID, "name": "laptop", "untrusted": False, "addresses": ["dynamic"]},
             {"deviceID": LOCAL_ID, "name": "this", "untrusted": False},
             {"deviceID": OTHER_ID, "name": "<phone & co>", "untrusted": True},
         ],
-        "connections": {PEER_ID: {"connected": True}, OTHER_ID: {"connected": False}},
+        # Syncthing keeps a disconnected peer's last clientVersion.
+        "connections": {
+            PEER_ID: {"connected": True, "clientVersion": "v2.0.9"},
+            OTHER_ID: {"connected": False, "clientVersion": "v1.27.0"},
+        },
         "folders": [],
         "status": {},
         "errors": {},
@@ -46,9 +51,17 @@ def default_state(home):
         "discovery": {},
         "gui": {"theme": "default", "address": "ignored"},
         "paths": {"guiAssets": "/usr/share/syncthing/gui", "config": "/tmp/config.xml"},
-        "defaultFolder": {"id": "", "label": "", "path": "~", "type": "sendreceive",
-                          "rescanIntervalS": 3600, "fsWatcherEnabled": True, "paused": False,
-                          "devices": [], "minDiskFree": {"value": 1, "unit": "%"}},
+        "defaultFolder": {
+            "id": "",
+            "label": "",
+            "path": "~",
+            "type": "sendreceive",
+            "rescanIntervalS": 3600,
+            "fsWatcherEnabled": True,
+            "paused": False,
+            "devices": [],
+            "minDiskFree": {"value": 1, "unit": "%"},
+        },
         "random": "AbCdEfGhIj",
         "events": [],
         "files": {},
@@ -56,9 +69,15 @@ def default_state(home):
 
 
 def folder(path, folder_id="docs", label="Documents", paused=False, devices=(LOCAL_ID, PEER_ID)):
-    return {"id": folder_id, "label": label, "path": str(path), "paused": paused, "markerName": ".stfolder",
-            "type": "sendreceive",
-            "devices": [{"deviceID": device, "introducedBy": "", "encryptionPassword": ""} for device in devices]}
+    return {
+        "id": folder_id,
+        "label": label,
+        "path": str(path),
+        "paused": paused,
+        "markerName": ".stfolder",
+        "type": "sendreceive",
+        "devices": [{"deviceID": device, "introducedBy": "", "encryptionPassword": ""} for device in devices],
+    }
 
 
 def make_certificate(directory, name="https"):
@@ -68,9 +87,31 @@ def make_certificate(directory, name="https"):
         return None
     cert = os.path.join(directory, name + "-cert.pem")
     key = os.path.join(directory, name + "-key.pem")
-    subprocess.run(["openssl", "req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256",
-                    "-nodes", "-subj", "/CN=syncthing", "-days", "2", "-addext", "subjectAltName=IP:127.0.0.1",
-                    "-keyout", key, "-out", cert], check=True, capture_output=True, timeout=30)
+    subprocess.run(
+        [
+            "openssl",
+            "req",
+            "-x509",
+            "-newkey",
+            "ec",
+            "-pkeyopt",
+            "ec_paramgen_curve:P-256",
+            "-nodes",
+            "-subj",
+            "/CN=syncthing",
+            "-days",
+            "2",
+            "-addext",
+            "subjectAltName=IP:127.0.0.1",
+            "-keyout",
+            key,
+            "-out",
+            cert,
+        ],
+        check=True,
+        capture_output=True,
+        timeout=30,
+    )
     return cert, key
 
 
@@ -163,8 +204,7 @@ class Trickler:
                 connection.sendall(b"HTTP/1.1 200 OK\r\n")
                 piece = b"X-Trickle: 1\r\n"
             else:
-                connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\n"
-                                   b"Content-Length: 4096\r\n\r\n")
+                connection.sendall(b"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 4096\r\n\r\n")
                 piece = b" "
             while not self.closed.wait(self.gap):
                 connection.sendall(piece)
@@ -212,8 +252,15 @@ class FakeSyncthing:
 
     def add_event(self, kind, data):
         with self.lock:
-            self.state["events"].append({"id": self.next_event, "globalID": self.next_event, "type": kind,
-                                         "time": "2026-11-06T00:00:00Z", "data": data})
+            self.state["events"].append(
+                {
+                    "id": self.next_event,
+                    "globalID": self.next_event,
+                    "type": kind,
+                    "time": "2026-11-06T00:00:00Z",
+                    "data": data,
+                }
+            )
             self.next_event += 1
 
     def wait_polling(self, timeout=10):
@@ -228,8 +275,9 @@ class FakeSyncthing:
 
     def calls(self, method=None, prefix=""):
         with self.lock:
-            return [r for r in self.requests if (method is None or r["method"] == method)
-                    and r["path"].startswith(prefix)]
+            return [
+                r for r in self.requests if (method is None or r["method"] == method) and r["path"].startswith(prefix)
+            ]
 
     def _handler(self):
         fake = self
@@ -253,9 +301,14 @@ class FakeSyncthing:
                 length = int(self.headers.get("Content-Length") or 0)
                 body = self.rfile.read(length) if length else b""
                 target = urlsplit(self.path)
-                record = {"method": self.command, "path": target.path, "target": self.path,
-                          "key": self.headers.get("X-API-Key"), "body": body.decode("utf-8", "replace"),
-                          "headers": dict(self.headers.items())}
+                record = {
+                    "method": self.command,
+                    "path": target.path,
+                    "target": self.path,
+                    "key": self.headers.get("X-API-Key"),
+                    "body": body.decode("utf-8", "replace"),
+                    "headers": dict(self.headers.items()),
+                }
                 with fake.lock:
                     fake.requests.append(record)
                 if fake.down and fake.down():
@@ -302,7 +355,12 @@ class FakeSyncthing:
 
         if method == "GET":
             simple = {
-                "/rest/system/status": lambda: {"myID": state["myID"], "tilde": state["tilde"], "uptime": 5},
+                "/rest/system/status": lambda: {
+                    "myID": state["myID"],
+                    "tilde": state["tilde"],
+                    "startTime": state["startTime"],
+                    "uptime": 5,
+                },
                 "/rest/system/version": lambda: {"version": state["version"], "os": "linux"},
                 "/rest/config/devices": lambda: state["devices"],
                 "/rest/config/folders": lambda: folders,
@@ -317,16 +375,21 @@ class FakeSyncthing:
             if path in simple:
                 return 200, copy.deepcopy(simple[path]())
             if path.startswith("/rest/config/folders/"):
-                item = find(unquote(path[len("/rest/config/folders/"):]))
+                item = find(unquote(path[len("/rest/config/folders/") :]))
                 return (200, copy.deepcopy(item)) if item else (404, None)
             if path == "/rest/db/status":
-                return 200, state["status"].get(query.get("folder"),
-                                                 {"state": "idle", "needTotalItems": 0, "globalFiles": 1, "globalBytes": 10})
+                return 200, state["status"].get(
+                    query.get("folder"), {"state": "idle", "needTotalItems": 0, "globalFiles": 1, "globalBytes": 10}
+                )
             if path == "/rest/folder/errors":
                 if find(query.get("folder")) is None:
                     return None
-                return 200, {"folder": query.get("folder"), "errors": state["errors"].get(query.get("folder")),
-                             "page": 1, "perpage": 100}
+                return 200, {
+                    "folder": query.get("folder"),
+                    "errors": state["errors"].get(query.get("folder")),
+                    "page": 1,
+                    "perpage": 100,
+                }
             if path == "/rest/svc/random/string":
                 return 200, {"random": state["random"]}
             if path == "/rest/db/file":
@@ -342,14 +405,14 @@ class FakeSyncthing:
                 return 200, events
             return None
         if method == "PATCH" and path.startswith("/rest/config/folders/"):
-            item = find(unquote(path[len("/rest/config/folders/"):]))
+            item = find(unquote(path[len("/rest/config/folders/") :]))
             if item is None:
                 return 404, None
             item.update(json.loads(body))
             self.add_event_locked("ConfigSaved", {})
             return 200, None
         if method == "DELETE" and path.startswith("/rest/config/folders/"):
-            item = find(unquote(path[len("/rest/config/folders/"):]))
+            item = find(unquote(path[len("/rest/config/folders/") :]))
             if item is None:
                 return 404, None
             folders.remove(item)
@@ -364,6 +427,13 @@ class FakeSyncthing:
         return None
 
     def add_event_locked(self, kind, data):
-        self.state["events"].append({"id": self.next_event, "globalID": self.next_event, "type": kind,
-                                     "time": "2026-11-06T00:00:00Z", "data": data})
+        self.state["events"].append(
+            {
+                "id": self.next_event,
+                "globalID": self.next_event,
+                "type": kind,
+                "time": "2026-11-06T00:00:00Z",
+                "data": data,
+            }
+        )
         self.next_event += 1

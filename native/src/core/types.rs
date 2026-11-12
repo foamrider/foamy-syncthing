@@ -11,6 +11,8 @@ use serde::{Serialize, Serializer};
 pub const MAX_PUBLIC_STRING: usize = 4096;
 pub const MAX_IDENTIFIER: usize = 256;
 pub const MAX_LABEL: usize = 512;
+/// A Syncthing version ("v2.0.10", "v2.1.0-rc.2+12-g0123abc") is short.
+pub const MAX_VERSION: usize = 40;
 pub const MAX_ERROR_TEXT: usize = 1024;
 pub const MAX_DEVICES: usize = 256;
 pub const MAX_FOLDERS: usize = 128;
@@ -67,6 +69,7 @@ pub struct Connection {
 pub struct Identity {
     #[serde(rename = "deviceId", skip_serializing_if = "String::is_empty")]
     pub device_id: String,
+    /// This Syncthing's version (bounded_version), fetched once per connection.
     #[serde(skip_serializing_if = "String::is_empty")]
     pub version: String,
 }
@@ -77,6 +80,9 @@ pub struct Device {
     pub name: String,
     pub untrusted: bool,
     pub connected: bool,
+    /// The peer's Syncthing version while it is connected (bounded_version).
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub version: String,
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq, Eq)]
@@ -257,8 +263,6 @@ pub struct Lifecycle {
     pub can_control: bool,
     #[serde(rename = "canStart")]
     pub can_start: bool,
-    #[serde(rename = "desiredState", skip_serializing_if = "String::is_empty")]
-    pub desired_state: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub error: String,
 }
@@ -342,6 +346,18 @@ pub fn bounded_path(value: &str) -> String {
     bounded(value, MAX_PUBLIC_STRING)
 }
 
+/// A version string, or "" when it is empty, longer than MAX_VERSION or holds
+/// anything but printable ASCII without spaces. Peers report their own
+/// version, so it is untrusted: rejected whole rather than cut, so a shown
+/// version is always one the peer sent.
+pub fn bounded_version(value: &str) -> String {
+    let value = super::gocompat::trim_space(value);
+    if value.len() > MAX_VERSION || !value.bytes().all(|b| b.is_ascii_graphic()) {
+        return String::new();
+    }
+    value.to_string()
+}
+
 pub fn bounded(value: &str, max: usize) -> String {
     super::gocompat::truncate_bytes(super::gocompat::trim_space(value), max)
 }
@@ -371,5 +387,27 @@ mod tests {
         assert_eq!(bounded_label("  x  "), "x");
         assert_eq!(bounded("\u{a0}abcdef\u{2003}", 3), "abc");
         assert_eq!(bounded_identifier(&"é".repeat(200)).len(), 256);
+    }
+
+    #[test]
+    fn versions_are_short_printable_ascii_or_nothing() {
+        assert_eq!(bounded_version(" v2.0.10\n"), "v2.0.10");
+        assert_eq!(
+            bounded_version("v2.1.0-rc.2+12-g0123abc"),
+            "v2.1.0-rc.2+12-g0123abc"
+        );
+        let longest = format!("v{}", "1".repeat(MAX_VERSION - 1));
+        assert_eq!(bounded_version(&longest), longest);
+        assert_eq!(bounded_version(&format!("{longest}1")), "");
+        for bad in [
+            "v2 0",
+            "v2.0\u{1b}[31m",
+            "v2.0\u{202e}",
+            "v2.0\u{0}",
+            "versión",
+            "",
+        ] {
+            assert_eq!(bounded_version(bad), "", "{bad:?}");
+        }
     }
 }

@@ -67,3 +67,16 @@ test('out-of-sync folders preserve errors and do not turn offline peers into err
   assert.equal(offline.devices[1].state, 'Disconnected');
   assert.equal(rows({...service, online: false}, [failed]).folders[0].state, 'Unavailable');
 });
+
+test('a connected peer shows its Syncthing version; a disconnected or offline one does not', () => {
+  const versioned = {...service, devices: [
+    {deviceID: 'local', name: 'Local', version: 'v2.0.10'},
+    {deviceID: 'peer', name: 'Peer', connected: true, version: 'v2.0.9'},
+    {deviceID: 'offline', name: 'Offline', connected: false, version: 'v1.27.0'}]};
+  const result = rows(versioned);
+  assert.equal(result.devices[0].subtitle, '1 shared folders · v2.0.9');
+  assert.doesNotMatch(result.devices[1].subtitle, /v1\.27/);
+  assert.doesNotMatch(rows({...versioned, online: false}).devices[0].subtitle, /v2\.0\.9/);
+  // No version: the subtitle is the folder count alone.
+  assert.doesNotMatch(rows().devices[0].subtitle, /·/);
+});

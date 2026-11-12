@@ -3,8 +3,6 @@
 set -euo pipefail
 
 service_name="syncthing.service"
-runtime_root="${XDG_RUNTIME_DIR:-/tmp}/omarchy-syncthing-$UID"
-operation_file="$runtime_root/operation.pid"
 bin_link="$HOME/.local/bin/syncthing"
 service_file="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user/$service_name"
 script_path="$(readlink -f -- "$0")"
@@ -22,46 +20,80 @@ require_command() {
   command -v "$1" >/dev/null 2>&1 || fail "Required command not found: $1"
 }
 
+# One operation at a time: a run holds an exclusive flock on this file until
+# it ends (its terminal closes), and status reports a held lock as
+# operationRunning. The kernel drops the lock with the process, so there is no
+# marker to remove (or to remove from another run). The file lives only in the
+# per-user runtime directory, which no other user can write to; without one
+# there is no lock, so nothing runs.
+lock_file() {
+  # Called in $(…), where errexit is off: return explicitly.
+  if [[ ${XDG_RUNTIME_DIR:-} != /* || ! -d $XDG_RUNTIME_DIR ]]; then
+    fail "XDG_RUNTIME_DIR is not set to a directory, so the install lock can't be held" || return
+  fi
+  printf '%s/foamy-syncthing-install.lock\n' "$XDG_RUNTIME_DIR"
+}
+
 operation_running() {
-  local pid=""
-  [[ -f $operation_file ]] || return 1
-  pid="$(<"$operation_file")"
-  [[ $pid =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null
+  local file="$1" code=0
+  [[ -e $file ]] || return 1
+  # A shared lock conflicts only with a run's exclusive one.
+  flock --nonblock --shared --conflict-exit-code 75 "$file" true || code=$?
+  ((code == 75))
+}
+
+# The file that keeps a missing Syncthing from being installed: a leftover
+# command link or user unit (never replaced or enabled by the install).
+blocking_file() {
+  local path
+  for path in "$bin_link" "$service_file"; do
+    if [[ -e $path || -L $path ]]; then
+      printf '%s\n' "$path"
+      return 0
+    fi
+  done
 }
 
 detect_status() {
-  local executable="" executable_path=""
+  local executable="" executable_path="" blocking="" lock=""
   local flatpak_id="com.github.zocker_160.SyncThingy"
   local label="Not installed" state="missing"
+
+  require_command flock
+  lock="$(lock_file)"
 
   executable="$(command -v syncthing 2>/dev/null || true)"
   if [[ -n $executable ]]; then
     executable_path="$(readlink -f -- "$executable" 2>/dev/null || true)"
     [[ -n $executable_path ]] || executable_path="$executable"
-  elif command -v flatpak >/dev/null 2>&1 &&
-      timeout 3s flatpak info "$flatpak_id" >/dev/null 2>&1; then
+  elif command -v flatpak >/dev/null 2>&1 \
+    && timeout 3s flatpak info "$flatpak_id" >/dev/null 2>&1; then
     executable_path="$flatpak_id (Flatpak)"
   fi
 
   if [[ -n $executable_path ]]; then
     state="existing"
     label="Existing installation found: working"
-  elif [[ -e $bin_link || -L $bin_link || -e $service_file ||
-          -L $service_file ]]; then
-    state="incomplete"
-    label="Incomplete installation: non-working"
+  else
+    blocking="$(blocking_file)"
+    if [[ -n $blocking ]]; then
+      state="incomplete"
+      label="Incomplete installation: non-working"
+    fi
   fi
 
   jq -n \
     --arg state "$state" \
     --arg label "$label" \
     --arg executable "$executable_path" \
+    --arg blocking "$blocking" \
     --argjson operationRunning \
-      "$(operation_running && echo true || echo false)" \
+    "$(operation_running "$lock" && echo true || echo false)" \
     '{
       state: $state,
       label: $label,
       executable: $executable,
+      blocking: $blocking,
       operationRunning: $operationRunning
     }'
 }
@@ -89,16 +121,15 @@ install_package() {
 }
 
 run_and_prompt() {
-  local action="$1" result=0
+  local action="$1" result=0 lock="" lock_fd=""
   shift
 
-  mkdir -p -- "$runtime_root"
-  chmod 700 "$runtime_root"
-  if operation_running; then
-    fail "Another Syncthing operation is already running"
-  fi
-  printf '%s\n' "$$" >"$operation_file"
-  trap '[[ ! -e $operation_file ]] || unlink -- "$operation_file"' EXIT
+  require_command flock
+  lock="$(lock_file)"
+  exec {lock_fd}>>"$lock"
+  # A status check holds a shared lock for a moment; wait that out.
+  flock --exclusive --wait 2 "$lock_fd" \
+    || fail "Another Syncthing operation is already running"
 
   printf 'Syncthing for Omarchy\n'
   printf '%s\n' '----------------------'
@@ -109,11 +140,13 @@ run_and_prompt() {
       install-package) install_package ;;
       *) fail "Unknown operation: $action" ;;
     esac
-  )
+    # The commands don't get the lock's descriptor, so a daemon one of them
+    # leaves behind can't keep the lock after this run ends.
+  ) {lock_fd}>&-
   result=$?
   set -e
 
-  if (( result == 0 )); then
+  if ((result == 0)); then
     printf '\nDone. The Syncthing operation completed successfully.\n'
   else
     printf '\nThe operation failed. Review the error above.\n' >&2
@@ -126,6 +159,7 @@ run_and_prompt() {
 launch_terminal() {
   local action="$1"
   shift
+  lock_file >/dev/null
   require_command uwsm-app
   require_command xdg-terminal-exec
   exec uwsm-app -- xdg-terminal-exec --title="Syncthing setup" -- \

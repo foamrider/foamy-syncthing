@@ -89,9 +89,8 @@ Porting an upstream Syncshell fix by hand:
 
 ## Tests
 
-See README "Validate". `tests/runtime.py` and `tests/i18n-runtime.py` load
-the real QML offscreen in temporary directories; set `FOAMY_KIT` if foamy-kit
+See README "Validate". `tests/runtime.py` and the kit's `preview/i18n_runtime.py`
+load the real QML offscreen in temporary directories; set `FOAMY_KIT` if foamy-kit
 isn't at `~/GitHub/Personal/foamy-kit`. They run on Omarchy 4.5, the installed
-shell (`FOAMY_HOST_45` picks another 4.5 tree), and on 4.0 only when
-`FOAMY_HOST_40` names a 4.0 shell tree. Screenshots:
+shell (`FOAMY_HOST_45` picks another 4.5 tree). Screenshots:
 `FOAMY_HOST_45=/usr/share/omarchy/shell foamy-kit/preview/render.py . --host 4.5`.

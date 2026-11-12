@@ -32,7 +32,11 @@
 //! `core/` at commit `7318f1404e765f274df3d079e35d0ad32b5c1701` (v0.1.9, see
 //! `LICENSE-SYNCSHELL`). Its output is byte for byte the Go core's for the
 //! same Syncthing replies (field order, `omitempty`, `null` for empty lists,
-//! Go's `<`/`>`/`&` escaping); only the `hello` build version differs.
+//! Go's `<`/`>`/`&` escaping); only the `hello` build version differs, and
+//! two additions the panel shows: `identity.version` is read once per
+//! connection and per Syncthing restart (a failed read leaves it out, never an
+//! error), and a connected device carries `version` (its `clientVersion`).
+//! Both are kept only when they are at most 40 printable ASCII characters.
 //!
 //! - Flags (Go `flag` syntax: `-x` or `--x`, `=value` or the next argument,
 //!   booleans only as `=value`; the last repetition wins): `--config`,
@@ -40,11 +44,11 @@
 //!   `--expected-device-id`, `--insecure-tls`, `--lifecycle-kind`
 //!   (`systemd-user`), `--lifecycle-authorized`, `--lifecycle-unit`,
 //!   `--lifecycle-config`, `--probe-interval-seconds` (1–3600, default 15),
-//!   `--desired-service-state` (`enabled`|`disabled`), `--json` (accepted,
-//!   ignored). A lifecycle binding needs `--lifecycle-authorized`,
-//!   `--lifecycle-kind systemd-user` and a unit. Not ported:
-//!   `--desktop-authorized` (the desktop bridge) and the `probe`/`status`
-//!   commands. A bad invocation, a configuration that can't be found or read,
+//!   `--json` (accepted, ignored). A lifecycle binding needs
+//!   `--lifecycle-authorized`, `--lifecycle-kind systemd-user` and a unit.
+//!   Not ported: `--desktop-authorized` (the desktop bridge),
+//!   `--desired-service-state` (an autostart intent the panel never acted
+//!   on) and the `probe`/`status` commands. A bad invocation, a configuration that can't be found or read,
 //!   or an unusable TLS certificate prints `foamy-syncthing-helper: <reason>`
 //!   on stderr and exits 1 before `hello`.
 //! - Discovery: `--config`, else `--endpoint` with a private (`0600`, not a
@@ -71,7 +75,7 @@
 //!   system roots for an explicit HTTPS endpoint without a certificate.
 //! - stdin requests and stdout frames are one JSON object per line, at most
 //!   8 MiB with the newline. Requests: `refresh`, `configure` (live
-//!   probe/refresh intervals and desired state), `action` and `shutdown`;
+//!   probe/refresh intervals), `action` and `shutdown`;
 //!   frames: `hello`, `snapshot`, `result`, `end`, `fatal`. Ported actions:
 //!   `folder.pause`, `folder.resume`, `folder.forget`, `folder.add-existing`,
 //!   `folder.suggest-id`, `folder.recheck-errors`, `lifecycle.start`,
