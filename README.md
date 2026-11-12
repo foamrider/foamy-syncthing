@@ -18,7 +18,8 @@ the helper asks it over the session bus).
 service, or use the popup's install button. That opens an Omarchy terminal
 that runs `omarchy pkg add syncthing`, then
 `systemctl --user enable --now syncthing.service`. It runs only when you
-press it. Disable any other Syncthing shell plugin before enabling this one.
+press it, one install at a time (a lock in `$XDG_RUNTIME_DIR`, which the
+session must set). Disable any other Syncthing shell plugin before enabling this one.
 
 ```sh
 omarchy plugin add https://github.com/foamrider/foamy-syncthing.git --enable
