@@ -66,8 +66,8 @@ detect_status() {
   if [[ -n $executable ]]; then
     executable_path="$(readlink -f -- "$executable" 2>/dev/null || true)"
     [[ -n $executable_path ]] || executable_path="$executable"
-  elif command -v flatpak >/dev/null 2>&1 &&
-      timeout 3s flatpak info "$flatpak_id" >/dev/null 2>&1; then
+  elif command -v flatpak >/dev/null 2>&1 \
+    && timeout 3s flatpak info "$flatpak_id" >/dev/null 2>&1; then
     executable_path="$flatpak_id (Flatpak)"
   fi
 
@@ -88,7 +88,7 @@ detect_status() {
     --arg executable "$executable_path" \
     --arg blocking "$blocking" \
     --argjson operationRunning \
-      "$(operation_running "$lock" && echo true || echo false)" \
+    "$(operation_running "$lock" && echo true || echo false)" \
     '{
       state: $state,
       label: $label,
@@ -128,8 +128,8 @@ run_and_prompt() {
   lock="$(lock_file)"
   exec {lock_fd}>>"$lock"
   # A status check holds a shared lock for a moment; wait that out.
-  flock --exclusive --wait 2 "$lock_fd" ||
-    fail "Another Syncthing operation is already running"
+  flock --exclusive --wait 2 "$lock_fd" \
+    || fail "Another Syncthing operation is already running"
 
   printf 'Syncthing for Omarchy\n'
   printf '%s\n' '----------------------'
@@ -146,7 +146,7 @@ run_and_prompt() {
   result=$?
   set -e
 
-  if (( result == 0 )); then
+  if ((result == 0)); then
     printf '\nDone. The Syncthing operation completed successfully.\n'
   else
     printf '\nThe operation failed. Review the error above.\n' >&2
