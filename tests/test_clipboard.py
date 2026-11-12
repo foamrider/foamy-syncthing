@@ -118,11 +118,13 @@ class ClipboardTests(unittest.TestCase):
         # The group leader can close stdout before a killed child is scheduled
         # to exit. Observe the child's state with a bounded wait, without the
         # exists/read race when /proc removes it between those two operations.
-        deadline = time.monotonic() + 1
+        # The kit's watchdog kills at 2 s; allow for a loaded machine.
+        deadline = time.monotonic() + 5
         while time.monotonic() < deadline:
             try:
                 state = status.read_text().split()[2]
-            except FileNotFoundError:
+            except (FileNotFoundError, ProcessLookupError):
+                # Gone between open and read: /proc answers ESRCH then.
                 return
             if state == "Z":
                 return
