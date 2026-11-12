@@ -5,6 +5,7 @@ for every snapshot. FAKE_CORE_LOG: append argv and requests. FAKE_CORE_EXIT=1:
 exit right after the first snapshot (a crashing core). `conflicts` and
 `pick-folder` run the real helper at FAKE_CORE_HELPER (same process: exec);
 FAKE_PICKER_BUS is then pick-folder's session bus."""
+
 import json
 import os
 import sys

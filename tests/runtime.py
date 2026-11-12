@@ -21,6 +21,7 @@ destroyed and nothing of it outlives the run); a crash-looping core keeps
 being retried and right-click/open starts it now; a leftover user unit
 blocking the install is named in the popup summary, not in the bar tooltip.
 Requires ~/GitHub/Personal/foamy-kit (or FOAMY_KIT)."""
+
 import json
 import os
 import platform
@@ -50,7 +51,7 @@ else
 fi
 """
 
-SHELL = r'''
+SHELL = r"""
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -179,9 +180,9 @@ ShellRoot {
     Qt.quit()
   }
 }
-'''
+"""
 
-CRASH_SHELL = r'''
+CRASH_SHELL = r"""
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -217,11 +218,11 @@ ShellRoot {
     })
   }
 }
-'''
+"""
 
 # Syncthing missing, but a leftover user unit is in the way: the popup's
 # summary names it, the bar tooltip (title only) does not.
-BLOCKED_SHELL = r'''
+BLOCKED_SHELL = r"""
 import QtQuick
 import Quickshell
 import Quickshell.Io
@@ -257,7 +258,7 @@ ShellRoot {
     })
   }
 }
-'''
+"""
 
 
 def prepare(work):
@@ -286,16 +287,35 @@ def write_snapshot(work, home):
     snapshot = {
         "connection": {"online": True, "phase": "online", "fresh": True},
         "identity": {"deviceId": "LOCAL"},
-        "lifecycle": {"active": True, "canControl": True, "targetMatch": True, "unitFileState": "enabled", "activeState": "active"},
+        "lifecycle": {
+            "active": True,
+            "canControl": True,
+            "targetMatch": True,
+            "unitFileState": "enabled",
+            "activeState": "active",
+        },
         "webUi": {"url": "http://127.0.0.1:8384"},
         "counts": {"folders": 2, "devices": 2, "connectedDevices": 1},
-        "devices": [{"id": "LOCAL", "name": "this", "connected": True}, {"id": "PEER1", "name": "laptop", "connected": True},
-                    {"id": "PEER2", "name": "phone", "connected": False}],
+        "devices": [
+            {"id": "LOCAL", "name": "this", "connected": True},
+            {"id": "PEER1", "name": "laptop", "connected": True},
+            {"id": "PEER2", "name": "phone", "connected": False},
+        ],
         "folders": [
-            {"id": "docs", "label": "Documents", "path": "~/Docs", "devices": [{"id": "PEER1"}],
-             "status": {"state": "idle", "globalFiles": 3, "globalBytes": 1000}},
-            {"id": "photos", "label": "", "path": str(photos), "devices": [{"id": "PEER2"}],
-             "status": {"state": "idle", "globalFiles": 9, "globalBytes": 90000}},
+            {
+                "id": "docs",
+                "label": "Documents",
+                "path": "~/Docs",
+                "devices": [{"id": "PEER1"}],
+                "status": {"state": "idle", "globalFiles": 3, "globalBytes": 1000},
+            },
+            {
+                "id": "photos",
+                "label": "",
+                "path": str(photos),
+                "devices": [{"id": "PEER2"}],
+                "status": {"state": "idle", "globalFiles": 9, "globalBytes": 90000},
+            },
         ],
         "pendingFolders": {},
     }
@@ -368,7 +388,9 @@ def run(host, shell, crash=False, blocked=False):
     bus = None
     try:
         plugin = prepare(work)
-        qml = shell.replace("PROBE_LOG", json.dumps(str(work / "probe.log"))).replace("CORE_LOG", json.dumps(str(work / "core.log")))
+        qml = shell.replace("PROBE_LOG", json.dumps(str(work / "probe.log"))).replace(
+            "CORE_LOG", json.dumps(str(work / "core.log"))
+        )
         qml = qml.replace("PICKER_LOG", json.dumps(str(work / "picker.log")))
         (work / "probe.log").touch()
         (work / "core.log").touch()
@@ -376,9 +398,15 @@ def run(host, shell, crash=False, blocked=False):
         bus = SilentBus(work / "picker.log")
         runner = harness.Run(host, qml, plugin=plugin, prefix=f"foamy-syncthing-qs-{host}-")
         write_snapshot(work, Path(runner.env["HOME"]))
-        runner.env.update({"FAKE_CORE_SNAPSHOT": str(work / "snapshot.json"), "FAKE_CORE_LOG": str(work / "core.log"),
-                           "FAKE_CORE_HELPER": str(work / "foamy-syncthing-helper"),
-                           "FOAMY_PROBE_LOG": str(work / "probe.log"), "FAKE_PICKER_BUS": bus.address})
+        runner.env.update(
+            {
+                "FAKE_CORE_SNAPSHOT": str(work / "snapshot.json"),
+                "FAKE_CORE_LOG": str(work / "core.log"),
+                "FAKE_CORE_HELPER": str(work / "foamy-syncthing-helper"),
+                "FOAMY_PROBE_LOG": str(work / "probe.log"),
+                "FAKE_PICKER_BUS": bus.address,
+            }
+        )
         if crash or blocked:
             runner.env["FAKE_CORE_EXIT"] = "1"
         if blocked:

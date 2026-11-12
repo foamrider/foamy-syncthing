@@ -28,6 +28,8 @@ def isolated_env(base, **overrides):
     import hostenv
 
     return hostenv.isolate(dict(os.environ, **overrides), base)
+
+
 MAX_INPUT_BYTES = 1048576
 GENERIC = b"Could not check for Syncthing conflicts.\n"
 
@@ -41,8 +43,9 @@ def scanner():
 
 def scan(paths=None, raw=None, args=(), env=None, timeout=30):
     data = raw if raw is not None else json.dumps(paths, ensure_ascii=False).encode()
-    return subprocess.run(scanner() + list(args), input=data, capture_output=True, timeout=timeout,
-                          env=dict(os.environ, **(env or {})))
+    return subprocess.run(
+        scanner() + list(args), input=data, capture_output=True, timeout=timeout, env=dict(os.environ, **(env or {}))
+    )
 
 
 def flags(paths):
@@ -106,8 +109,9 @@ class ConflictTests(unittest.TestCase):
             (base / "conflicted" / "b.sync-conflict-x").touch()
             paths = [str(base / name) for name in ("clean", "conflicted", "missing", "also-clean")]
             result = scan(paths)
-            self.assertEqual((result.returncode, result.stdout, result.stderr),
-                             (0, b"[false, true, false, false]\n", b""))
+            self.assertEqual(
+                (result.returncode, result.stdout, result.stderr), (0, b"[false, true, false, false]\n", b"")
+            )
             self.assertEqual(scan([]).stdout, b"[]\n")
             self.assertEqual(flags([paths[1], paths[1]]), [True, True])
 
@@ -151,8 +155,20 @@ class ConflictTests(unittest.TestCase):
             self.assertEqual(scan(raw=b'  ["a"]  \n').stdout, b"[false]\n")
             self.assertEqual(scan(raw=b" " * MAX_INPUT_BYTES + b"[]").returncode, 1)
             self.assertEqual(scan(raw=b" " * (MAX_INPUT_BYTES - 2) + b"[]").stdout, b"[]\n")
-        invalid = [b"bad", b"\xff", b"{}", b"[7]", b'[""]', b'["nul\\u0000"]', b'["\\ud800"]', b"",
-                   b'["a"] ["b"]', b"\xef\xbb\xbf[]", b'["\xff"]', b" " * (MAX_INPUT_BYTES + 1)]
+        invalid = [
+            b"bad",
+            b"\xff",
+            b"{}",
+            b"[7]",
+            b'[""]',
+            b'["nul\\u0000"]',
+            b'["\\ud800"]',
+            b"",
+            b'["a"] ["b"]',
+            b"\xef\xbb\xbf[]",
+            b'["\xff"]',
+            b" " * (MAX_INPUT_BYTES + 1),
+        ]
         for raw in invalid:
             with self.subTest(raw=raw[:40]):
                 result = scan(raw=raw)
@@ -177,8 +193,9 @@ class ConflictTests(unittest.TestCase):
             folder.mkdir()
             (folder / "a.sync-conflict-test").touch()
             expected = [os.fsencode(part) for part in scanner()]
-            with subprocess.Popen(scanner(), stdin=subprocess.PIPE,
-                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE) as process:
+            with subprocess.Popen(
+                scanner(), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            ) as process:
                 # Hold stdin open so the production worker is observable on procfs.
                 process.stdin.write(json.dumps([str(folder)], ensure_ascii=False).encode())
                 process.stdin.flush()
@@ -219,8 +236,13 @@ class ConflictTests(unittest.TestCase):
     def test_stalled_stdin_is_bounded_by_the_helper_deadline(self):
         # The scanner gives up after 25 s on its own (the Python one through
         # SIGALRM); FOAMY_SYNCTHING_CONFLICTS_DEADLINE shortens that for tests.
-        with subprocess.Popen(scanner(), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                              env=dict(os.environ, FOAMY_SYNCTHING_CONFLICTS_DEADLINE="1")) as process:
+        with subprocess.Popen(
+            scanner(),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            env=dict(os.environ, FOAMY_SYNCTHING_CONFLICTS_DEADLINE="1"),
+        ) as process:
             started = time.monotonic()
             process.wait(timeout=30)
             output, error = process.communicate()
@@ -238,13 +260,13 @@ class ConflictTests(unittest.TestCase):
         methods = []
         for name in ("scanConflicts", "finishConflictScan"):
             start = source.index("  function " + name + "(")
-            methods.append(source[start:source.index("\n  }", start) + 4])
+            methods.append(source[start : source.index("\n  }", start) + 4])
         start = source.index("  // Folder ids whose directory holds")
-        state_block = source[start:source.index("\n\n", start)]
+        state_block = source[start : source.index("\n\n", start)]
         start = source.index("  property Process conflictScan:")
-        process = source[start:source.index("  // One diagnostics target per shell", start)]
+        process = source[start : source.index("  // One diagnostics target per shell", start)]
         start = source.index("  Component.onDestruction:")
-        cleanup = source[start:source.index("    if (Plugin.ServiceRegistry", start)] + "  }"
+        cleanup = source[start : source.index("    if (Plugin.ServiceRegistry", start)] + "  }"
         with tempfile.TemporaryDirectory() as directory:
             base = Path(directory)
             # The helper as FoamyNative launches it: bin/$HOSTTYPE/<name>.
@@ -256,7 +278,7 @@ class ConflictTests(unittest.TestCase):
             shutil.copy(ROOT / "models/PanelModel.js", base / "models/PanelModel.js")
             stub = helper_dir / "foamy-syncthing-helper"
             state = base / "delivered.jsonl"
-            stub.write_text('''#!/usr/bin/python3
+            stub.write_text("""#!/usr/bin/python3
 import json, os, sys, time
 from pathlib import Path
 assert sys.argv[1:] == ["conflicts"], sys.argv
@@ -268,11 +290,12 @@ if paths == ["fail"]: sys.exit(1)
 if paths == ["invalid"]: print("unexpected")
 elif paths == ["short"]: print("[]")
 else: print(json.dumps([path == "found" for path in paths]))
-''')
+""")
             # Isolate the host adapter, while exercising the actual QML functions,
             # state, Process, deadline and destruction handler from Service.qml unchanged.
             stub.chmod(0o755)
-            (base / "Scanner.qml").write_text('''import QtQuick
+            (base / "Scanner.qml").write_text(
+                """import QtQuick
 import Quickshell.Io
 import "kit/FoamyNative.js" as FoamyNative
 import "models/PanelModel.js" as PanelModel
@@ -288,8 +311,10 @@ QtObject {
 %s
 %s
 }
-''' % (json.dumps(str(base)), state_block, "\n".join(methods), process, cleanup))
-            (base / "shell.qml").write_text('''import QtQuick
+"""
+                % (json.dumps(str(base)), state_block, "\n".join(methods), process, cleanup)
+            )
+            (base / "shell.qml").write_text("""import QtQuick
 import QtTest
 import Quickshell
 import Quickshell.Io
@@ -419,20 +444,27 @@ ShellRoot {
     }
   }
 }
-''')
+""")
             shell = base / "shell.qml"
             shell.write_text(shell.read_text().replace("STUB", json.dumps(str(stub))))
             runtime = base / "runtime"
             runtime.mkdir(mode=0o700)
-            env = isolated_env(base, QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software",
-                               QT_QPA_PLATFORMTHEME="", XDG_RUNTIME_DIR=str(runtime), TEST_CONFLICT_STATE=str(state))
-            result = subprocess.run([runner, "-p", str(base), "--no-color"], env=env,
-                                    text=True, capture_output=True, timeout=15)
+            env = isolated_env(
+                base,
+                QT_QPA_PLATFORM="offscreen",
+                QT_QUICK_BACKEND="software",
+                QT_QPA_PLATFORMTHEME="",
+                XDG_RUNTIME_DIR=str(runtime),
+                TEST_CONFLICT_STATE=str(state),
+            )
+            result = subprocess.run(
+                [runner, "-p", str(base), "--no-color"], env=env, text=True, capture_output=True, timeout=15
+            )
             output = result.stdout + result.stderr
             self.assertEqual(result.returncode, 0, output)
             self.assertIn("CONFLICT_SCAN passed=8 failed=0", output)
             records = [json.loads(line) for line in state.read_text().splitlines()]
-            self.assertEqual(records[0]["paths"], ['private-Canary-847 📁 "quote"\n--exec', '-leading-dash'])
+            self.assertEqual(records[0]["paths"], ['private-Canary-847 📁 "quote"\n--exec', "-leading-dash"])
             self.assertIn(["/home/me/Sync"], [record["paths"] for record in records])
             for record in records:
                 # The paths travel on stdin only.

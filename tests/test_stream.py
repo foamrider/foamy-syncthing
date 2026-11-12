@@ -18,8 +18,19 @@ import fake_syncthing  # noqa: E402
 from core_harness import Core, PLUGIN_FLAGS, UNIT, proc_argv, silent_dns_prefix  # noqa: E402
 from fake_syncthing import API_KEY, LOCAL_ID, OTHER_ID, PEER_ID  # noqa: E402
 
-SHOW = ["systemctl", "--user", "show", UNIT, "--no-pager", "--property=LoadState", "--property=ActiveState",
-        "--property=UnitFileState", "--property=FragmentPath", "--property=ExecStart", "--property=Environment"]
+SHOW = [
+    "systemctl",
+    "--user",
+    "show",
+    UNIT,
+    "--no-pager",
+    "--property=LoadState",
+    "--property=ActiveState",
+    "--property=UnitFileState",
+    "--property=FragmentPath",
+    "--property=ExecStart",
+    "--property=Environment",
+]
 
 
 class CoreTest(unittest.TestCase):
@@ -33,8 +44,14 @@ class CoreTest(unittest.TestCase):
         docs = core.home / "Docs"
         docs.mkdir()
         core.syncthing.state["folders"] = [fake_syncthing.folder(docs, paused=paused)]
-        core.syncthing.state["status"]["docs"] = {"state": "idle", "needTotalItems": 2, "needBytes": 300,
-                                                 "globalFiles": 7, "globalBytes": 4000, "pullErrors": 0}
+        core.syncthing.state["status"]["docs"] = {
+            "state": "idle",
+            "needTotalItems": 2,
+            "needBytes": 300,
+            "globalFiles": 7,
+            "globalBytes": 4000,
+            "pullErrors": 0,
+        }
         core.start()
         return core, docs
 
@@ -54,34 +71,97 @@ class SnapshotTests(CoreTest):
         self.assertIsInstance(snapshot["revision"], int)
         self.assertGreaterEqual(snapshot["revision"], 1)
         state = snapshot["state"]
-        self.assertEqual(state["connection"], {"phase": "ready", "endpoint": "http://" + core.syncthing.address,
-                                               "healthy": True, "authorized": True, "online": True, "fresh": True})
+        self.assertEqual(
+            state["connection"],
+            {
+                "phase": "ready",
+                "endpoint": "http://" + core.syncthing.address,
+                "healthy": True,
+                "authorized": True,
+                "online": True,
+                "fresh": True,
+            },
+        )
         self.assertEqual(state["identity"], {"deviceId": LOCAL_ID, "version": "v2.0.10"})
         # Sorted by ID, names as configured, connection state from /rest/system/connections.
-        self.assertEqual(state["devices"], [
-            {"id": LOCAL_ID, "name": "this", "untrusted": False, "connected": False},
-            {"id": PEER_ID, "name": "laptop", "untrusted": False, "connected": True},
-            {"id": OTHER_ID, "name": "<phone & co>", "untrusted": True, "connected": False}])
-        self.assertEqual(state["folders"], [{
-            "id": "docs", "label": "Documents", "path": str(docs), "paused": False, "markerName": ".stfolder",
-            "devices": [{"id": LOCAL_ID}, {"id": PEER_ID}],
-            "status": {"state": "idle", "pullErrors": 0, "needTotalItems": 2, "needBytes": 300,
-                       "globalFiles": 7, "globalBytes": 4000, "errors": None}}])
+        self.assertEqual(
+            state["devices"],
+            [
+                {"id": LOCAL_ID, "name": "this", "untrusted": False, "connected": False},
+                {"id": PEER_ID, "name": "laptop", "untrusted": False, "connected": True},
+                {"id": OTHER_ID, "name": "<phone & co>", "untrusted": True, "connected": False},
+            ],
+        )
+        self.assertEqual(
+            state["folders"],
+            [
+                {
+                    "id": "docs",
+                    "label": "Documents",
+                    "path": str(docs),
+                    "paused": False,
+                    "markerName": ".stfolder",
+                    "devices": [{"id": LOCAL_ID}, {"id": PEER_ID}],
+                    "status": {
+                        "state": "idle",
+                        "pullErrors": 0,
+                        "needTotalItems": 2,
+                        "needBytes": 300,
+                        "globalFiles": 7,
+                        "globalBytes": 4000,
+                        "errors": None,
+                    },
+                }
+            ],
+        )
         self.assertEqual(state["pendingFolders"], {})
-        self.assertEqual(state["counts"], {"folders": 1, "devices": 2, "connectedDevices": 1,
-                                           "folderProblems": 0, "syncingFolders": 1})
+        self.assertEqual(
+            state["counts"],
+            {"folders": 1, "devices": 2, "connectedDevices": 1, "folderProblems": 0, "syncingFolders": 1},
+        )
         self.assertEqual(state["truncation"], {})
-        self.assertEqual(state["webUi"], {"url": "http://" + core.syncthing.address, "theme": "default",
-                                          "guiAssets": "/usr/share/syncthing/gui"})
+        self.assertEqual(
+            state["webUi"],
+            {"url": "http://" + core.syncthing.address, "theme": "default", "guiAssets": "/usr/share/syncthing/gui"},
+        )
         self.assertEqual(state["installation"], {"executablePath": str(core.bin / "syncthing"), "available": True})
         self.assertEqual(state["activity"], {"files": None})
-        self.assertEqual(state["lifecycle"], {
-            "kind": "systemd-user", "unit": UNIT, "classification": "managed", "available": True, "active": True,
-            "activeState": "active", "unitFileState": "enabled", "authorized": True, "targetMatch": True,
-            "canControl": True, "canStart": False})
-        self.assertEqual(sorted(state), sorted([
-            "connection", "identity", "devices", "folders", "pendingFolders", "pendingDevices", "nearbyDevices",
-            "activity", "webUi", "installation", "counts", "truncation", "lifecycle"]))
+        self.assertEqual(
+            state["lifecycle"],
+            {
+                "kind": "systemd-user",
+                "unit": UNIT,
+                "classification": "managed",
+                "available": True,
+                "active": True,
+                "activeState": "active",
+                "unitFileState": "enabled",
+                "authorized": True,
+                "targetMatch": True,
+                "canControl": True,
+                "canStart": False,
+            },
+        )
+        self.assertEqual(
+            sorted(state),
+            sorted(
+                [
+                    "connection",
+                    "identity",
+                    "devices",
+                    "folders",
+                    "pendingFolders",
+                    "pendingDevices",
+                    "nearbyDevices",
+                    "activity",
+                    "webUi",
+                    "installation",
+                    "counts",
+                    "truncation",
+                    "lifecycle",
+                ]
+            ),
+        )
         core.request("shutdown", "bye")
         self.assertEqual(core.finish(), 0)
         self.assert_secret_free(core)
@@ -109,27 +189,49 @@ class SnapshotTests(CoreTest):
         core, _ = self.folder_core()
         core.ready()
         paths = [call["target"] for call in core.syncthing.calls() if call["path"] != "/rest/events"]
-        self.assertEqual(paths[:13], [
-            "/rest/noauth/health", "/rest/system/status", "/rest/system/version", "/rest/config/devices",
-            "/rest/config/folders", "/rest/system/connections", "/rest/db/status?folder=docs",
-            "/rest/folder/errors?folder=docs&page=1&perpage=100", "/rest/cluster/pending/folders",
-            "/rest/cluster/pending/devices", "/rest/system/discovery", "/rest/config/gui", "/rest/system/paths"])
+        self.assertEqual(
+            paths[:13],
+            [
+                "/rest/noauth/health",
+                "/rest/system/status",
+                "/rest/system/version",
+                "/rest/config/devices",
+                "/rest/config/folders",
+                "/rest/system/connections",
+                "/rest/db/status?folder=docs",
+                "/rest/folder/errors?folder=docs&page=1&perpage=100",
+                "/rest/cluster/pending/folders",
+                "/rest/cluster/pending/devices",
+                "/rest/system/discovery",
+                "/rest/config/gui",
+                "/rest/system/paths",
+            ],
+        )
         core.request("shutdown", "1")
         core.finish()
 
     def test_bounds_sorting_and_problem_counts(self):
         core = self.core(start=False)
         state = core.syncthing.state
-        state["folders"] = [fake_syncthing.folder(core.home / f"f{i}", folder_id=f"f{i:03d}", label=" padded ")
-                            for i in range(130)]
+        state["folders"] = [
+            fake_syncthing.folder(core.home / f"f{i}", folder_id=f"f{i:03d}", label=" padded ") for i in range(130)
+        ]
         state["errors"]["f000"] = [{"path": f"z{i}", "error": "denied"} for i in range(6)] + [
-            {"path": "a", "error": "x" * 2000}]
+            {"path": "a", "error": "x" * 2000}
+        ]
         state["status"]["f001"] = {"state": "error", "error": "  folder marker missing  "}
-        state["pendingFolders"] = {"offer": {"offeredBy": {PEER_ID: {"label": "Shared", "receiveEncrypted": False,
-                                                                     "remoteEncrypted": True, "time": "x"}}}}
+        state["pendingFolders"] = {
+            "offer": {
+                "offeredBy": {
+                    PEER_ID: {"label": "Shared", "receiveEncrypted": False, "remoteEncrypted": True, "time": "x"}
+                }
+            }
+        }
         state["pendingDevices"] = {"DDDDDDD": {"name": "new", "address": "192.0.2.1:22000", "time": "x"}}
-        state["discovery"] = {"DDDDDDD": {"addresses": [f"tcp://192.0.2.{i}:22000" for i in range(10)]},
-                              PEER_ID: {"addresses": ["tcp://x"]}}
+        state["discovery"] = {
+            "DDDDDDD": {"addresses": [f"tcp://192.0.2.{i}:22000" for i in range(10)]},
+            PEER_ID: {"addresses": ["tcp://x"]},
+        }
         core.start()
         snapshot = core.ready()["state"]
         self.assertEqual(len(snapshot["folders"]), 128)
@@ -141,11 +243,18 @@ class SnapshotTests(CoreTest):
         self.assertEqual(snapshot["folders"][1]["status"]["error"], "folder marker missing")
         self.assertEqual(snapshot["truncation"], {"folders": 2, "folderErrors": 3})
         self.assertEqual(snapshot["counts"]["folderProblems"], 2)
-        self.assertEqual(snapshot["pendingFolders"], {"offer": {"offeredBy": {
-            PEER_ID: {"label": "Shared", "receiveEncrypted": False, "remoteEncrypted": True}}}})
+        self.assertEqual(
+            snapshot["pendingFolders"],
+            {
+                "offer": {
+                    "offeredBy": {PEER_ID: {"label": "Shared", "receiveEncrypted": False, "remoteEncrypted": True}}
+                }
+            },
+        )
         self.assertEqual(snapshot["pendingDevices"], [{"id": "DDDDDDD", "name": "new", "address": "192.0.2.1:22000"}])
-        self.assertEqual(snapshot["nearbyDevices"], [
-            {"id": "DDDDDDD", "addresses": [f"tcp://192.0.2.{i}:22000" for i in range(8)]}])
+        self.assertEqual(
+            snapshot["nearbyDevices"], [{"id": "DDDDDDD", "addresses": [f"tcp://192.0.2.{i}:22000" for i in range(8)]}]
+        )
         core.request("shutdown", "1")
         core.finish()
 
@@ -172,12 +281,14 @@ class RequestTests(CoreTest):
         result = core.request("configure", "1", config={"probeIntervalSeconds": 5, "refreshIntervalSeconds": 60})
         self.assertTrue(result["ok"], result)
         self.assertNotIn("desiredState", core.latest_state()["lifecycle"])
-        for config, message in [({"probeIntervalSeconds": 0}, "probe interval must be between 1 and 3600 seconds"),
-                                ({"refreshIntervalSeconds": 59}, "refresh interval must be between 60 and 3600 seconds"),
-                                # The removed serviceState setting is no longer part of the request.
-                                ({"desiredServiceState": "enabled"}, "configuration request is invalid"),
-                                ({"unknown": 1}, "configuration request is invalid"),
-                                ("x", "configuration request is invalid")]:
+        for config, message in [
+            ({"probeIntervalSeconds": 0}, "probe interval must be between 1 and 3600 seconds"),
+            ({"refreshIntervalSeconds": 59}, "refresh interval must be between 60 and 3600 seconds"),
+            # The removed serviceState setting is no longer part of the request.
+            ({"desiredServiceState": "enabled"}, "configuration request is invalid"),
+            ({"unknown": 1}, "configuration request is invalid"),
+            ("x", "configuration request is invalid"),
+        ]:
             result = core.request("configure", "c" + json.dumps(config), config=config)
             self.assertEqual(result["ok"], False)
             self.assertEqual(result["error"], {"code": "invalid_config", "message": message})
@@ -230,24 +341,32 @@ class RequestTests(CoreTest):
         except BrokenPipeError:
             pass
         fatal = core.wait_for(lambda f: f["type"] == "fatal", timeout=20)
-        self.assertEqual(fatal, {"v": 2, "type": "fatal", "code": "line_too_large",
-                                 "message": "protocol input is invalid"})
+        self.assertEqual(
+            fatal, {"v": 2, "type": "fatal", "code": "line_too_large", "message": "protocol input is invalid"}
+        )
         self.assertEqual(core.process.wait(timeout=10), 1)
 
     def test_action_arguments_are_strict(self):
         core, _ = self.folder_core()
         core.ready()
         for request_id, args, code, message in [
-                ("1", {"folderId": "docs", "path": "/x"}, "invalid_action", "action arguments are invalid"),
-                ("2", {"unknown": True}, "invalid_action", "action arguments are invalid"),
-                ("3", [], "invalid_action", "action arguments are invalid"),
-                ("4", {"folderId": "docs", "createDirectory": True}, "invalid_action",
-                 "directory creation is only valid when adding a folder")]:
+            ("1", {"folderId": "docs", "path": "/x"}, "invalid_action", "action arguments are invalid"),
+            ("2", {"unknown": True}, "invalid_action", "action arguments are invalid"),
+            ("3", [], "invalid_action", "action arguments are invalid"),
+            (
+                "4",
+                {"folderId": "docs", "createDirectory": True},
+                "invalid_action",
+                "directory creation is only valid when adding a folder",
+            ),
+        ]:
             result = core.action("folder.pause", request_id, args)
             self.assertEqual(result["error"], {"code": code, "message": message}, request_id)
         self.assertEqual(core.action("folder.pause", "5", {})["error"]["code"], "invalid_action")
-        self.assertEqual(core.action("does.not-exist", "6")["error"],
-                         {"code": "unsupported_action", "message": "action is not supported"})
+        self.assertEqual(
+            core.action("does.not-exist", "6")["error"],
+            {"code": "unsupported_action", "message": "action is not supported"},
+        )
         self.assertEqual(core.request("action", "7", action="folder.suggest-id")["error"]["code"], "invalid_action")
         self.assertFalse(core.syncthing.calls("PATCH"))
         core.request("shutdown", "8")
@@ -261,33 +380,44 @@ class FolderActionTests(CoreTest):
         result = core.action("folder.pause", "1", {"folderId": "docs"})
         self.assertTrue(result["ok"], result)
         patch = core.syncthing.calls("PATCH")
-        self.assertEqual([(c["target"], json.loads(c["body"])) for c in patch],
-                         [("/rest/config/folders/docs", {"paused": True})])
+        self.assertEqual(
+            [(c["target"], json.loads(c["body"])) for c in patch], [("/rest/config/folders/docs", {"paused": True})]
+        )
         self.assertEqual(patch[0]["headers"].get("Content-Type"), "application/json")
         self.assertTrue(core.latest_state()["folders"][0]["paused"])
-        self.assertEqual(core.action("folder.pause", "2", {"folderId": "docs"})["error"],
-                         {"code": "folder_paused", "message": "folder is already paused"})
+        self.assertEqual(
+            core.action("folder.pause", "2", {"folderId": "docs"})["error"],
+            {"code": "folder_paused", "message": "folder is already paused"},
+        )
         result = core.action("folder.forget", "3", {"folderId": "docs"})
         self.assertTrue(result["ok"], result)
         self.assertEqual([c["target"] for c in core.syncthing.calls("DELETE")], ["/rest/config/folders/docs"])
         self.assertEqual(core.latest_state()["folders"], None)
-        self.assertEqual(core.action("folder.resume", "4", {"folderId": "docs"})["error"],
-                         {"code": "folder_missing", "message": "folder is no longer configured"})
+        self.assertEqual(
+            core.action("folder.resume", "4", {"folderId": "docs"})["error"],
+            {"code": "folder_missing", "message": "folder is no longer configured"},
+        )
         core.request("shutdown", "5")
         core.finish()
 
     def test_forget_requires_a_paused_folder(self):
         core, _ = self.folder_core()
         core.ready()
-        self.assertEqual(core.action("folder.forget", "1", {"folderId": "docs"})["error"],
-                         {"code": "folder_active", "message": "folder must be paused before it is forgotten"})
-        self.assertEqual(core.action("folder.resume", "2", {"folderId": "docs"})["error"],
-                         {"code": "folder_active", "message": "folder is already active"})
+        self.assertEqual(
+            core.action("folder.forget", "1", {"folderId": "docs"})["error"],
+            {"code": "folder_active", "message": "folder must be paused before it is forgotten"},
+        )
+        self.assertEqual(
+            core.action("folder.resume", "2", {"folderId": "docs"})["error"],
+            {"code": "folder_active", "message": "folder is already active"},
+        )
         self.assertFalse(core.syncthing.calls("DELETE"))
         # A folder whose path changed behind the snapshot is refused.
         core.syncthing.state["folders"][0]["path"] = "/elsewhere"
-        self.assertEqual(core.action("folder.pause", "3", {"folderId": "docs"})["error"],
-                         {"code": "folder_changed", "message": "folder changed before the action"})
+        self.assertEqual(
+            core.action("folder.pause", "3", {"folderId": "docs"})["error"],
+            {"code": "folder_changed", "message": "folder changed before the action"},
+        )
         self.assertFalse(core.syncthing.calls("PATCH"))
         core.request("shutdown", "4")
         core.finish()
@@ -299,11 +429,14 @@ class FolderActionTests(CoreTest):
         core.request("refresh", "0")
         result = core.action("folder.suggest-id", "1")
         self.assertEqual(result["data"], {"folderId": "abcdefghij"})
-        self.assertEqual(core.syncthing.calls(prefix="/rest/svc/random")[-1]["target"],
-                         "/rest/svc/random/string?length=10")
+        self.assertEqual(
+            core.syncthing.calls(prefix="/rest/svc/random")[-1]["target"], "/rest/svc/random/string?length=10"
+        )
         core.syncthing.state["random"] = "short"
-        self.assertEqual(core.action("folder.suggest-id", "2")["error"],
-                         {"code": "suggestion_invalid", "message": "Syncthing returned an invalid folder ID"})
+        self.assertEqual(
+            core.action("folder.suggest-id", "2")["error"],
+            {"code": "suggestion_invalid", "message": "Syncthing returned an invalid folder ID"},
+        )
         result = core.action("folder.recheck-errors", "3")
         self.assertTrue(result["ok"], result)
         self.assertEqual([c["target"] for c in core.syncthing.calls("POST")], ["/rest/db/scan?folder=docs"])
@@ -316,8 +449,14 @@ class FolderActionTests(CoreTest):
         target = core.home / "Music"
         target.mkdir()
         (core.home / "link").symlink_to(target)
-        args = {"folderId": "music-1", "path": str(core.home / "link") + "/", "createDirectory": False,
-                "label": "", "deviceIds": [PEER_ID], "pendingDeviceId": ""}
+        args = {
+            "folderId": "music-1",
+            "path": str(core.home / "link") + "/",
+            "createDirectory": False,
+            "label": "",
+            "deviceIds": [PEER_ID],
+            "pendingDeviceId": "",
+        }
         result = core.action("folder.add-existing", "1", args)
         self.assertEqual(result, {"v": 2, "type": "result", "id": "1", "ok": True, "data": {"folderId": "music-1"}})
         posted = json.loads(core.syncthing.calls("POST", "/rest/config/folders")[-1]["body"])
@@ -347,12 +486,21 @@ class FolderActionTests(CoreTest):
             ({"path": str(core.home / "bin"), "folderId": "docs"}, "folder_exists", "folder ID is already configured"),
             ({"path": str(core.home / "bin"), "folderId": "bad id"}, "folder_id_invalid", "folder ID is invalid"),
             ({"path": str(core.home / "bin"), "folderId": "x" * 129}, "folder_id_invalid", "folder ID is invalid"),
-            ({"path": str(core.home / "bin"), "deviceIds": [OTHER_ID]}, "device_invalid",
-             "selected remote device is unavailable or untrusted"),
-            ({"path": str(core.home / "bin"), "deviceIds": [LOCAL_ID]}, "device_invalid",
-             "selected remote device is unavailable or untrusted"),
-            ({"path": str(core.home / "bin"), "pendingDeviceId": PEER_ID}, "offer_missing",
-             "selected folder offer is no longer available"),
+            (
+                {"path": str(core.home / "bin"), "deviceIds": [OTHER_ID]},
+                "device_invalid",
+                "selected remote device is unavailable or untrusted",
+            ),
+            (
+                {"path": str(core.home / "bin"), "deviceIds": [LOCAL_ID]},
+                "device_invalid",
+                "selected remote device is unavailable or untrusted",
+            ),
+            (
+                {"path": str(core.home / "bin"), "pendingDeviceId": PEER_ID},
+                "offer_missing",
+                "selected folder offer is no longer available",
+            ),
         ]
         for index, (override, code, message) in enumerate(cases):
             result = core.action("folder.add-existing", str(index), dict(base, **override))
@@ -363,14 +511,23 @@ class FolderActionTests(CoreTest):
 
     def test_accept_a_pending_offer(self):
         core = self.core(start=False)
-        core.syncthing.state["pendingFolders"] = {"offer-1": {"offeredBy": {
-            PEER_ID: {"label": "Shared photos", "receiveEncrypted": False, "remoteEncrypted": False}}}}
+        core.syncthing.state["pendingFolders"] = {
+            "offer-1": {
+                "offeredBy": {PEER_ID: {"label": "Shared photos", "receiveEncrypted": False, "remoteEncrypted": False}}
+            }
+        }
         target = core.home / "Photos"
         target.mkdir()
         core.start()
         core.ready()
-        args = {"folderId": "offer-1", "path": str(target), "createDirectory": False, "label": "",
-                "deviceIds": [PEER_ID], "pendingDeviceId": PEER_ID}
+        args = {
+            "folderId": "offer-1",
+            "path": str(target),
+            "createDirectory": False,
+            "label": "",
+            "deviceIds": [PEER_ID],
+            "pendingDeviceId": PEER_ID,
+        }
         result = core.action("folder.add-existing", "1", args)
         self.assertTrue(result["ok"], result)
         posted = json.loads(core.syncthing.calls("POST", "/rest/config/folders")[-1]["body"])
@@ -388,12 +545,18 @@ class FolderActionTests(CoreTest):
         core.start()
         state = core.ready()["state"]
         self.assertEqual(state["connection"]["phase"], "error")
-        self.assertEqual(state["connection"]["error"], {"code": "connection", "message": "could not connect to Syncthing"})
-        for action, args in [("folder.pause", {"folderId": "docs"}), ("folder.suggest-id", {}),
-                             ("folder.recheck-errors", {}),
-                             ("folder.add-existing", {"folderId": "x", "path": "/tmp"})]:
-            self.assertEqual(core.action(action, action, args)["error"],
-                             {"code": "offline", "message": "Syncthing is not online"})
+        self.assertEqual(
+            state["connection"]["error"], {"code": "connection", "message": "could not connect to Syncthing"}
+        )
+        for action, args in [
+            ("folder.pause", {"folderId": "docs"}),
+            ("folder.suggest-id", {}),
+            ("folder.recheck-errors", {}),
+            ("folder.add-existing", {"folderId": "x", "path": "/tmp"}),
+        ]:
+            self.assertEqual(
+                core.action(action, action, args)["error"], {"code": "offline", "message": "Syncthing is not online"}
+            )
         result = core.request("refresh", "r")
         self.assertEqual(result["error"], {"code": "connection", "message": "could not connect to Syncthing"})
         core.request("shutdown", "s")
@@ -431,8 +594,9 @@ class LifecycleTests(CoreTest):
         core, _ = self.folder_core(systemctl={"fail_action": True})
         core.ready()
         result = core.action("lifecycle.stop", "1")
-        self.assertEqual(result["error"], {"code": "lifecycle_failed",
-                                           "message": "authorized user-service action failed"})
+        self.assertEqual(
+            result["error"], {"code": "lifecycle_failed", "message": "authorized user-service action failed"}
+        )
         core.set_systemctl({"fail": True})
         core.request("refresh", "2")
         lifecycle = core.latest_state()["lifecycle"]
@@ -443,20 +607,26 @@ class LifecycleTests(CoreTest):
         self.assertNotIn(b"Canary", core.raw + core.stderr)
 
     def test_a_unit_for_another_config_is_external(self):
-        core, _ = self.folder_core(systemctl={
-            "ExecStart": "{ path=/usr/bin/syncthing ; argv[]=/usr/bin/syncthing serve --home=/srv/other ; }"})
+        core, _ = self.folder_core(
+            systemctl={"ExecStart": "{ path=/usr/bin/syncthing ; argv[]=/usr/bin/syncthing serve --home=/srv/other ; }"}
+        )
         lifecycle = core.ready()["state"]["lifecycle"]
-        self.assertEqual((lifecycle["targetMatch"], lifecycle["classification"], lifecycle["canControl"]),
-                         (False, "external", False))
-        self.assertEqual(core.action("lifecycle.stop", "1")["error"],
-                         {"code": "lifecycle_forbidden", "message": "lifecycle binding does not apply to this target"})
+        self.assertEqual(
+            (lifecycle["targetMatch"], lifecycle["classification"], lifecycle["canControl"]), (False, "external", False)
+        )
+        self.assertEqual(
+            core.action("lifecycle.stop", "1")["error"],
+            {"code": "lifecycle_forbidden", "message": "lifecycle binding does not apply to this target"},
+        )
         # The unit's environment or a -H/-C/--config option names the directory.
-        for overrides, matches in [({"Environment": "STHOMEDIR=" + str(core.config_dir)}, True),
-                                   ({"ExecStart": "/usr/bin/syncthing serve -H /srv/x"}, False),
-                                   ({"ExecStart": "/usr/bin/syncthing serve -C" + str(core.config_dir)}, True),
-                                   ({"ExecStart": '"/usr/bin/syncthing" "--config" "/srv/x;"'}, False),
-                                   ({"LoadState": "not-found"}, False),
-                                   ({"FragmentPath": ""}, False)]:
+        for overrides, matches in [
+            ({"Environment": "STHOMEDIR=" + str(core.config_dir)}, True),
+            ({"ExecStart": "/usr/bin/syncthing serve -H /srv/x"}, False),
+            ({"ExecStart": "/usr/bin/syncthing serve -C" + str(core.config_dir)}, True),
+            ({"ExecStart": '"/usr/bin/syncthing" "--config" "/srv/x;"'}, False),
+            ({"LoadState": "not-found"}, False),
+            ({"FragmentPath": ""}, False),
+        ]:
             core.set_systemctl(overrides)
             core.request("refresh", json.dumps(overrides))
             self.assertEqual(core.latest_state()["lifecycle"]["targetMatch"], matches, overrides)
@@ -467,9 +637,19 @@ class LifecycleTests(CoreTest):
     def test_without_authority_nothing_runs(self):
         core, _ = self.folder_core(flags=["--probe-interval-seconds", "15"])
         lifecycle = core.ready()["state"]["lifecycle"]
-        self.assertEqual(lifecycle, {"kind": "systemd-user", "classification": "external", "available": False,
-                                     "active": False, "authorized": False, "targetMatch": False,
-                                     "canControl": False, "canStart": False})
+        self.assertEqual(
+            lifecycle,
+            {
+                "kind": "systemd-user",
+                "classification": "external",
+                "available": False,
+                "active": False,
+                "authorized": False,
+                "targetMatch": False,
+                "canControl": False,
+                "canStart": False,
+            },
+        )
         self.assertEqual(core.action("lifecycle.start", "1")["error"]["code"], "lifecycle_forbidden")
         self.assertFalse([c for c in core.calls() if c[0] == "systemctl"])
         core.request("shutdown", "2")
@@ -484,11 +664,17 @@ class ArgumentTests(CoreTest):
         return core, code
 
     def test_invalid_invocations_exit_before_hello(self):
-        for flags in (["--lifecycle-authorized"], ["--lifecycle-kind", "systemd-user"],
-                      ["--lifecycle-kind", "launchd"], ["--probe-interval-seconds", "0"],
-                      ["--probe-interval-seconds", "3601"], ["--desired-service-state", "enabled"],
-                      ["--unknown"], ["extra"], ["--lifecycle-authorized", "--lifecycle-kind", "systemd-user",
-                                                  "--lifecycle-unit", "a\nb.service"]):
+        for flags in (
+            ["--lifecycle-authorized"],
+            ["--lifecycle-kind", "systemd-user"],
+            ["--lifecycle-kind", "launchd"],
+            ["--probe-interval-seconds", "0"],
+            ["--probe-interval-seconds", "3601"],
+            ["--desired-service-state", "enabled"],
+            ["--unknown"],
+            ["extra"],
+            ["--lifecycle-authorized", "--lifecycle-kind", "systemd-user", "--lifecycle-unit", "a\nb.service"],
+        ):
             with self.subTest(flags=flags):
                 core, code = self.run_core(flags)
                 self.assertEqual(code, 1)
@@ -502,8 +688,14 @@ class ArgumentTests(CoreTest):
         self.assertIn(b"Syncthing configuration was not found", core.stderr)
 
     def test_flag_spellings(self):
-        core = self.core(flags=["-probe-interval-seconds=20", "-lifecycle-kind=systemd-user",
-                                "--lifecycle-authorized=true", "--lifecycle-unit=" + UNIT])
+        core = self.core(
+            flags=[
+                "-probe-interval-seconds=20",
+                "-lifecycle-kind=systemd-user",
+                "--lifecycle-authorized=true",
+                "--lifecycle-unit=" + UNIT,
+            ]
+        )
         state = core.ready()["state"]
         self.assertTrue(state["lifecycle"]["authorized"])
         self.assertEqual(state["lifecycle"]["unit"], UNIT)
@@ -523,8 +715,10 @@ class ArgumentTests(CoreTest):
         core.finish()
         core = self.core(flags=["--expected-device-id", PEER_ID] + PLUGIN_FLAGS)
         state = core.ready()["state"]
-        self.assertEqual(state["connection"]["error"], {
-            "code": "identity", "message": "Syncthing device identity does not match the selected target"})
+        self.assertEqual(
+            state["connection"]["error"],
+            {"code": "identity", "message": "Syncthing device identity does not match the selected target"},
+        )
         self.assertFalse(state["connection"]["online"])
         self.assertEqual((state["lifecycle"]["classification"], state["lifecycle"]["canControl"]), ("external", False))
         core.request("shutdown", "2")
@@ -563,15 +757,24 @@ class ArgumentTests(CoreTest):
 
     def test_configuration_errors(self):
         for name, text, message in [
-                ("malformed", "<configuration><gui>", "Syncthing configuration is malformed"),
-                ("no key", "<configuration><gui><address>127.0.0.1:1</address></gui></configuration>",
-                 "Syncthing API credential is missing"),
-                ("bad address", "<configuration><gui><address>nope</address><apikey>k</apikey></gui></configuration>",
-                 "Syncthing GUI address is invalid"),
-                ("tls without cert", '<configuration><gui tls="true"><address>127.0.0.1:1</address>'
-                 "<apikey>k</apikey></gui></configuration>", "local HTTPS certificate was not found"),
-                ("large", "<configuration>" + " " * (1 << 20) + "</configuration>",
-                 "Syncthing configuration is too large")]:
+            ("malformed", "<configuration><gui>", "Syncthing configuration is malformed"),
+            (
+                "no key",
+                "<configuration><gui><address>127.0.0.1:1</address></gui></configuration>",
+                "Syncthing API credential is missing",
+            ),
+            (
+                "bad address",
+                "<configuration><gui><address>nope</address><apikey>k</apikey></gui></configuration>",
+                "Syncthing GUI address is invalid",
+            ),
+            (
+                "tls without cert",
+                '<configuration><gui tls="true"><address>127.0.0.1:1</address><apikey>k</apikey></gui></configuration>',
+                "local HTTPS certificate was not found",
+            ),
+            ("large", "<configuration>" + " " * (1 << 20) + "</configuration>", "Syncthing configuration is too large"),
+        ]:
             with self.subTest(name):
                 core = self.core(start=False)
                 core.config_path.write_text(text)
@@ -630,8 +833,7 @@ class DeadlineTests(CoreTest):
 
     def trickle_core(self, mode, gap, tls):
         core = self.core(tls=tls, start=False)
-        certificate = (str(core.config_dir / "https-cert.pem"),
-                       str(core.config_dir / "https-key.pem")) if tls else None
+        certificate = (str(core.config_dir / "https-cert.pem"), str(core.config_dir / "https-key.pem")) if tls else None
         trickler = fake_syncthing.Trickler(mode, gap, tls=certificate)
         self.addCleanup(trickler.close)
         core.write_config(tls=tls, address=trickler.address)
@@ -657,8 +859,9 @@ class DeadlineTests(CoreTest):
             sent[tls] = time.monotonic()
         for tls, core in cores.items():
             with self.subTest(tls=tls):
-                result = core.wait_for(lambda f: f["type"] == "result" and f["id"] == "1",
-                                       HEADER_BOUND + 10, "refresh result")
+                result = core.wait_for(
+                    lambda f: f["type"] == "result" and f["id"] == "1", HEADER_BOUND + 10, "refresh result"
+                )
                 self.assertEqual(result["error"], TIMEOUT)
                 self.assert_bound(core.arrived - sent[tls], HEADER_BOUND, "refresh result")
                 started = time.monotonic()
@@ -687,7 +890,6 @@ class DeadlineTests(CoreTest):
                 self.assertEqual(core.finish(), 0)
                 self.assert_secret_free(core)
 
-
     def test_a_full_unix_backlog_ends_at_the_dial_bound(self):
         # A connect to a listener whose backlog is full never completes on
         # its own; the dial deadline ends it and the core still answers.
@@ -707,7 +909,6 @@ class DeadlineTests(CoreTest):
         self.assertEqual(core.finish(), 0)
         self.assert_secret_free(core)
 
-
     def test_a_silent_dns_server_ends_at_the_dial_bound(self):
         # The lookup of a host name counts against the dial bound: a DNS
         # server that never answers (the resolver itself would wait 30 s)
@@ -722,8 +923,7 @@ class DeadlineTests(CoreTest):
         core.start()
         self.assertEqual(core.next_frame()["type"], "hello")
         core.send({"v": 2, "type": "shutdown", "id": "1"})
-        state = core.snapshot(lambda s: s["connection"]["phase"] in ("ready", "error"),
-                              DIAL_BOUND + 10)["state"]
+        state = core.snapshot(lambda s: s["connection"]["phase"] in ("ready", "error"), DIAL_BOUND + 10)["state"]
         self.assertEqual(state["connection"]["error"], TIMEOUT)
         self.assertFalse(state["connection"]["online"])
         self.assert_bound(core.arrived - core.started, DIAL_BOUND, "initial snapshot")
@@ -767,8 +967,9 @@ class FailureTests(CoreTest):
     def test_wrong_api_key_is_unauthorized_and_external(self):
         core, _ = self.folder_core(api_key="wrong-Canary-1234")
         state = core.ready()["state"]
-        self.assertEqual(state["connection"]["error"], {"code": "unauthorized",
-                                                        "message": "Syncthing authorization failed"})
+        self.assertEqual(
+            state["connection"]["error"], {"code": "unauthorized", "message": "Syncthing authorization failed"}
+        )
         self.assertEqual((state["connection"]["healthy"], state["connection"]["authorized"]), (True, False))
         self.assertEqual(state["lifecycle"]["classification"], "external")
         core.request("shutdown", "1")
@@ -777,11 +978,12 @@ class FailureTests(CoreTest):
 
     def test_bad_responses(self):
         for override, code, message in [
-                ((200, b"not json"), "schema", "Syncthing response is invalid"),
-                ((200, b'{"myID":"x"} {}'), "schema", "Syncthing response contains trailing data"),
-                ((200, b'{"myID":"  "}'), "schema", "Syncthing identity is missing"),
-                ((500, b"boom"), "http", "Syncthing returned HTTP 500"),
-                ((200, b" " * ((8 << 20) + 1)), "schema", "Syncthing response is too large")]:
+            ((200, b"not json"), "schema", "Syncthing response is invalid"),
+            ((200, b'{"myID":"x"} {}'), "schema", "Syncthing response contains trailing data"),
+            ((200, b'{"myID":"  "}'), "schema", "Syncthing identity is missing"),
+            ((500, b"boom"), "http", "Syncthing returned HTTP 500"),
+            ((200, b" " * ((8 << 20) + 1)), "schema", "Syncthing response is too large"),
+        ]:
             with self.subTest(message):
                 core = self.core(start=False)
                 core.syncthing.overrides[("GET", "/rest/system/status")] = override
@@ -805,7 +1007,9 @@ class FailureTests(CoreTest):
         core.syncthing.overrides[("GET", "/rest/noauth/health")] = (200, {"status": "starting"})
         core.start()
         state = core.ready()["state"]
-        self.assertEqual(state["connection"]["error"], {"code": "schema", "message": "Syncthing health response is invalid"})
+        self.assertEqual(
+            state["connection"]["error"], {"code": "schema", "message": "Syncthing health response is invalid"}
+        )
         del core.syncthing.overrides[("GET", "/rest/noauth/health")]
         core.request("refresh", "1")
         self.assertTrue(core.latest_state()["connection"]["online"])
@@ -818,16 +1022,21 @@ class EventTests(CoreTest):
         core, docs = self.folder_core()
         core.ready()
         core.syncthing.wait_polling()
-        core.syncthing.add_event("ItemStarted", {"folder": "docs", "item": "notes/plan.md", "type": "file",
-                                                "action": "update"})
+        core.syncthing.add_event(
+            "ItemStarted", {"folder": "docs", "item": "notes/plan.md", "type": "file", "action": "update"}
+        )
         state = core.snapshot(lambda s: s["activity"]["files"], timeout=10)["state"]
-        self.assertEqual(state["activity"]["files"], [
-            {"folderId": "docs", "path": "notes/plan.md", "action": "syncing", "detail": "plan.md"}])
+        self.assertEqual(
+            state["activity"]["files"],
+            [{"folderId": "docs", "path": "notes/plan.md", "action": "syncing", "detail": "plan.md"}],
+        )
         self.assertEqual(state["activity"]["current"]["detail"], "plan.md")
         core.syncthing.add_event("ItemStarted", {"folder": "docs", "item": "old.txt", "action": "delete"})
         state = core.snapshot(lambda s: len(s["activity"]["files"] or []) == 2, timeout=10)["state"]
-        self.assertIn({"folderId": "docs", "path": "old.txt", "action": "removing", "detail": "Removing old.txt"},
-                      state["activity"]["files"])
+        self.assertIn(
+            {"folderId": "docs", "path": "old.txt", "action": "removing", "detail": "Removing old.txt"},
+            state["activity"]["files"],
+        )
         core.syncthing.add_event("ItemFinished", {"folder": "docs", "item": "old.txt"})
         core.syncthing.add_event("ItemFinished", {"folder": "docs", "item": "notes/plan.md"})
         core.snapshot(lambda s: s["activity"]["files"] is None, timeout=10)

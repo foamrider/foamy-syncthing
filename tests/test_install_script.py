@@ -57,8 +57,14 @@ class InstallScriptTests(unittest.TestCase):
         self.log = self.base / "calls.log"
         self.log.touch()
         self.gate = self.base / "gate"
-        self.env = {"HOME": str(self.home), "PATH": str(self.bin), "XDG_RUNTIME_DIR": str(self.runtime),
-                    "TEST_LOG": str(self.log), "TEST_GATE": str(self.gate), "LANG": "C.UTF-8"}
+        self.env = {
+            "HOME": str(self.home),
+            "PATH": str(self.bin),
+            "XDG_RUNTIME_DIR": str(self.runtime),
+            "TEST_LOG": str(self.log),
+            "TEST_GATE": str(self.gate),
+            "LANG": "C.UTF-8",
+        }
         self.processes = []
 
     def tearDown(self):
@@ -71,8 +77,15 @@ class InstallScriptTests(unittest.TestCase):
         return self.log.read_text().splitlines()
 
     def script(self, *args, env=None, stdin=""):
-        return subprocess.run(["/usr/bin/bash", str(SCRIPT), *args], env=env or self.env, input=stdin,
-                              capture_output=True, text=True, timeout=20, cwd=self.base)
+        return subprocess.run(
+            ["/usr/bin/bash", str(SCRIPT), *args],
+            env=env or self.env,
+            input=stdin,
+            capture_output=True,
+            text=True,
+            timeout=20,
+            cwd=self.base,
+        )
 
     def status(self, env=None):
         result = self.script("status", env=env)
@@ -81,9 +94,16 @@ class InstallScriptTests(unittest.TestCase):
 
     def start_run(self, **extra):
         self.gate.touch()
-        process = subprocess.Popen(["/usr/bin/bash", str(SCRIPT), "run", "install-package"],
-                                   env=dict(self.env, **extra), stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                                   stderr=subprocess.PIPE, text=True, start_new_session=True, cwd=self.base)
+        process = subprocess.Popen(
+            ["/usr/bin/bash", str(SCRIPT), "run", "install-package"],
+            env=dict(self.env, **extra),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            start_new_session=True,
+            cwd=self.base,
+        )
         self.processes.append(process)
         self.assertTrue(wait_until(lambda: "omarchy pkg add syncthing" in self.calls()), self.calls())
         return process
