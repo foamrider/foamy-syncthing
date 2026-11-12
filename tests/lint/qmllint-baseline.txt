@@ -7,7 +7,6 @@ Service.qml: block-scope-var-declaration: var declaration in block scope is hois
 Service.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | for (var i = 0; i < folders.length; i++) {
 Service.qml: block-scope-var-declaration: var declaration in block scope is hoisted to function scope | var next = ({})
 ServiceRegistry.qml: import: Type ServiceRegistry not declared as singleton in qmldir but using pragma Singleton
-preview/Preview.qml: incompatible-type: Cannot assign binding of type FoamyPopup to QQuickItem | readonly property Item popup: popupWindow
 preview/Preview.qml: unqualified: Unqualified access | editingSettings: ["settings", "add-folder", "unlink"].indexOf(preview.previewState) >= 0
 preview/Preview.qml: unqualified: Unqualified access | preview.apply(view)
 preview/Preview.qml: unqualified: Unqualified access | preview.apply(view)

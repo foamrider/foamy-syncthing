@@ -13,7 +13,7 @@ Item {
   property var previewStates: ["folders", "up-to-date", "syncing", "devices", "conflicts", "unavailable", "stopped", "not-installed", "empty", "settings", "add-folder", "unlink"]
   property string previewState: "folders"
   property int settleMs: 700
-  readonly property Item popup: popupWindow
+  readonly property var popup: previewPopup
 
   readonly property string home: "/home/me"
   readonly property var rawFolders: [
@@ -211,7 +211,7 @@ Item {
   }
 
   FoamyPopup {
-    id: popupWindow
+    id: previewPopup
     anchorItem: preview.anchorItem
     bar: preview.bar
     open: true
