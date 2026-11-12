@@ -5,14 +5,24 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 
-import hostenv
-
-
 ROOT = Path(__file__).resolve().parents[1]
+KIT = Path(os.environ.get("FOAMY_KIT", Path.home() / "GitHub/Personal/foamy-kit"))
+
+
+def isolated_env(base, **overrides):
+    """os.environ with `overrides`, then the kit's host isolation
+    (preview/hostenv.py: no Omarchy bin dir or AppImage libraries on PATH and
+    LD_LIBRARY_PATH, dead audio and system-bus addresses). Imported here, so the
+    helper-only tests run without a foamy-kit checkout."""
+    sys.path.insert(0, str(KIT / "preview"))
+    import hostenv
+
+    return hostenv.isolate(dict(os.environ, **overrides), base)
 HELPER = ROOT / "kit/clipboard.sh"
 MOCK = '''#!/usr/bin/python3
 import json, os, signal, sys, time
@@ -53,8 +63,8 @@ class ClipboardTests(unittest.TestCase):
             path = self.base / name
             path.write_text(MOCK)
             path.chmod(0o755)
-        self.env = hostenv.shell_env(TEST_CLIPBOARD_STATE=str(self.state),
-                                     PATH=f"{self.base}:{os.environ['PATH']}")
+        self.env = dict(os.environ, TEST_CLIPBOARD_STATE=str(self.state),
+                        PATH=f"{self.base}:{os.environ['PATH']}")
 
     def read(self, mode, selection="clipboard"):
         self.state.write_text(mode)
@@ -158,9 +168,10 @@ ShellRoot {
             (self.base / name).symlink_to(host / name, target_is_directory=True)
         runtime = self.base / "runtime"
         runtime.mkdir(mode=0o700)
-        env = dict(self.env, QT_QPA_PLATFORM=os.environ.get("FOAMY_TEST_PLATFORM", "offscreen"),
-                   QT_QUICK_BACKEND="software", QT_QPA_PLATFORMTHEME="",
-                   XDG_RUNTIME_DIR=str(runtime))
+        env = isolated_env(self.base, TEST_CLIPBOARD_STATE=str(self.state), PATH=self.env["PATH"],
+                           QT_QPA_PLATFORM=os.environ.get("FOAMY_TEST_PLATFORM", "offscreen"),
+                           QT_QUICK_BACKEND="software", QT_QPA_PLATFORMTHEME="",
+                           XDG_RUNTIME_DIR=str(runtime))
         if env["QT_QPA_PLATFORM"] == "wayland":
             # Keep test logs/IPC private without hiding the host compositor socket.
             display = Path(os.environ["WAYLAND_DISPLAY"])

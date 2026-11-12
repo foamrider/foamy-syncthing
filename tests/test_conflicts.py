@@ -10,13 +10,24 @@ from pathlib import Path
 import platform
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
 
-import hostenv
-
 ROOT = Path(__file__).resolve().parents[1]
+KIT = Path(os.environ.get("FOAMY_KIT", Path.home() / "GitHub/Personal/foamy-kit"))
+
+
+def isolated_env(base, **overrides):
+    """os.environ with `overrides`, then the kit's host isolation
+    (preview/hostenv.py: no Omarchy bin dir or AppImage libraries on PATH and
+    LD_LIBRARY_PATH, dead audio and system-bus addresses). Imported here, so the
+    helper-only tests run without a foamy-kit checkout."""
+    sys.path.insert(0, str(KIT / "preview"))
+    import hostenv
+
+    return hostenv.isolate(dict(os.environ, **overrides), base)
 MAX_INPUT_BYTES = 1048576
 GENERIC = b"Could not check for Syncthing conflicts.\n"
 
@@ -412,8 +423,8 @@ ShellRoot {
             shell.write_text(shell.read_text().replace("STUB", json.dumps(str(stub))))
             runtime = base / "runtime"
             runtime.mkdir(mode=0o700)
-            env = hostenv.shell_env(QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software",
-                                    QT_QPA_PLATFORMTHEME="", XDG_RUNTIME_DIR=str(runtime), TEST_CONFLICT_STATE=str(state))
+            env = isolated_env(base, QT_QPA_PLATFORM="offscreen", QT_QUICK_BACKEND="software",
+                               QT_QPA_PLATFORMTHEME="", XDG_RUNTIME_DIR=str(runtime), TEST_CONFLICT_STATE=str(state))
             result = subprocess.run([runner, "-p", str(base), "--no-color"], env=env,
                                     text=True, capture_output=True, timeout=15)
             output = result.stdout + result.stderr
