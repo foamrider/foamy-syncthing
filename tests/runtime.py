@@ -86,79 +86,91 @@ ShellRoot {
       panels.push(component.createObject(host, { bar: bar, moduleName: "foamy.syncthing", x: 1500, y: 0, width: 40, height: 34,
         settings: { minimumConnectedDevices: 2, probeIntervalSec: 5, openRefreshIntervalSec: 60 } }))
     }
-    step.start()
+    wait.waitFor(function() {
+      return service.online && service.settingsReady && Kit.FoamyShared.memberCount("syncthing") === 3 && shell.probes() >= 1
+        && service.folderRows.length === 2 && service.conflictFolderIds.docs === true && !service.conflictScan.running
+    }, 20000, step0, "the service comes online with its conflict scan")
   }
 
-  Timer {
-    id: step
-    interval: 2500
-    property int n: 0
-    property int probesOnline: 0
-    onTriggered: {
-      if (n === 0) {
-        check(Plugin.ServiceRegistry.instance === service, "service registered")
-        check(Kit.FoamyShared.memberCount("syncthing") === 3, "three members")
-        check(service.preferences.minimumConnectedDevices === 2 && service.settingsReady, "leader fed settings")
-        check(service.online, "online through the fake core")
-        check(coreLog.text().indexOf("--desktop-authorized") < 0 && coreLog.text().indexOf("--probe-interval-seconds") >= 0, "no desktop bridge flag: " + coreLog.text().slice(0, 200))
-        check(shell.probes() >= 1, "install probe ran while offline")
-        check(JSON.stringify(service.conflictFolderIds) === JSON.stringify({ docs: true }), "per-folder conflicts, .stversions ignored: " + JSON.stringify(service.conflictFolderIds))
-        check(service.folderRows.length === 2 && service.folderRows[0].label === "Documents", "configured label first")
-        // Escaped icon-font glyphs (\u{…}) still decode: conflicts → the "notify" glyph.
-        check(panels[0].barIcon.codePointAt(0) === 0xf09e0 && panels[0].barIcon.length === 2, "bar glyph decodes: " + panels[0].barIcon.codePointAt(0))
-        check(service.tooFewDevices === false && service.deviceCounts.connected === 2, "device counts include this computer")
-        step.probesOnline = shell.probes()
-        shell.scans = 0
-        // Snapshots with the same folders (refreshes) must not walk again.
-        service.refresh(); service.refresh()
-        check(panels[0].popup.bodyItem === null && panels[1].popup.bodyItem === null, "bodies lazy before open")
-        panels[1].open()
-      } else if (n === 1) {
-        var view = panels[1].popup.bodyItem
-        check(view !== null && view.service === service, "body built on open")
-        check(panels[0].popup.bodyItem === null, "other monitors stay lazy")
-        check(view && view.rowCount === 2, "two folder rows")
-        savedRow = view ? view.rowItem(0) : null
-        check(savedRow !== null, "row delegate exists")
-        check(view && view.listWheel && view.listWheel.target !== null, "the overview list scrolls with the kit wheel handling")
-        service.refresh()
-      } else if (n === 2) {
-        check(panels[1].popup.bodyItem.rowItem(0) === savedRow, "row delegate survives a snapshot (keyed model)")
-        // FoamyPrefsQueue: an inline save shows at once in the view, before the host reflects it.
-        panels[1].save("refreshIntervalSec", 300)
-        check(panels[1].popup.bodyItem.settings.refreshIntervalSec === 300, "saved value shows before it is reflected")
-        check(panels[1].bar.saved.length === 1 && panels[1].bar.saved[0].settings.refreshIntervalSec === 300, "saved inline through the bar")
-        check(shell.scans === 0, "no conflict walk for unchanged folders (" + shell.scans + ")")
-        check(shell.probes() === step.probesOnline, "install probe idle while online (" + step.probesOnline + " -> " + shell.probes() + ")")
-        panels[1].openSettings()
-      } else if (n === 3) {
-        check(panels[1].editingSettings, "settings open")
-        panels[1].close()
-      } else if (n === 4) {
-        check(!panels[1].opened && !panels[1].editingSettings, "closing leaves settings")
-        // The settings IPC opens a closed popup straight into Settings.
-        panels[2].openSettings()
-      } else if (n === 5) {
-        check(panels[2].opened && panels[2].editingSettings, "openSettings() on a closed popup shows Settings")
-        panels[2].close()
-        // The folder chooser: the helper connects to a bus that never answers.
-        panels[0].open()
-        panels[0].browseFolder()
-      } else if (n === 6) {
-        check(panels[0].returningFromBrowser, "the chooser runs")
-        check(pickerLog.text().indexOf("connected foamy-syncthing") >= 0, "pick-folder reached the session bus: " + pickerLog.text())
-        panels[0].destroy()
-      } else if (n === 7) {
-        check(pickerLog.text().indexOf("closed") >= 0, "the chooser's helper went with its Panel: " + pickerLog.text())
-        check(Kit.FoamyShared.memberCount("syncthing") === 2, "leader left, re-elected")
-        console.log("FOAMY CHECKS " + checks)
-        console.log("FOAMY DONE")
-        Qt.quit()
-        return
-      }
-      n++
-      restart()
-    }
+  FoamyWait { id: wait }
+  property int probesOnline: 0
+  // Waits for `condition`, counts it as a check, then goes on (also after a timeout).
+  function expect(condition, ms, what, next) { wait.waitFor(condition, ms, function(ok) { check(ok, what); next() }) }
+  function step0() {
+    check(Plugin.ServiceRegistry.instance === service, "service registered")
+    check(Kit.FoamyShared.memberCount("syncthing") === 3, "three members")
+    check(service.preferences.minimumConnectedDevices === 2 && service.settingsReady, "leader fed settings")
+    check(service.online, "online through the fake core")
+    check(coreLog.text().indexOf("--desktop-authorized") < 0 && coreLog.text().indexOf("--probe-interval-seconds") >= 0, "no desktop bridge flag: " + coreLog.text().slice(0, 200))
+    check(shell.probes() >= 1, "install probe ran while offline")
+    check(JSON.stringify(service.conflictFolderIds) === JSON.stringify({ docs: true }), "per-folder conflicts, .stversions ignored: " + JSON.stringify(service.conflictFolderIds))
+    check(service.folderRows.length === 2 && service.folderRows[0].label === "Documents", "configured label first")
+    // Escaped icon-font glyphs (\u{…}) still decode: conflicts → the "notify" glyph.
+    check(panels[0].barIcon.codePointAt(0) === 0xf09e0 && panels[0].barIcon.length === 2, "bar glyph decodes: " + panels[0].barIcon.codePointAt(0))
+    check(service.tooFewDevices === false && service.deviceCounts.connected === 2, "device counts include this computer")
+    shell.probesOnline = shell.probes()
+    shell.scans = 0
+    // Snapshots with the same folders (refreshes) must not walk again.
+    service.refresh(); service.refresh()
+    check(panels[0].popup.bodyItem === null && panels[1].popup.bodyItem === null, "bodies lazy before open")
+    panels[1].open()
+    wait.waitFor(function() { return panels[1].popup.bodyItem !== null && panels[1].popup.bodyItem.rowCount === 2 && !service.refreshing },
+                 10000, step1, "the opened popup builds its body")
+  }
+  function step1() {
+    var view = panels[1].popup.bodyItem
+    check(view !== null && view.service === service, "body built on open")
+    check(panels[0].popup.bodyItem === null, "other monitors stay lazy")
+    check(view && view.rowCount === 2, "two folder rows")
+    savedRow = view ? view.rowItem(0) : null
+    check(savedRow !== null, "row delegate exists")
+    check(view && view.listWheel && view.listWheel.target !== null, "the overview list scrolls with the kit wheel handling")
+    check(service.refresh(), "a refresh starts")
+    wait.waitFor(function() { return !service.refreshing }, 10000, function() {
+      // A conflict walk would start right after the snapshot; give it a moment to show.
+      wait.after(300, step2)
+    }, "the refresh ends")
+  }
+  function step2() {
+    check(panels[1].popup.bodyItem.rowItem(0) === savedRow, "row delegate survives a snapshot (keyed model)")
+    // FoamyPrefsQueue: an inline save shows at once in the view, before the host reflects it.
+    panels[1].save("refreshIntervalSec", 300)
+    check(panels[1].popup.bodyItem.settings.refreshIntervalSec === 300, "saved value shows before it is reflected")
+    check(panels[1].bar.saved.length === 1 && panels[1].bar.saved[0].settings.refreshIntervalSec === 300, "saved inline through the bar")
+    check(shell.scans === 0, "no conflict walk for unchanged folders (" + shell.scans + ")")
+    check(shell.probes() === shell.probesOnline, "install probe idle while online (" + shell.probesOnline + " -> " + shell.probes() + ")")
+    panels[1].openSettings()
+    expect(function() { return panels[1].editingSettings }, 10000, "settings open", step3)
+  }
+  function step3() {
+    panels[1].close()
+    expect(function() { return !panels[1].opened && !panels[1].editingSettings }, 10000, "closing leaves settings", step4)
+  }
+  function step4() {
+    // The settings IPC opens a closed popup straight into Settings.
+    panels[2].openSettings()
+    expect(function() { return panels[2].opened && panels[2].editingSettings }, 10000,
+           "openSettings() on a closed popup shows Settings", step5)
+  }
+  function step5() {
+    panels[2].close()
+    // The folder chooser: the helper connects to a bus that never answers.
+    panels[0].open()
+    panels[0].browseFolder()
+    expect(function() { return pickerLog.text().indexOf("connected foamy-syncthing") >= 0 }, 15000,
+           "pick-folder reached the session bus", step6)
+  }
+  function step6() {
+    check(panels[0].returningFromBrowser, "the chooser runs")
+    panels[0].destroy()
+    wait.waitFor(function() { return pickerLog.text().indexOf("closed") >= 0 && Kit.FoamyShared.memberCount("syncthing") === 2 }, 15000, step7)
+  }
+  function step7() {
+    check(pickerLog.text().indexOf("closed") >= 0, "the chooser's helper went with its Panel: " + pickerLog.text())
+    check(Kit.FoamyShared.memberCount("syncthing") === 2, "leader left, re-elected")
+    console.log("FOAMY CHECKS " + checks)
+    console.log("FOAMY DONE")
+    Qt.quit()
   }
 }
 '''
@@ -179,31 +191,24 @@ ShellRoot {
   FileView { id: coreLog; path: CORE_LOG; watchChanges: true; printErrors: false; onFileChanged: reload() }
   Component.onCompleted: {
     service = Qt.createComponent(Qt.resolvedUrl("plugin/Service.qml")).createObject(null)
-    step.start()
+    wait.waitFor(function() { return service.core.restartAttempts >= 4 && service.core.restartTimer.running }, 30000, slowRetry,
+                 "the crashing core reaches its slow retry")
   }
-  Timer {
-    id: step
-    interval: 4000
-    property int n: 0
-    property int before: 0
-    onTriggered: {
-      if (n === 0) {
-        var core = service.core
-        check(core.restartAttempts === 4, "three fast restarts, then a slow one (" + core.restartAttempts + ")")
-        check(core.restartTimer.running && core.restartTimer.interval === 30000, "slow retry scheduled, not given up")
-        check(core.desiredRunning, "still wants to run")
-        before = shell.starts()
-        service.recover()
-      } else {
-        check(shell.starts() > before, "recover() starts the core right away")
-        console.log("FOAMY CHECKS " + checks)
-        console.log("FOAMY DONE")
-        Qt.quit()
-        return
-      }
-      n++
-      restart()
-    }
+  FoamyWait { id: wait }
+  property int before: 0
+  function slowRetry() {
+    var core = service.core
+    check(core.restartAttempts === 4, "three fast restarts, then a slow one (" + core.restartAttempts + ")")
+    check(core.restartTimer.running && core.restartTimer.interval === 30000, "slow retry scheduled, not given up")
+    check(core.desiredRunning, "still wants to run")
+    before = shell.starts()
+    service.recover()
+    wait.waitFor(function() { return shell.starts() > before }, 10000, function() {
+      check(shell.starts() > before, "recover() starts the core right away")
+      console.log("FOAMY CHECKS " + checks)
+      console.log("FOAMY DONE")
+      Qt.quit()
+    })
   }
 }
 '''
@@ -339,6 +344,8 @@ def run(host, shell, crash=False):
         left = bus.survivors()
         if left:
             warnings.append(f"FOAMY FAIL the folder chooser's helper outlived the run (pid {left})")
+        # The plugin runs no Omarchy command here; the harness stubs refuse and log any.
+        warnings += [f"FOAMY FAIL host command ran: {line}" for line in runner.host_commands()]
         if runner.ok and not warnings:
             print(f"{label}: runtime passed ({checks[0] if checks else '?'} checks)")
             runner.cleanup()
