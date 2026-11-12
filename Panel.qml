@@ -39,9 +39,17 @@ Panel {
     settings: root.settings
   }
   // Settings page state: resets on close only; held across the folder chooser.
-  FoamySettingsState { id: settingsState; panel: root; holdOnClose: root.returningFromBrowser }
+  FoamySettingsState {
+    id: settingsState
+    panel: root
+    holdOnClose: root.returningFromBrowser
+  }
 
-  FoamyMember { id: member; scope: "syncthing"; demanding: root.opened }
+  FoamyMember {
+    id: member
+    scope: "syncthing"
+    demanding: root.opened
+  }
   Binding {
     target: root.syncthing
     property: "widgetSettings"
@@ -53,36 +61,55 @@ Panel {
   FoamyIpc {
     target: "foamy.syncthing"
     enabled: member.isLeader
-    function open(): void { root.open() }
-    function close(): void { root.close() }
-    function show(): void { root.open() }
-    function hide(): void { root.close() }
-    function toggle(): void { root.toggle() }
-    function settings(): void { root.openSettings() }
-    function overview(): void { root.closeSettings() }
+    function open(): void {
+      root.open()
+    }
+    function close(): void {
+      root.close()
+    }
+    function show(): void {
+      root.open()
+    }
+    function hide(): void {
+      root.close()
+    }
+    function toggle(): void {
+      root.toggle()
+    }
+    function settings(): void {
+      root.openSettings()
+    }
+    function overview(): void {
+      root.closeSettings()
+    }
   }
 
   // ---- bar state ---------------------------------------------------------------
   readonly property string iconVariant: {
-    if (!syncthing || !syncthing.online) return "notify"
-    if (syncthing.hasProblems || syncthing.tooFewDevices || syncthing.phase === "error") return "notify"
-    if (syncthing.serviceAvailable && !syncthing.serviceActive) return "pause"
-    if (syncthing.syncInProgress) return "sync"
+    if (!syncthing || !syncthing.online)
+      return "notify"
+    if (syncthing.hasProblems || syncthing.tooFewDevices || syncthing.phase === "error")
+      return "notify"
+    if (syncthing.serviceAvailable && !syncthing.serviceActive)
+      return "pause"
+    if (syncthing.syncInProgress)
+      return "sync"
     return "default"
   }
   readonly property string barIcon: iconVariant === "sync" ? "\u{f063f}" : iconVariant === "default" ? "\u{f0160}" : "\u{f09e0}"
   readonly property color iconColor: {
-    if (syncthing && (syncthing.hasProblems || syncthing.phase === "error")) return bar ? bar.urgent : Commons.Color.urgent
-    if (syncthing && syncthing.tooFewDevices) return FoamyPalette.warning
+    if (syncthing && (syncthing.hasProblems || syncthing.phase === "error"))
+      return bar ? bar.urgent : Commons.Color.urgent
+    if (syncthing && syncthing.tooFewDevices)
+      return FoamyPalette.warning
     return bar ? bar.foreground : Commons.Color.foreground
   }
-  readonly property string tooltip: !syncthing ? FoamyI18n.t("Syncthing unavailable")
-    : FoamyI18n.t("Syncthing: %1", [FoamyI18n.t(iconVariant === "sync" ? "Syncing files" : syncthing.compactSummary.title)])
-      + "\n" + FoamyI18n.t("Left: details · Right: refresh")
+  readonly property string tooltip: !syncthing ? FoamyI18n.t("Syncthing unavailable") : FoamyI18n.t("Syncthing: %1", [FoamyI18n.t(iconVariant === "sync" ? "Syncing files" : syncthing.compactSummary.title)]) + "\n" + FoamyI18n.t("Left: details · Right: refresh")
 
   // ---- popup lifecycle -----------------------------------------------------------
   onOpenedChanged: {
-    if (!opened || returningFromBrowser || !syncthing) return
+    if (!opened || returningFromBrowser || !syncthing)
+      return
     syncthing.recover()
     syncthing.refresh()
   }
@@ -91,24 +118,29 @@ Panel {
     pickerError = ""
     settingsState.show()
   }
-  function closeSettings() { settingsState.hide() }
+  function closeSettings() {
+    settingsState.hide()
+  }
   function save(key, value) {
     pickerError = ""
     prefs.save(key, value)
   }
 
   function openWebUi() {
-    if (syncthing && syncthing.online && syncthing.baseUrl) Qt.openUrlExternally(syncthing.baseUrl)
+    if (syncthing && syncthing.online && syncthing.baseUrl)
+      Qt.openUrlExternally(syncthing.baseUrl)
   }
   function openFolder(folder) {
     var path = PanelModel.resolveFolderPath(folder ? folder.path : "", Quickshell.env("HOME") || "")
-    if (path) Quickshell.execDetached(["uwsm-app", "--", "xdg-open", path])
+    if (path)
+      Quickshell.execDetached(["uwsm-app", "--", "xdg-open", path])
   }
 
   // The folder chooser is the desktop's (xdg-desktop-portal, through the
   // helper's pick-folder), a separate window: release the popup while it is open.
   function browseFolder() {
-    if (folderPicker.running) return
+    if (folderPicker.running)
+      return
     returningFromBrowser = true
     root.close()
     folderPicker.running = true
@@ -118,21 +150,27 @@ Panel {
     id: folderPicker
     // The helper waits up to 30 minutes for the choice (the dialog waits on
     // the user) and then answers PORTAL_FAILED; this is the backstop.
-    command: ["timeout", "--kill-after=5s", "1830s"].concat(FoamyNative.command(
-      FoamyNative.localPath(Qt.resolvedUrl(".")), "foamy-syncthing-helper",
-      ["pick-folder", FoamyI18n.t("Choose a Syncthing folder"), FoamyI18n.t("Choose")]))
-    stdout: StdioCollector { id: folderPickerOutput; waitForEnd: true }
-    onExited: function(exitCode) {
+    command: ["timeout", "--kill-after=5s", "1830s"].concat(FoamyNative.command(FoamyNative.localPath(Qt.resolvedUrl(".")), "foamy-syncthing-helper", ["pick-folder", FoamyI18n.t("Choose a Syncthing folder"), FoamyI18n.t("Choose")]))
+    stdout: StdioCollector {
+      id: folderPickerOutput
+      waitForEnd: true
+    }
+    onExited: function (exitCode) {
       var reply = PanelModel.folderPickReply(exitCode, folderPickerOutput.text)
       root.open()
-      if (FoamyNative.unavailable(exitCode)) root.pickerError = FoamyI18n.t(FoamyNative.UNAVAILABLE_TEXT)
+      if (FoamyNative.unavailable(exitCode))
+        root.pickerError = FoamyI18n.t(FoamyNative.UNAVAILABLE_TEXT)
       else if (reply.error === "NO_SESSION_BUS")
         root.pickerError = FoamyI18n.t("The folder chooser needs a session bus, and there is none; enter the path manually.")
       else if (reply.error === "PORTAL_UNAVAILABLE")
         root.pickerError = FoamyI18n.t("No folder chooser is running (xdg-desktop-portal); enter the path manually.")
-      else if (reply.error) root.pickerError = FoamyI18n.t("The folder chooser failed; enter the path manually.")
-      else if (reply.path && root.view) root.view.setAddPath(reply.path)
-      Qt.callLater(function() { root.returningFromBrowser = false })
+      else if (reply.error)
+        root.pickerError = FoamyI18n.t("The folder chooser failed; enter the path manually.")
+      else if (reply.path && root.view)
+        root.view.setAddPath(reply.path)
+      Qt.callLater(function () {
+        root.returningFromBrowser = false
+      })
     }
   }
 
@@ -142,8 +180,8 @@ Panel {
     running: root.opened
     repeat: true
     onTriggered: {
-      if (root.syncthing && !root.syncthing.refreshing && !root.syncthing.folderMutationBusy
-          && !root.syncthing.serviceActionRunning) root.syncthing.refresh()
+      if (root.syncthing && !root.syncthing.refreshing && !root.syncthing.folderMutationBusy && !root.syncthing.serviceActionRunning)
+        root.syncthing.refresh()
     }
   }
 
@@ -166,11 +204,12 @@ Panel {
     }
     active: !!root.syncthing && root.syncthing.hasProblems
     tooltipText: root.tooltip
-    onPressed: function(buttonCode) {
+    onPressed: function (buttonCode) {
       if (buttonCode === Qt.RightButton && root.syncthing) {
         root.syncthing.recover()
         root.syncthing.refresh(true)
-      } else root.toggle()
+      } else
+        root.toggle()
     }
   }
 
@@ -193,11 +232,17 @@ Panel {
         onCloseRequestedByView: root.close()
         onSettingsRequested: root.openSettings()
         onSettingsClosed: root.closeSettings()
-        onSaveRequested: function(key, value) { root.save(key, value) }
+        onSaveRequested: function (key, value) {
+          root.save(key, value)
+        }
         onRetryRequested: prefs.retry()
-        onSwitchPanelRequested: function(direction) { root.switchPanel(direction) }
+        onSwitchPanelRequested: function (direction) {
+          root.switchPanel(direction)
+        }
         onOpenWebUiRequested: root.openWebUi()
-        onOpenFolderRequested: function(folder) { root.openFolder(folder) }
+        onOpenFolderRequested: function (folder) {
+          root.openFolder(folder)
+        }
         onBrowseRequested: root.browseFolder()
       }
     }

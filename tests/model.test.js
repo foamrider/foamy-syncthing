@@ -332,7 +332,7 @@ test("the core keeps retrying with backoff instead of staying down", () => {
   assert.deepEqual(timers, [250, 500, 1000, 30000, 60000, 120000, 240000, 300000, 300000]);
   assert.equal(context.desiredRunning, true, "never gives up");
   assert.equal(context.unavailable, true);
-  assert.match(source, /onTriggered: if \(root\.protocolReady\) root\.restartAttempts = 0/);
+  assert.match(source, /onTriggered: if \(root\.protocolReady\)\s*root\.restartAttempts = 0/);
   assert.match(source, /function retry\(\)[\s\S]*incompatible = false/);
 });
 

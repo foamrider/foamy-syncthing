@@ -27,8 +27,7 @@ QtObject {
 
   signal statusApplied
 
-  readonly property bool canInstall: state === "missing"
-    && !refreshing && !packageActionRunning
+  readonly property bool canInstall: state === "missing" && !refreshing && !packageActionRunning
 
   function updateStatus() {
     if (statusProcess.running) {
@@ -64,8 +63,10 @@ QtObject {
   }
 
   function reconcilePackageOperation() {
-    if (packageActionRunning && operationRunning) _operationSeen = true
-    if (!packageActionRunning || !_operationSeen || operationRunning) return
+    if (packageActionRunning && operationRunning)
+      _operationSeen = true
+    if (!packageActionRunning || !_operationSeen || operationRunning)
+      return
     packageActionRunning = false
     packageStatus = FoamyI18n.t("Installation terminal closed")
     _operationSeen = false
@@ -74,7 +75,8 @@ QtObject {
   }
 
   function install() {
-    if (!canInstall) return
+    if (!canInstall)
+      return
     packageActionRunning = true
     packageError = ""
     packageStatus = FoamyI18n.t("Complete installation in the Omarchy terminal")
@@ -127,16 +129,17 @@ QtObject {
       onStreamFinished: root._statusErrorOutput = text
     }
 
-    onExited: function(exitCode) {
+    onExited: function (exitCode) {
       var rerun = root._statusRefreshPending
       root.refreshing = false
-      if (exitCode === 0) root.applyStatus(root._statusOutput)
+      if (exitCode === 0)
+        root.applyStatus(root._statusOutput)
       else {
-        root.packageError = String(root._statusErrorOutput
-          || FoamyI18n.t("Could not check Syncthing installation")).trim()
+        root.packageError = String(root._statusErrorOutput || FoamyI18n.t("Could not check Syncthing installation")).trim()
       }
       root._statusRefreshPending = false
-      if (rerun) Qt.callLater(root.updateStatus)
+      if (rerun)
+        Qt.callLater(root.updateStatus)
     }
   }
 }

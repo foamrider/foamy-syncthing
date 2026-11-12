@@ -17,7 +17,9 @@ import "models/PanelModel.js" as PanelModel
 QtObject {
   id: root
 
-  function tr(key, values) { return FoamyI18n.t(key, values) }
+  function tr(key, values) {
+    return FoamyI18n.t(key, values)
+  }
 
   readonly property string pluginRoot: localPath(Qt.resolvedUrl("."))
   readonly property string homePath: Quickshell.env("HOME") || ""
@@ -41,16 +43,11 @@ QtObject {
   readonly property var truncation: state.truncation || ({})
   readonly property var lifecyclePresentation: Facade.lifecyclePresentation(lifecycle)
 
-  readonly property string phase: core.starting ? "core-starting"
-    : core.incompatible ? "core-incompatible"
-    : core.unavailable && !core.running ? "core-unavailable"
-    : String(connection.phase || "discovering")
+  readonly property string phase: core.starting ? "core-starting" : core.incompatible ? "core-incompatible" : core.unavailable && !core.running ? "core-unavailable" : String(connection.phase || "discovering")
   readonly property bool online: core.protocolReady && connection.online === true
   property bool refreshing: false
-  readonly property string lastError: core.lastError
-    || String(connection.error && connection.error.message || "")
-  readonly property string recoveryWarning: core.starting ? root.tr("Starting the native core")
-    : Facade.truncated(truncation) ? root.tr("Some Syncthing items exceed panel limits; use the Web UI for the hidden entries") : ""
+  readonly property string lastError: core.lastError || String(connection.error && connection.error.message || "")
+  readonly property string recoveryWarning: core.starting ? root.tr("Starting the native core") : Facade.truncated(truncation) ? root.tr("Some Syncthing items exceed panel limits; use the Web UI for the hidden entries") : ""
   readonly property string baseUrl: String(webUi.url || "")
   readonly property string localDeviceId: String(identity.deviceId || "")
   readonly property var devices: Facade.devices(state.devices)
@@ -67,15 +64,13 @@ QtObject {
   // One projection per snapshot for every bar and popup (bars are per monitor).
   readonly property var folderRows: PanelModel.buildFolderRows(root, homePath)
   readonly property var deviceCounts: PanelModel.deviceCounts(root)
-  readonly property bool tooFewDevices: preferences.minimumConnectedDevices > 0
-    && deviceCounts.connected < preferences.minimumConnectedDevices
-  readonly property bool hasProblems: folderProblemCount > 0 || hasConflicts
-    || PanelModel.stateCount(folderRows, "problem") > 0
-  readonly property bool syncInProgress: syncingFolderCount > 0
-    || PanelModel.stateCount(folderRows, "scanning") > 0 || syncingFiles.length > 0
+  readonly property bool tooFewDevices: preferences.minimumConnectedDevices > 0 && deviceCounts.connected < preferences.minimumConnectedDevices
+  readonly property bool hasProblems: folderProblemCount > 0 || hasConflicts || PanelModel.stateCount(folderRows, "problem") > 0
+  readonly property bool syncInProgress: syncingFolderCount > 0 || PanelModel.stateCount(folderRows, "scanning") > 0 || syncingFiles.length > 0
   // title is a catalog key (translated where shown); detail is translated.
-  readonly property var compactSummary: PanelModel.compactSummary(root, folderRows, root.tr,
-    function(key, count, values) { return FoamyI18n.tn(key, count, values) })
+  readonly property var compactSummary: PanelModel.compactSummary(root, folderRows, root.tr, function (key, count, values) {
+    return FoamyI18n.tn(key, count, values)
+  })
   readonly property var pendingOfferRows: PanelModel.pendingOfferOptions(root, root.tr)
   readonly property int encryptedPendingOfferCount: PanelModel.encryptedPendingOfferCount(root)
 
@@ -115,64 +110,76 @@ QtObject {
   property bool conflictRescan: false
   // No helper for this CPU: the scan is not attempted again.
   property bool conflictScanUnavailable: false
-  readonly property string folderKey: folders.map(function(folder) {
+  readonly property string folderKey: folders.map(function (folder) {
     return String(folder.id || "") + "\u0001" + String(folder.path || "")
   }).join("\u0000")
 
   function localPath(url) {
     var value = String(url || "")
-    if (value.indexOf("file://") === 0) value = value.slice(7)
+    if (value.indexOf("file://") === 0)
+      value = value.slice(7)
     value = decodeURIComponent(value)
     return value.length > 1 && value.charAt(value.length - 1) === "/" ? value.slice(0, -1) : value
   }
 
   function summary() {
-    if (installationState === "missing") return root.tr("Syncthing is not installed")
-    if (installationState === "incomplete") return root.tr("Installation needs cleanup")
-    if (serviceAvailable && !serviceActive) return root.tr("Syncing stopped")
-    if (phase === "core-starting") return root.tr("Starting the native core")
-    if (phase === "discovering") return root.tr("Finding Syncthing")
-    if (phase === "loading") return root.tr("Reading status")
+    if (installationState === "missing")
+      return root.tr("Syncthing is not installed")
+    if (installationState === "incomplete")
+      return root.tr("Installation needs cleanup")
+    if (serviceAvailable && !serviceActive)
+      return root.tr("Syncing stopped")
+    if (phase === "core-starting")
+      return root.tr("Starting the native core")
+    if (phase === "discovering")
+      return root.tr("Finding Syncthing")
+    if (phase === "loading")
+      return root.tr("Reading status")
     if (phase === "error" || phase === "core-unavailable" || phase === "core-incompatible")
       return root.tr("Syncthing unavailable")
-    if (folderProblemCount > 0) return FoamyI18n.tn("%1 folder problems", folderProblemCount)
-    if (syncingFolderCount > 0) return FoamyI18n.tn("%1 folders syncing", syncingFolderCount)
+    if (folderProblemCount > 0)
+      return FoamyI18n.tn("%1 folder problems", folderProblemCount)
+    if (syncingFolderCount > 0)
+      return FoamyI18n.tn("%1 folders syncing", syncingFolderCount)
     return root.tr("Up to date")
   }
 
   function refresh(recheckErrors) {
     // The install state only matters while Syncthing is not reachable.
-    if (!online) packageController.updateStatus()
-    if (!core.protocolReady || refreshing) return false
+    if (!online)
+      packageController.updateStatus()
+    if (!core.protocolReady || refreshing)
+      return false
     refreshing = true
-    if (recheckErrors === true) folderMutationError = ""
-    var callback = function(ok, data, error) {
+    if (recheckErrors === true)
+      folderMutationError = ""
+    var callback = function (ok, data, error) {
       root.refreshing = false
       if (!ok && recheckErrors === true)
         root.folderMutationError = root.actionError(error, root.tr("Could not recheck Syncthing errors"))
     }
-    var request = recheckErrors === true && folderProblemCount > 0
-      ? core.action("folder.recheck-errors", {}, callback)
-      : core.refresh(callback)
-    if (!request) refreshing = false
+    var request = recheckErrors === true && folderProblemCount > 0 ? core.action("folder.recheck-errors", {}, callback) : core.refresh(callback)
+    if (!request)
+      refreshing = false
     return !!request
   }
 
   // Popup open and right-click refresh: start a stopped core right away
   // instead of waiting for the next slow retry.
   function recover() {
-    if (!core.running) core.retry()
+    if (!core.running)
+      core.retry()
   }
 
   function recoverCoreIfNeeded() {
-    if (packageController.state !== "existing" || core.running
-        || core.protocolReady || core.incompatible || !core.executableReady
-        || !core.unavailable || core.everProtocolReady) return false
+    if (packageController.state !== "existing" || core.running || core.protocolReady || core.incompatible || !core.executableReady || !core.unavailable || core.everProtocolReady)
+      return false
     return core.restart()
   }
 
   function configureCore() {
-    if (!core.protocolReady || !settingsReady) return
+    if (!core.protocolReady || !settingsReady)
+      return
     core.configure({
       probeIntervalSeconds: probeIntervalSeconds,
       refreshIntervalSeconds: refreshIntervalSec
@@ -185,7 +192,8 @@ QtObject {
 
   function publishFolderNotice(notice) {
     folderMutationNotice = String(notice || "")
-    if (!folderMutationNotice) return
+    if (!folderMutationNotice)
+      return
     noticeTimer.restart()
   }
 
@@ -207,8 +215,7 @@ QtObject {
 
   function runFolderAction(action, contractAction, folderId, args, notice) {
     if (!online || folderMutationBusy) {
-      folderMutationError = online ? root.tr("Another folder operation is already running")
-        : root.tr("Syncthing must be online to manage folders")
+      folderMutationError = online ? root.tr("Another folder operation is already running") : root.tr("Syncthing must be online to manage folders")
       return false
     }
     folderMutationBusy = true
@@ -217,7 +224,7 @@ QtObject {
     folderMutationError = ""
     noticeTimer.stop()
     folderMutationNotice = ""
-    var id = core.action(action, args || ({}), function(ok, data, error) {
+    var id = core.action(action, args || ({}), function (ok, data, error) {
       if (!ok) {
         if (action === "folder.add-existing" && error && error.code === "path_missing" && !args.createDirectory) {
           root.clearFolderAction()
@@ -230,7 +237,8 @@ QtObject {
       }
       root.finishFolderAction(contractAction, folderId, notice)
     })
-    if (id) return true
+    if (id)
+      return true
     failFolderAction(null, root.tr("The native core is not ready"))
     return false
   }
@@ -238,7 +246,8 @@ QtObject {
   function configuredFolder(folderId) {
     var wanted = String(folderId || "")
     for (var i = 0; i < folders.length; i++) {
-      if (String(folders[i].id || "") === wanted) return folders[i]
+      if (String(folders[i].id || "") === wanted)
+        return folders[i]
     }
     return null
   }
@@ -249,16 +258,16 @@ QtObject {
   }
 
   function setFolderPaused(folderId, paused) {
-    return runFolderAction(paused ? "folder.pause" : "folder.resume",
-      paused ? "pause" : "resume", folderId, { folderId: folderId },
-      root.tr(paused ? "Paused {name}. Folder configuration, sharing, and local files are unchanged."
-        : "Resumed {name}. Folder configuration, sharing, and local files are unchanged.", {name: folderLabel(folderId)}))
+    return runFolderAction(paused ? "folder.pause" : "folder.resume", paused ? "pause" : "resume", folderId, {
+      folderId: folderId
+    }, root.tr(paused ? "Paused {name}. Folder configuration, sharing, and local files are unchanged." : "Resumed {name}. Folder configuration, sharing, and local files are unchanged.", {
+      name: folderLabel(folderId)
+    }))
   }
 
   function unlinkFolder(folderId) {
     if (!online || folderMutationBusy) {
-      folderMutationError = online ? root.tr("Another folder operation is already running")
-        : root.tr("Syncthing must be online to unlink a folder")
+      folderMutationError = online ? root.tr("Another folder operation is already running") : root.tr("Syncthing must be online to unlink a folder")
       return false
     }
     var folder = configuredFolder(folderId)
@@ -270,34 +279,42 @@ QtObject {
     folderMutationBusy = true
     folderMutationAction = "unlink"
     folderMutationId = folderId
-    if (folder.paused) return removeUnlinkedFolder(folderId, false)
+    if (folder.paused)
+      return removeUnlinkedFolder(folderId, false)
 
     // The native removal contract requires pause first. Keep both steps busy
     // so another folder operation cannot run between pause and removal.
-    var request = core.action("folder.pause", { folderId: folderId }, function(ok, data, error) {
+    var request = core.action("folder.pause", {
+      folderId: folderId
+    }, function (ok, data, error) {
       if (!ok) {
         root.failFolderAction(error, root.tr("Could not pause the folder before unlinking"))
         return
       }
       root.removeUnlinkedFolder(folderId, true)
     })
-    if (!request) failFolderAction(null, root.tr("Could not start unlinking the folder"))
+    if (!request)
+      failFolderAction(null, root.tr("Could not start unlinking the folder"))
     return !!request
   }
 
   function removeUnlinkedFolder(folderId, pausedForUnlink) {
     var label = folderLabel(folderId)
-    var request = core.action("folder.forget", { folderId: folderId }, function(ok, data, error) {
+    var request = core.action("folder.forget", {
+      folderId: folderId
+    }, function (ok, data, error) {
       if (!ok) {
-        root.failFolderAction({ message: root.actionError(error, root.tr("Could not unlink the folder"))
-          + (pausedForUnlink ? " " + root.tr("The folder remains paused; its local files are unchanged.") : "") })
+        root.failFolderAction({
+          message: root.actionError(error, root.tr("Could not unlink the folder")) + (pausedForUnlink ? " " + root.tr("The folder remains paused; its local files are unchanged.") : "")
+        })
         return
       }
-      root.finishFolderAction("unlink", folderId,
-        root.tr("Unlinked {name} from Syncthing. Local files were kept.", {name: label}))
+      root.finishFolderAction("unlink", folderId, root.tr("Unlinked {name} from Syncthing. Local files were kept.", {
+        name: label
+      }))
     })
-    if (!request) failFolderAction(null, root.tr("Could not remove the folder from Syncthing.")
-      + (pausedForUnlink ? " " + root.tr("The folder remains paused; its local files are unchanged.") : ""))
+    if (!request)
+      failFolderAction(null, root.tr("Could not remove the folder from Syncthing.") + (pausedForUnlink ? " " + root.tr("The folder remains paused; its local files are unchanged.") : ""))
     return !!request
   }
 
@@ -310,20 +327,21 @@ QtObject {
       label: label,
       deviceIds: shared,
       pendingDeviceId: pendingDeviceId
-    }, shared.length > 0
-      ? root.tr("Selected devices receive a share offer to accept.")
-      : root.tr("Local only — this folder will not sync with other devices."))
+    }, shared.length > 0 ? root.tr("Selected devices receive a share offer to accept.") : root.tr("Local only — this folder will not sync with other devices."))
   }
 
   function requestFolderIdSuggestion() {
-    if (!online || folderPreparationBusy) return
+    if (!online || folderPreparationBusy)
+      return
     folderPreparationBusy = true
     folderPreparationError = ""
     folderIdSuggestion = ""
-    var id = core.action("folder.suggest-id", {}, function(ok, data, error) {
+    var id = core.action("folder.suggest-id", {}, function (ok, data, error) {
       root.folderPreparationBusy = false
-      if (ok) root.folderIdSuggestion = String(data && data.folderId || "")
-      else root.folderPreparationError = root.actionError(error, root.tr("Could not generate a folder ID"))
+      if (ok)
+        root.folderIdSuggestion = String(data && data.folderId || "")
+      else
+        root.folderPreparationError = root.actionError(error, root.tr("Could not generate a folder ID"))
     })
     if (!id) {
       folderPreparationBusy = false
@@ -343,14 +361,17 @@ QtObject {
   }
 
   function runLifecycle(action) {
-    if (!canControlService || serviceActionRunning) return false
+    if (!canControlService || serviceActionRunning)
+      return false
     serviceActionRunning = true
     controlError = ""
-    var id = core.action("lifecycle." + action, {}, function(ok, data, error) {
+    var id = core.action("lifecycle." + action, {}, function (ok, data, error) {
       root.serviceActionRunning = false
-      if (!ok) root.controlError = root.actionError(error, root.tr("Could not update the Syncthing service"))
+      if (!ok)
+        root.controlError = root.actionError(error, root.tr("Could not update the Syncthing service"))
     })
-    if (id) return true
+    if (id)
+      return true
     serviceActionRunning = false
     controlError = root.tr("The native core is not ready")
     return false
@@ -360,21 +381,34 @@ QtObject {
     return runLifecycle(serviceActive ? "stop" : "start")
   }
 
-  function installSyncthing() { packageController.install() }
+  function installSyncthing() {
+    packageController.install()
+  }
 
   // ---- conflict scan ------------------------------------------------------------
   // Walks every folder, so it runs when the folder set changes (not on every
   // snapshot: those arrive per sync event), plus every five minutes.
   function scanConflicts(force) {
-    if (!online || conflictScanUnavailable) return
-    if (force !== true && folderKey === scannedFolderKey) return
-    if (conflictScan.running || conflictInput !== "") { conflictRescan = true; return }
-    var scanned = folders.filter(function(folder) { return !!folder.path })
+    if (!online || conflictScanUnavailable)
+      return
+    if (force !== true && folderKey === scannedFolderKey)
+      return
+    if (conflictScan.running || conflictInput !== "") {
+      conflictRescan = true
+      return
+    }
+    var scanned = folders.filter(function (folder) {
+      return !!folder.path
+    })
     scannedFolderKey = folderKey
-    if (!scanned.length) { conflictFolderIds = ({}); conflictScanError = ""; return }
+    if (!scanned.length) {
+      conflictFolderIds = ({})
+      conflictScanError = ""
+      return
+    }
     // Syncthing keeps a folder path as entered ("~/Sync"); the helper walks
     // paths literally, so expand it here as the folder rows do.
-    var payload = JSON.stringify(scanned.map(function(folder) {
+    var payload = JSON.stringify(scanned.map(function (folder) {
       return PanelModel.resolveFolderPath(folder.path, root.homePath)
     }))
     // Bound UTF-8 below the helper's 1 MiB limit without putting paths in argv.
@@ -382,7 +416,9 @@ QtObject {
       conflictScanError = root.tr("Could not check for Syncthing conflicts")
       return
     }
-    conflictScanFolders = scanned.map(function(folder) { return String(folder.id || "") })
+    conflictScanFolders = scanned.map(function (folder) {
+      return String(folder.id || "")
+    })
     conflictInput = payload
     conflictOutput = ""
     conflictScan.stdinEnabled = true
@@ -393,7 +429,11 @@ QtObject {
     conflictDeadline.stop()
     conflictInput = ""
     var flags = null
-    try { flags = JSON.parse(conflictOutput.trim()) } catch (error) { flags = null }
+    try {
+      flags = JSON.parse(conflictOutput.trim())
+    } catch (error) {
+      flags = null
+    }
     if (FoamyNative.unavailable(code)) {
       conflictScanUnavailable = true
       conflictRescan = false
@@ -405,7 +445,9 @@ QtObject {
       conflictScanError = root.tr("Could not check for Syncthing conflicts")
     } else {
       var next = ({})
-      for (var i = 0; i < flags.length; i++) if (flags[i] === true) next[conflictScanFolders[i]] = true
+      for (var i = 0; i < flags.length; i++)
+        if (flags[i] === true)
+          next[conflictScanFolders[i]] = true
       conflictScanError = ""
       conflictFolderIds = next
     }
@@ -415,21 +457,27 @@ QtObject {
     }
   }
 
-  onOnlineChanged: if (online) Qt.callLater(function() { root.scanConflicts(true) })
+  onOnlineChanged: if (online)
+    Qt.callLater(function () {
+      root.scanConflicts(true)
+    })
   onFolderKeyChanged: Qt.callLater(scanConflicts)
   onWidgetSettingsChanged: {
     settingsReady = true
     configureCore()
   }
   Component.onCompleted: {
-    PanelModel.setNumberFormat(function(value, decimals) { return FoamyI18n.number(value, decimals) })
+    PanelModel.setNumberFormat(function (value, decimals) {
+      return FoamyI18n.number(value, decimals)
+    })
     Plugin.ServiceRegistry.instance = root
   }
   Component.onDestruction: {
     conflictDeadline.stop()
     conflictInput = ""
     conflictScan.running = false
-    if (Plugin.ServiceRegistry.instance === root) Plugin.ServiceRegistry.instance = null
+    if (Plugin.ServiceRegistry.instance === root)
+      Plugin.ServiceRegistry.instance = null
   }
 
   property CoreProcess core: CoreProcess {
@@ -437,13 +485,9 @@ QtObject {
     // No --desktop-authorized: that enables the core's local HTTP desktop
     // bridge (open/rename files for its Web UI theme), which this plugin never
     // uses; the Web UI opens with Qt.openUrlExternally.
-    startupArguments: [
-      "--probe-interval-seconds", String(root.probeIntervalSeconds),
-      "--lifecycle-kind", "systemd-user",
-      "--lifecycle-authorized",
-      "--lifecycle-unit", "syncthing.service"
-    ]
-    onProtocolReadyChanged: if (protocolReady) root.configureCore()
+    startupArguments: ["--probe-interval-seconds", String(root.probeIntervalSeconds), "--lifecycle-kind", "systemd-user", "--lifecycle-authorized", "--lifecycle-unit", "syncthing.service"]
+    onProtocolReadyChanged: if (protocolReady)
+      root.configureCore()
     onRunningChanged: {
       if (!running && root.folderMutationBusy)
         root.failFolderAction(null, root.tr("Folder operation stopped because the native core became unavailable"))
@@ -475,15 +519,21 @@ QtObject {
       write(root.conflictInput + "\n")
       stdinEnabled = false
     }
-    stdout: StdioCollector { onStreamFinished: root.conflictOutput = text }
-    onExited: function(code) { root.finishConflictScan(code) }
+    stdout: StdioCollector {
+      onStreamFinished: root.conflictOutput = text
+    }
+    onExited: function (code) {
+      root.finishConflictScan(code)
+    }
   }
   property Timer conflictDeadline: Timer {
     interval: 30000
     onTriggered: {
       // Bound blocked filesystem calls and helper startup failures as well.
-      if (root.conflictScan.running) root.conflictScan.signal(9)
-      else root.finishConflictScan(1)
+      if (root.conflictScan.running)
+        root.conflictScan.signal(9)
+      else
+        root.finishConflictScan(1)
     }
   }
 
@@ -491,10 +541,15 @@ QtObject {
   property FoamyIpc diagnostics: FoamyIpc {
     target: "foamy.syncthing.status"
     function state(): string {
-      return JSON.stringify({ phase: root.phase, online: root.online,
-        folders: root.folderCount, peers: root.connectedDeviceCount,
-        refreshing: root.refreshing, conflicts: root.hasConflicts,
-        error: root.lastError || root.conflictScanError })
+      return JSON.stringify({
+        phase: root.phase,
+        online: root.online,
+        folders: root.folderCount,
+        peers: root.connectedDeviceCount,
+        refreshing: root.refreshing,
+        conflicts: root.hasConflicts,
+        error: root.lastError || root.conflictScanError
+      })
     }
   }
 }

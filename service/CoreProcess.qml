@@ -46,7 +46,8 @@ QtObject {
   signal protocolFailed(string message)
 
   function start() {
-    if (!executableReady || incompatible) return false
+    if (!executableReady || incompatible)
+      return false
     restartAttempts = 0
     _expectedStop = false
     desiredRunning = true
@@ -54,14 +55,16 @@ QtObject {
   }
 
   function restartDelay(attempt) {
-    if (attempt <= maxRestartAttempts) return Math.min(4000, 250 * Math.pow(2, attempt - 1))
+    if (attempt <= maxRestartAttempts)
+      return Math.min(4000, 250 * Math.pow(2, attempt - 1))
     return Math.min(maxRestartDelayMs, slowRestartBaseMs * Math.pow(2, attempt - maxRestartAttempts - 1))
   }
 
   // A user-driven retry (popup opened, right-click refresh): start a stopped
   // or failed core now, including after a protocol failure.
   function retry() {
-    if (!executableReady || coreProcess.running || starting) return false
+    if (!executableReady || coreProcess.running || starting)
+      return false
     incompatible = false
     desiredRunning = true
     return restart()
@@ -71,11 +74,13 @@ QtObject {
     _restartRequested = false
     _expectedStop = true
     desiredRunning = false
-    if (coreProcess.running) coreProcess.signal(15)
+    if (coreProcess.running)
+      coreProcess.signal(15)
   }
 
   function restart() {
-    if (!executableReady) return false
+    if (!executableReady)
+      return false
     restartAttempts = 0
     _restartRequested = true
     _expectedStop = true
@@ -92,7 +97,9 @@ QtObject {
   }
 
   function configure(config, callback) {
-    return send("configure", { config: config || ({}) }, callback)
+    return send("configure", {
+      config: config || ({})
+    }, callback)
   }
 
   function refresh(callback) {
@@ -100,14 +107,21 @@ QtObject {
   }
 
   function action(name, args, callback) {
-    return send("action", { action: String(name || ""), args: args || ({}) },
-      callback)
+    return send("action", {
+      action: String(name || ""),
+      args: args || ({})
+    }, callback)
   }
 
   function send(type, values, callback) {
-    if (!coreProcess.running || !protocolReady && type !== "shutdown") return ""
+    if (!coreProcess.running || !protocolReady && type !== "shutdown")
+      return ""
     var id = String(++_nextId)
-    var message = { v: 2, type: type, id: id }
+    var message = {
+      v: 2,
+      type: type,
+      id: id
+    }
     var keys = Object.keys(values || ({}))
     for (var index = 0; index < keys.length; index++) {
       message[keys[index]] = values[keys[index]]
@@ -166,8 +180,7 @@ QtObject {
   }
 
   function acceptHello(message) {
-    if (message.type !== "hello" || !message.build
-        || typeof message.build.version !== "string") {
+    if (message.type !== "hello" || !message.build || typeof message.build.version !== "string") {
       failProtocol("core did not provide a compatible hello")
       return
     }
@@ -180,8 +193,7 @@ QtObject {
   }
 
   function acceptSnapshot(message) {
-    if (!Number.isInteger(message.revision) || message.revision <= revision
-        || !message.state || typeof message.state !== "object") {
+    if (!Number.isInteger(message.revision) || message.revision <= revision || !message.state || typeof message.state !== "object") {
       failProtocol("core snapshot revision is invalid")
       return
     }
@@ -199,10 +211,9 @@ QtObject {
     var next = Object.assign({}, _pending)
     delete next[id]
     _pending = next
-    if (callback) callback(message.ok === true, message.data || null,
-      message.error || null)
-    resultReceived(id, message.ok === true, message.data || null,
-      message.error || null)
+    if (callback)
+      callback(message.ok === true, message.data || null, message.error || null)
+    resultReceived(id, message.ok === true, message.data || null, message.error || null)
   }
 
   function utf8Length(value) {
@@ -217,7 +228,8 @@ QtObject {
     var pending = _pending
     _pending = ({})
     var ids = Object.keys(pending)
-    if (ids.length === 0) return
+    if (ids.length === 0)
+      return
     var failure = {
       code: "core_unavailable",
       message: String(message || FoamyI18n.t("The native core became unavailable"))
@@ -225,7 +237,8 @@ QtObject {
     for (var index = 0; index < ids.length; index++) {
       var id = ids[index]
       var callback = pending[id]
-      if (callback) callback(false, null, failure)
+      if (callback)
+        callback(false, null, failure)
       resultReceived(id, false, null, failure)
     }
   }
@@ -238,7 +251,8 @@ QtObject {
     _restartRequested = false
     desiredRunning = false
     failPending(message)
-    if (coreProcess.running) coreProcess.signal(15)
+    if (coreProcess.running)
+      coreProcess.signal(15)
     protocolFailed(message)
   }
 
@@ -258,16 +272,15 @@ QtObject {
       return
     }
     var unexpected = !_restartRequested && !_expectedStop && desiredRunning
-    var message = unexpected
-      ? FoamyI18n.t("The native core exited unexpectedly (status %1)", [exitCode])
-      : FoamyI18n.t("The native core stopped before the request completed")
+    var message = unexpected ? FoamyI18n.t("The native core exited unexpectedly (status %1)", [exitCode]) : FoamyI18n.t("The native core stopped before the request completed")
     failPending(message)
     if (_restartRequested) {
       _restartRequested = false
       restartTimer.restart()
       return
     }
-    if (_expectedStop || !desiredRunning) return
+    if (_expectedStop || !desiredRunning)
+      return
     unavailable = true
     lastError = message
     restartAttempts++
@@ -278,7 +291,8 @@ QtObject {
   Component.onDestruction: {
     _expectedStop = true
     desiredRunning = false
-    if (coreProcess.running) coreProcess.signal(15)
+    if (coreProcess.running)
+      coreProcess.signal(15)
   }
 
   property Process coreProcess: Process {
@@ -288,12 +302,14 @@ QtObject {
 
     stdout: SplitParser {
       splitMarker: "\n"
-      onRead: function(line) { root.handleLine(line) }
+      onRead: function (line) {
+        root.handleLine(line)
+      }
     }
 
     stderr: SplitParser {
       splitMarker: "\n"
-      onRead: function(line) {
+      onRead: function (line) {
         var value = String(line || "").trim()
         root.lastDiagnostic = value.length > 4096 ? value.slice(0, 4096) : value
       }
@@ -311,7 +327,9 @@ QtObject {
       root._expectedStop = false
     }
 
-    onExited: function(exitCode) { root.handleExit(exitCode) }
+    onExited: function (exitCode) {
+      root.handleExit(exitCode)
+    }
   }
 
   property Timer restartTimer: Timer {
@@ -321,19 +339,23 @@ QtObject {
       root._restartRequested = false
       root._expectedStop = false
       root.desiredRunning = false
-      Qt.callLater(function() { root.desiredRunning = true })
+      Qt.callLater(function () {
+        root.desiredRunning = true
+      })
     }
   }
 
   property Timer stableTimer: Timer {
     interval: root.stableAfterMs
     repeat: false
-    onTriggered: if (root.protocolReady) root.restartAttempts = 0
+    onTriggered: if (root.protocolReady)
+      root.restartAttempts = 0
   }
 
   property Timer shutdownTimer: Timer {
     interval: 1000
     repeat: false
-    onTriggered: if (root.coreProcess.running) root.coreProcess.signal(15)
+    onTriggered: if (root.coreProcess.running)
+      root.coreProcess.signal(15)
   }
 }
