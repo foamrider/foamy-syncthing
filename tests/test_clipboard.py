@@ -145,7 +145,8 @@ class ClipboardTests(unittest.TestCase):
 
     def test_qml_editing_and_paste(self):
         runner = shutil.which("qs")
-        if not runner:
+        if not runner or os.environ.get("FOAMY_TESTS_NO_QUICKSHELL"):
+            # tests/suite.sh --ci sets FOAMY_TESTS_NO_QUICKSHELL: no host QML there.
             self.skipTest("Quickshell is unavailable")
         # Quickshell's statically registered Io plugin requires the qs executable.
         # A stock qmltestrunner cannot load it as a dynamic QML plugin.

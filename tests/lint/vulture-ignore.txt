@@ -1,0 +1,12 @@
+do_GET  # tests/fake_syncthing.py: BaseHTTPRequestHandler dispatches requests to do_<METHOD> by name
+do_POST  # tests/fake_syncthing.py: BaseHTTPRequestHandler dispatches requests to do_<METHOD> by name
+do_PUT  # tests/fake_syncthing.py: BaseHTTPRequestHandler dispatches requests to do_<METHOD> by name
+do_PATCH  # tests/fake_syncthing.py: BaseHTTPRequestHandler dispatches requests to do_<METHOD> by name
+do_DELETE  # tests/fake_syncthing.py: BaseHTTPRequestHandler dispatches requests to do_<METHOD> by name
+log_message  # tests/fake_syncthing.py: BaseHTTPRequestHandler hook, overridden to keep the test output quiet
+protocol_version  # tests/fake_syncthing.py: read by BaseHTTPRequestHandler (HTTP/1.1 keep-alive)
+close_connection  # tests/fake_syncthing.py: read by BaseHTTPRequestHandler after each request
+disable_nagle_algorithm  # tests/fake_syncthing.py: read by StreamRequestHandler.setup()
+daemon_threads  # tests/fake_syncthing.py: read by ThreadingMixIn
+handle_error  # tests/fake_syncthing.py: socketserver hook, overridden to keep expected disconnects quiet
+client_address  # tests/fake_syncthing.py: an argument of the handle_error(request, client_address) hook signature

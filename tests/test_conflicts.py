@@ -231,7 +231,8 @@ class ConflictTests(unittest.TestCase):
 
     def test_qml_stdin_failure_timeout_and_destruction(self):
         runner = shutil.which("qs")
-        if not runner:
+        if not runner or os.environ.get("FOAMY_TESTS_NO_QUICKSHELL"):
+            # tests/suite.sh --ci sets FOAMY_TESTS_NO_QUICKSHELL: no host QML there.
             self.skipTest("Quickshell is unavailable")
         source = (ROOT / "Service.qml").read_text()
         methods = []
