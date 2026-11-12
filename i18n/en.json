@@ -61,7 +61,6 @@
   "Incoming shares": "Incoming shares",
   "Accept": "Accept",
   "Accept incoming share": "Accept incoming share",
-  "Service is not running": "Service is not running",
   "Running": "Running",
   "Install Syncthing": "Install Syncthing",
   "Directory": "Directory",
@@ -107,7 +106,6 @@
     "one": "{count} shared folder",
     "other": "{count} shared folders"
   },
-  "{paused} of {total} folders paused": "{paused} of {total} folders paused",
   "{count} folders": {
     "one": "{count} folder",
     "other": "{count} folders"

@@ -98,9 +98,18 @@ test('localized summary translates counts without translating folder names', () 
   const tr = (key, args) => translations.text(key, 'nb', args);
   const tn = (key, count, args) => translations.plural(key, count, 'nb', args);
   const ready = {online: true, serviceActive: true};
-  assert.equal(panel.compactSummary(ready, [{state: 'idle'}], tr, tn).detail, '1 delt mappe');
-  assert.equal(panel.compactSummary(ready, [{state: 'idle'}, {state: 'idle'}], tr, tn).detail, '2 delte mapper');
-  assert.equal(panel.compactSummary(ready, [{state: 'idle', paused: true}], tr, tn).detail, '1 av 1 mapper er satt på pause');
+  // The header keeps no line the tabs or rows already show: no folder count
+  // under "Up to date", no paused count under "Some folders paused".
+  for (const rows of [[{state: 'idle'}], [{state: 'idle'}, {state: 'idle'}]]) {
+    const summary = panel.compactSummary(ready, rows, tr, tn);
+    assert.deepEqual([summary.title, summary.detail], ['Up to date', '']);
+  }
+  const paused = panel.compactSummary(ready, [{state: 'idle', paused: true}, {state: 'idle'}], tr, tn);
+  assert.deepEqual([paused.title, paused.detail], ['Some folders paused', '']);
+  const missing = panel.compactSummary({online: false, installationState: 'missing', summaryText: 'Syncthing is not installed'}, [], tr, tn);
+  assert.deepEqual([missing.title, missing.detail], ['Syncthing is not installed', '']);
+  // Starting up still says what it waits for.
+  assert.equal(panel.compactSummary({online: false, installationState: 'existing', summaryText: 'Finding Syncthing'}, [], tr, tn).detail, 'Waiting for the local service');
   assert.equal(panel.compactSummary(ready, [{state: 'syncing', label: 'Settings', syncing: true, needBytes: 1024, globalBytes: 2048}], tr, tn).detail, 'Settings · 1.0 KiB gjenstår');
   assert.equal(panel.compactSummary({...ready, hasConflicts: true}, [{state: 'idle', conflict: true}], tr, tn).detail, 'Synkroniseringskonflikter i 1 mappe');
   // "Installation needs cleanup" names the file in the way, literally.
@@ -112,7 +121,7 @@ test('localized summary translates counts without translating folder names', () 
   const odd = '/home/{path} %1/syncthing';
   assert.equal(panel.compactSummary({...blocked, installationBlocker: odd}, [], tr, tn).detail.startsWith(odd + ' finnes'), true);
   assert.equal(panel.compactSummary({...blocked, installationBlocker: ''}, [], tr, tn).detail, 'Waiting for the local service');
-  assert.equal(panel.compactSummary({...blocked, installationState: 'missing'}, [], tr, tn).detail, 'Waiting for the local service');
+  assert.equal(panel.compactSummary({...blocked, installationState: 'missing'}, [], tr, tn).detail, '');
   // Decimals follow the language once the service registers FoamyI18n.number.
   panel.setNumberFormat((value, decimals) => Number(value).toFixed(decimals).replace('.', ','));
   assert.equal(panel.formatBytes(1536), '1,5 KiB');

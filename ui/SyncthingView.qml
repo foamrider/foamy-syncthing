@@ -73,7 +73,9 @@ PanelKeyCatcher {
       return ""
     return service.folderMutationError || service.controlError || service.folderPreparationError || service.packageError || service.conflictScanError || service.lastError || ""
   }
-  readonly property string deviceLine: !service ? FoamyI18n.t("Syncthing unavailable") : service.online && service.serviceActive ? FoamyI18n.t("{connected} / {total} devices online", counts) : service.installationState === "missing" ? FoamyI18n.t("Syncthing is not installed") : !service.serviceActive ? FoamyI18n.t("Service is not running") : FoamyI18n.t("Syncthing unavailable")
+  // The title row's meta: how many devices are online. When Syncthing is not
+  // reachable the hero title already says why, so the meta stays empty.
+  readonly property string deviceLine: service && service.online ? FoamyI18n.t("{connected} / {total} devices online", counts) : ""
 
   // ---- keyed rows (built only while shown) -------------------------------------
   readonly property var liveRows: opened && !editingSettings && !addOpen ? OverviewModel.rows(service, folderRows, FoamyI18n.t, PanelModel.formatBytes, PanelModel.formatCount, FoamyI18n.tn) : null

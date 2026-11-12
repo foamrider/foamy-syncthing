@@ -61,7 +61,6 @@
   "Incoming shares": "Innkommende delinger",
   "Accept": "Godta",
   "Accept incoming share": "Godta innkommende deling",
-  "Service is not running": "Tjenesten kjører ikke",
   "Running": "Kjører",
   "Install Syncthing": "Installer Syncthing",
   "Directory": "Mappe",
@@ -107,7 +106,6 @@
     "one": "{count} delt mappe",
     "other": "{count} delte mapper"
   },
-  "{paused} of {total} folders paused": "{paused} av {total} mapper er satt på pause",
   "{count} folders": {
     "one": "{count} mappe",
     "other": "{count} mapper"
