@@ -61,7 +61,7 @@ node --test tests/*.test.js tests/*.test.cjs
 python3 -I -m unittest discover -s tests -p 'test_*.py'
 FOAMY_HELPER='["bin/aarch64/foamy-syncthing-helper"]' python3 -I -m unittest discover -s tests -p 'test_*.py'
 python3 tests/runtime.py
-python3 tests/i18n-runtime.py
+python3 "$FOAMY_KIT"/preview/i18n_runtime.py .
 bash tests/kit-check.sh
 $FOAMY_KIT/check.sh .
 omarchy plugin validate .

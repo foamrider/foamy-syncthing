@@ -1,4 +1,4 @@
-// foamy-kit 0.9.0 39d8341d7022fb61c109219b4fa7d3b9fd34624da2d7c328bbf9cbdfbab93f2f — do not edit; change foamy-kit and run sync
+// foamy-kit 0.9.0 32aa0fb8fd9f8d3184da86ba58314f4972cbe61c43237a2c560bb05097571e01 — do not edit; change foamy-kit and run sync
 import QtQuick
 
 // One bar instance's membership in a FoamyShared scope.
@@ -29,13 +29,15 @@ QtObject {
   property string _joinedScope: ""
 
   function _sync() {
-    if (!_joined) return
+    if (!_joined)
+      return
     FoamyShared.setDemand(scope, member, demanding)
   }
 
   onDemandingChanged: _sync()
   onScopeChanged: {
-    if (!_joined) return
+    if (!_joined)
+      return
     FoamyShared.leave(_joinedScope, member)
     _joinedScope = scope
     FoamyShared.join(scope, member)

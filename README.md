@@ -173,7 +173,7 @@ python3 -I -m unittest discover -s tests -p 'test_*.py'
 FOAMY_HELPER='["bin/aarch64/foamy-syncthing-helper"]' \
   python3 -I -m unittest discover -s tests -p 'test_*.py'   # the aarch64 build (qemu binfmt)
 python3 tests/runtime.py              # offscreen on 4.5 (needs foamy-kit)
-python3 tests/i18n-runtime.py         # live language switch (OMARCHY_PATH picks another tree)
+python3 "$FOAMY_KIT"/preview/i18n_runtime.py .   # live language switch (the kit's catalog check)
 bash tests/kit-check.sh               # kit files and the native pin
 "$FOAMY_KIT"/check.sh .               # the kit's design lint (FOAMY_KIT: a foamy-kit checkout)
 omarchy-plugin-validate .

@@ -12,9 +12,9 @@ How the lists are made:
 
 ## `foamy-syncthing-helper`
 
-- `bin/aarch64/foamy-syncthing-helper`: sha256 `8b5d9e45bdff7fb8917b51384e085ce56a46b2105a214255602637ca9b547190`
-- `bin/x86_64/foamy-syncthing-helper`: sha256 `e175f54fb9a9ebef2ba7b8c7b686c0aab305e7bec7cb6df083d96856e3ae0bb3`
-- `native/native.pin`: source `7ca954bd5942b8fb773fbd150de713a12b537f715e61c697b06fb95b07bf51c1`, toolchain 1.99.1
+- `bin/aarch64/foamy-syncthing-helper`: sha256 `0781aeb47f8a8a550b05a8e0114e450d43873cebccfb3bb047e467f7f9e498b1`
+- `bin/x86_64/foamy-syncthing-helper`: sha256 `c1da970c5a74f3e5733e494404967b8b5789660b45def592fbf4a59f8d807ef8`
+- `native/native.pin`: source `c62e9367a1d45bf76b0cb78d5d88d9231e340007adf7429f13971563335b7c0e`, toolchain 1.99.1
 
 ### Crates linked into `foamy-syncthing-helper`
 
@@ -49,7 +49,7 @@ First-party crates (not third-party code, listed for completeness):
 
 | Crate | Version | Source | License | Arches | Notices |
 |---|---|---|---|---|---|
-| foamy-helper | 0.1.1 | `kit/rust/foamy-helper/` (foamy-kit, vendored) | MIT | both | [N5](#n5) |
+| foamy-helper | 0.1.2 | `kit/rust/foamy-helper/` (foamy-kit, vendored) | MIT | both | [N5](#n5) |
 | foamy-syncthing-helper | 0.1.0 | `native/` (this plugin) | MIT | both | `LICENSE` |
 
 ### Toolchain code linked into `foamy-syncthing-helper`
@@ -358,7 +358,7 @@ DEALINGS IN THE SOFTWARE.
 
 ### N5
 
-Shipped by: foamy-helper 0.1.1 (foamy-kit's LICENSE).
+Shipped by: foamy-helper 0.1.2 (foamy-kit's LICENSE).
 
 ```text
 MIT License
