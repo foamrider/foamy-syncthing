@@ -171,6 +171,16 @@ bridge was never used); the Web UI opens in your browser.
 ## Validate
 
 ```sh
+mise install                          # once: the tool versions mise.toml pins
+tests/validate.sh                     # every check below, the linters and the native tests
+tests/validate.sh --ci                # what CI runs: no Quickshell, no Omarchy host
+```
+
+`tests/validate.sh` runs the linters and formatters (findings that existed
+at adoption are in `tests/lint/`), `kit/native/build-native.sh . --test`
+and then `tests/suite.sh`, which runs the tests one by one:
+
+```sh
 node --test tests/*.test.js tests/*.test.cjs
 python3 -I -m unittest discover -s tests -p 'test_*.py'
 FOAMY_HELPER='["bin/aarch64/foamy-syncthing-helper"]' \

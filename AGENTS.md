@@ -55,6 +55,10 @@ rules a change must keep.
 
 ## Tests
 
+Run `tests/validate.sh` (after `mise install`) before calling a change
+ready; `tests/validate.sh --ci` is what CI runs. It ends with
+`tests/suite.sh`, which runs these:
+
 ```sh
 export FOAMY_KIT=~/GitHub/Personal/foamy-kit   # or the foamy-kit checkout in use
 node --test tests/*.test.js tests/*.test.cjs
@@ -68,7 +72,9 @@ omarchy plugin validate .
 ```
 
 `tests/test_stream.py` is the core's black-box contract (fake Syncthing,
-fake `systemctl`); `tests/test_conflicts.py` the scan's.
+fake `systemctl`); `tests/test_conflicts.py` the scan's;
+`tests/test_install_script.py` the install script's (fake `omarchy`,
+`systemctl` and `uwsm-app`).
 
 <!-- foamy-kit review: begin; managed by foamy-kit sync.sh, edit outside this block -->
 ## Code review
