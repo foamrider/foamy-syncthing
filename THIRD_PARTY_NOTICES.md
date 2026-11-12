@@ -12,9 +12,9 @@ How the lists are made:
 
 ## `foamy-syncthing-helper`
 
-- `bin/aarch64/foamy-syncthing-helper`: sha256 `b8acf8f2a20396bcb35d649f0fc11aaf4d646037eafbb3c29bfd0fe5fc4e442d`
-- `bin/x86_64/foamy-syncthing-helper`: sha256 `18cd3cdb7320ac61833c5a03e76141d7fb75c4196f70301c3c2239e584434b56`
-- `native/native.pin`: source `5d1d505b417ce867626459ff92941e2c1fbf9525e8a3b19b9769b0114aa78ec2`, toolchain 1.99.1
+- `bin/aarch64/foamy-syncthing-helper`: sha256 `1959219e3b6c349d3149f1f7efb485dc70ee984947428b97d7e8ab7f0b80b4b3`
+- `bin/x86_64/foamy-syncthing-helper`: sha256 `aa5d777b0b98a2b7e5fa6ffedddc3a1b1e8968a1f75769650e0650a6ffa64f8a`
+- `native/native.pin`: source `f49e693b867e7b5224d91a00dee64cf69f49ad03b2d7269487d0ea8e687687f7`, toolchain 1.99.1
 
 ### Crates linked into `foamy-syncthing-helper`
 
