@@ -23,7 +23,7 @@ import fake_syncthing
 
 ROOT = Path(__file__).resolve().parents[1]
 UNIT = "syncthing.service"
-PLUGIN_FLAGS = ["--probe-interval-seconds", "15", "--desired-service-state", "enabled",
+PLUGIN_FLAGS = ["--probe-interval-seconds", "15",
                 "--lifecycle-kind", "systemd-user", "--lifecycle-authorized", "--lifecycle-unit", UNIT]
 
 

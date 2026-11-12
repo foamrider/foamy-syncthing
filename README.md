@@ -73,7 +73,6 @@ returns a JSON health summary.
 | `refreshIntervalSec` | 60 | Full status refresh, 60–3600 s. File activity arrives live through Syncthing's event stream |
 | `openRefreshIntervalSec` | 5 | Refresh while a popup is open, 2–60 s |
 | `probeIntervalSec` | 15 | Installation check while Syncthing is offline (5–300 s); also the core's systemd probe interval |
-| `serviceState` | `enabled` | Passed to the native core as the intended autostart state; the panel doesn't act on it |
 
 All five are in Omarchy's widget settings (`barWidget.schema`); the popup's
 Settings page has the device warning and both refresh intervals.

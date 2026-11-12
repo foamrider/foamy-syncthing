@@ -257,8 +257,6 @@ pub struct Lifecycle {
     pub can_control: bool,
     #[serde(rename = "canStart")]
     pub can_start: bool,
-    #[serde(rename = "desiredState", skip_serializing_if = "String::is_empty")]
-    pub desired_state: String,
     #[serde(skip_serializing_if = "String::is_empty")]
     pub error: String,
 }

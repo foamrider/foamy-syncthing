@@ -78,7 +78,7 @@ class SnapshotTests(CoreTest):
         self.assertEqual(state["lifecycle"], {
             "kind": "systemd-user", "unit": UNIT, "classification": "managed", "available": True, "active": True,
             "activeState": "active", "unitFileState": "enabled", "authorized": True, "targetMatch": True,
-            "canControl": True, "canStart": False, "desiredState": "enabled"})
+            "canControl": True, "canStart": False})
         self.assertEqual(sorted(state), sorted([
             "connection", "identity", "devices", "folders", "pendingFolders", "pendingDevices", "nearbyDevices",
             "activity", "webUi", "installation", "counts", "truncation", "lifecycle"]))
@@ -166,16 +166,16 @@ class RequestTests(CoreTest):
         self.assertEqual(core.finish(), 0)
         self.assertEqual(core.frames[-1], {"v": 2, "type": "end", "reason": "shutdown"})
 
-    def test_configure_validates_and_publishes_the_desired_state(self):
+    def test_configure_validates_the_intervals(self):
         core, _ = self.folder_core()
         core.ready()
-        result = core.request("configure", "1", config={"probeIntervalSeconds": 5, "refreshIntervalSeconds": 60,
-                                                         "desiredServiceState": "disabled"})
+        result = core.request("configure", "1", config={"probeIntervalSeconds": 5, "refreshIntervalSeconds": 60})
         self.assertTrue(result["ok"], result)
-        self.assertEqual(core.latest_state()["lifecycle"]["desiredState"], "disabled")
+        self.assertNotIn("desiredState", core.latest_state()["lifecycle"])
         for config, message in [({"probeIntervalSeconds": 0}, "probe interval must be between 1 and 3600 seconds"),
                                 ({"refreshIntervalSeconds": 59}, "refresh interval must be between 60 and 3600 seconds"),
-                                ({"desiredServiceState": "on"}, "desired service state must be enabled or disabled"),
+                                # The removed serviceState setting is no longer part of the request.
+                                ({"desiredServiceState": "enabled"}, "configuration request is invalid"),
                                 ({"unknown": 1}, "configuration request is invalid"),
                                 ("x", "configuration request is invalid")]:
             result = core.request("configure", "c" + json.dumps(config), config=config)
@@ -469,7 +469,7 @@ class LifecycleTests(CoreTest):
         lifecycle = core.ready()["state"]["lifecycle"]
         self.assertEqual(lifecycle, {"kind": "systemd-user", "classification": "external", "available": False,
                                      "active": False, "authorized": False, "targetMatch": False,
-                                     "canControl": False, "canStart": False, "desiredState": "enabled"})
+                                     "canControl": False, "canStart": False})
         self.assertEqual(core.action("lifecycle.start", "1")["error"]["code"], "lifecycle_forbidden")
         self.assertFalse([c for c in core.calls() if c[0] == "systemctl"])
         core.request("shutdown", "2")
@@ -486,7 +486,7 @@ class ArgumentTests(CoreTest):
     def test_invalid_invocations_exit_before_hello(self):
         for flags in (["--lifecycle-authorized"], ["--lifecycle-kind", "systemd-user"],
                       ["--lifecycle-kind", "launchd"], ["--probe-interval-seconds", "0"],
-                      ["--probe-interval-seconds", "3601"], ["--desired-service-state", "on"],
+                      ["--probe-interval-seconds", "3601"], ["--desired-service-state", "enabled"],
                       ["--unknown"], ["extra"], ["--lifecycle-authorized", "--lifecycle-kind", "systemd-user",
                                                   "--lifecycle-unit", "a\nb.service"]):
             with self.subTest(flags=flags):
@@ -502,12 +502,11 @@ class ArgumentTests(CoreTest):
         self.assertIn(b"Syncthing configuration was not found", core.stderr)
 
     def test_flag_spellings(self):
-        core = self.core(flags=["-probe-interval-seconds=20", "--desired-service-state=disabled",
-                                "-lifecycle-kind=systemd-user", "--lifecycle-authorized=true",
-                                "--lifecycle-unit=" + UNIT])
+        core = self.core(flags=["-probe-interval-seconds=20", "-lifecycle-kind=systemd-user",
+                                "--lifecycle-authorized=true", "--lifecycle-unit=" + UNIT])
         state = core.ready()["state"]
-        self.assertEqual(state["lifecycle"]["desiredState"], "disabled")
         self.assertTrue(state["lifecycle"]["authorized"])
+        self.assertEqual(state["lifecycle"]["unit"], UNIT)
         core.request("shutdown", "1")
         core.finish()
 

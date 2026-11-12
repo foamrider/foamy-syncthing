@@ -22,8 +22,24 @@ test('public defaults and bounds do not inherit personal warning settings', () =
   assert.equal(value({refreshIntervalSec: 30}, 'refreshIntervalSec'), 60);
   assert.equal(value({refreshIntervalSec: 120}, 'refreshIntervalSec'), 120);
   assert.equal(value({probeIntervalSec: 301}, 'probeIntervalSec'), 15);
-  assert.equal(value({serviceState: 'unexpected'}, 'serviceState'), 'enabled');
-  assert.equal(value({serviceState: 'disabled'}, 'serviceState'), 'disabled');
+});
+
+test('a stored serviceState from an older version loads and saves harmlessly', () => {
+  // The setting did nothing and was removed; shell.json entries may still hold it.
+  for (const schemaFields of [schema.fields, manifest.barWidget.schema]) {
+    assert.equal(schemaFields.some(f => f.key === 'serviceState'), false);
+  }
+  assert.equal('serviceState' in manifest.barWidget.defaults, false);
+  const stored = {id: 'foamy.syncthing', serviceState: 'disabled', refreshIntervalSec: 120};
+  assert.deepEqual(JSON.parse(JSON.stringify(prefs.values(schema.fields, stored))),
+                   JSON.parse(JSON.stringify(prefs.values(schema.fields, {refreshIntervalSec: 120}))));
+  assert.deepEqual(Object.keys(prefs.storedProblems(schema.fields, stored)), []);
+  const calls = [];
+  const bar = {shell: {updateEntryInline(id, entry) { calls.push(entry); return true; }}};
+  assert.equal(prefs.save(bar, 'foamy.syncthing', schema.fields, stored, 'probeIntervalSec', 30).ok, true);
+  // Another key's save leaves the old value as it was, like any unknown key.
+  assert.equal(calls[0].serviceState, 'disabled');
+  assert.equal(calls[0].probeIntervalSec, 30);
 });
 
 test('the schema mirrors the manifest defaults and schema', () => {

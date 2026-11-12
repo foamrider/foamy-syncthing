@@ -62,7 +62,6 @@ fn start(args: &[OsString]) -> Result<(), String> {
         session::Operational {
             probe_interval: Duration::from_secs(flags.probe_seconds as u64),
             refresh_interval: Duration::from_secs(60),
-            desired_service_state: flags.desired_service_state,
         },
     );
     protocol::run(Arc::new(session), BUILD_VERSION)
@@ -119,7 +118,6 @@ struct Flags {
     discovery: Options,
     binding: systemd::Binding,
     probe_seconds: i64,
-    desired_service_state: String,
 }
 
 /// Go's `flag` package rules: `-name` or `--name`, a value as `=value` or
@@ -129,7 +127,7 @@ fn parse_flags(args: &[OsString]) -> Result<Flags, String> {
     let invalid = || "invalid command arguments".to_string();
     let mut strings: std::collections::BTreeMap<&str, String> = std::collections::BTreeMap::new();
     let mut bools: std::collections::BTreeMap<&str, bool> = std::collections::BTreeMap::new();
-    const STRING_FLAGS: [&str; 9] = [
+    const STRING_FLAGS: [&str; 8] = [
         "config",
         "endpoint",
         "credential-file",
@@ -138,7 +136,6 @@ fn parse_flags(args: &[OsString]) -> Result<Flags, String> {
         "lifecycle-kind",
         "lifecycle-unit",
         "lifecycle-config",
-        "desired-service-state",
     ];
     const BOOL_FLAGS: [&str; 3] = ["insecure-tls", "lifecycle-authorized", "json"];
     let mut probe = "15".to_string();
@@ -216,13 +213,6 @@ fn parse_flags(args: &[OsString]) -> Result<Flags, String> {
     if !(1..=3600).contains(&probe_seconds) {
         return Err("probe interval must be between 1 and 3600 seconds".into());
     }
-    let desired = strings
-        .get("desired-service-state")
-        .cloned()
-        .unwrap_or_else(|| "enabled".into());
-    if desired != "enabled" && desired != "disabled" {
-        return Err("desired service state must be enabled or disabled".into());
-    }
     if unit.contains(['\r', '\n', '\0']) {
         return Err("lifecycle unit is invalid".into());
     }
@@ -241,7 +231,6 @@ fn parse_flags(args: &[OsString]) -> Result<Flags, String> {
             config_path: lifecycle_config,
         },
         probe_seconds,
-        desired_service_state: desired,
     })
 }
 
@@ -330,8 +319,6 @@ mod tests {
         let parsed = flags(&[
             "--probe-interval-seconds",
             "15",
-            "--desired-service-state",
-            "enabled",
             "--lifecycle-kind",
             "systemd-user",
             "--lifecycle-authorized",
@@ -364,12 +351,6 @@ mod tests {
                 .discovery
                 .insecure_tls
         );
-        assert_eq!(
-            flags(&["--desired-service-state=disabled"])
-                .unwrap()
-                .desired_service_state,
-            "disabled"
-        );
         for (args, message) in [
             (&["--desktop-authorized"][..], "invalid command arguments"),
             (&["--probe-interval-seconds"], "invalid command arguments"),
@@ -398,9 +379,10 @@ mod tests {
                 &["--probe-interval-seconds", "3601"],
                 "probe interval must be between 1 and 3600 seconds",
             ),
+            // The plugin's removed serviceState setting has no flag any more.
             (
-                &["--desired-service-state", "on"],
-                "desired service state must be enabled or disabled",
+                &["--desired-service-state", "enabled"],
+                "invalid command arguments",
             ),
         ] {
             assert_eq!(flags(args).err().as_deref(), Some(message), "{args:?}");

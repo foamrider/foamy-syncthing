@@ -26,7 +26,6 @@ QtObject {
   property var widgetSettings: ({})
   property bool settingsReady: false
   readonly property var preferences: Prefs.values(Schema.fields, widgetSettings)
-  readonly property string configuredServiceState: preferences.serviceState
   readonly property int probeIntervalSeconds: preferences.probeIntervalSec
   readonly property int refreshIntervalSec: preferences.refreshIntervalSec
 
@@ -175,8 +174,7 @@ QtObject {
     if (!core.protocolReady || !settingsReady) return
     core.configure({
       probeIntervalSeconds: probeIntervalSeconds,
-      refreshIntervalSeconds: refreshIntervalSec,
-      desiredServiceState: configuredServiceState
+      refreshIntervalSeconds: refreshIntervalSec
     })
   }
 
@@ -440,7 +438,6 @@ QtObject {
     // uses; the Web UI opens with Qt.openUrlExternally.
     startupArguments: [
       "--probe-interval-seconds", String(root.probeIntervalSeconds),
-      "--desired-service-state", root.configuredServiceState,
       "--lifecycle-kind", "systemd-user",
       "--lifecycle-authorized",
       "--lifecycle-unit", "syncthing.service"

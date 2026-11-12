@@ -40,11 +40,11 @@
 //!   `--expected-device-id`, `--insecure-tls`, `--lifecycle-kind`
 //!   (`systemd-user`), `--lifecycle-authorized`, `--lifecycle-unit`,
 //!   `--lifecycle-config`, `--probe-interval-seconds` (1–3600, default 15),
-//!   `--desired-service-state` (`enabled`|`disabled`), `--json` (accepted,
-//!   ignored). A lifecycle binding needs `--lifecycle-authorized`,
-//!   `--lifecycle-kind systemd-user` and a unit. Not ported:
-//!   `--desktop-authorized` (the desktop bridge) and the `probe`/`status`
-//!   commands. A bad invocation, a configuration that can't be found or read,
+//!   `--json` (accepted, ignored). A lifecycle binding needs
+//!   `--lifecycle-authorized`, `--lifecycle-kind systemd-user` and a unit.
+//!   Not ported: `--desktop-authorized` (the desktop bridge),
+//!   `--desired-service-state` (an autostart intent the panel never acted
+//!   on) and the `probe`/`status` commands. A bad invocation, a configuration that can't be found or read,
 //!   or an unusable TLS certificate prints `foamy-syncthing-helper: <reason>`
 //!   on stderr and exits 1 before `hello`.
 //! - Discovery: `--config`, else `--endpoint` with a private (`0600`, not a
@@ -71,7 +71,7 @@
 //!   system roots for an explicit HTTPS endpoint without a certificate.
 //! - stdin requests and stdout frames are one JSON object per line, at most
 //!   8 MiB with the newline. Requests: `refresh`, `configure` (live
-//!   probe/refresh intervals and desired state), `action` and `shutdown`;
+//!   probe/refresh intervals), `action` and `shutdown`;
 //!   frames: `hello`, `snapshot`, `result`, `end`, `fatal`. Ported actions:
 //!   `folder.pause`, `folder.resume`, `folder.forget`, `folder.add-existing`,
 //!   `folder.suggest-id`, `folder.recheck-errors`, `lifecycle.start`,
