@@ -7,6 +7,11 @@ import "../kit" as Plugin
 Item {
   id: root
 
+  // How long a test waits for a paste to end. A paste that works ends on its
+  // own and test_clipboard.py's stand-in timeout lifts its deadline, so on a
+  // loaded machine it may take longer than kit/clipboard.sh's 2 s; a stalled
+  // source still ends at those 2 s.
+  readonly property int pasteWait: 60000
   property bool ready: false
 
   height: 250
@@ -75,7 +80,7 @@ Item {
     }
     function paste(key, modifiers) {
       keyClick(key, modifiers)
-      tryCompare(field, "pasteRunning", false, 4000)
+      tryCompare(field, "pasteRunning", false, root.pasteWait)
     }
     function source(mode) {
       setup.command = ["clipboard-fixture", mode]
@@ -87,14 +92,14 @@ Item {
       source("delayed")
       keyClick(Qt.Key_V, Qt.ControlModifier)
       field.visible = false
-      tryCompare(field, "pasteRunning", false)
+      tryCompare(field, "pasteRunning", false, root.pasteWait)
       field.visible = true
       field.focusInput()
       wait(500)
       compare(field.text, "")
       keyClick(Qt.Key_V, Qt.ControlModifier)
       field.enabled = false
-      tryCompare(field, "pasteRunning", false)
+      tryCompare(field, "pasteRunning", false, root.pasteWait)
       field.enabled = true
       wait(500)
       compare(field.text, "")
@@ -105,7 +110,7 @@ Item {
       menu.popup()
       tryCompare(menu, "opened", true)
       menu.itemAt(5).triggered()
-      tryCompare(field, "pasteRunning", false)
+      tryCompare(field, "pasteRunning", false, root.pasteWait)
       compare(field.text, "folder")
       compare(menu.opened, false)
     }
@@ -127,7 +132,7 @@ Item {
       source("delayed")
       keyClick(Qt.Key_V, Qt.ControlModifier)
       keyClick(Qt.Key_Left)
-      tryCompare(field, "pasteRunning", false)
+      tryCompare(field, "pasteRunning", false, root.pasteWait)
       compare(field.text, "keep")
     }
     function test_late_result_does_not_overwrite_typing() {
@@ -135,7 +140,7 @@ Item {
       keyClick(Qt.Key_V, Qt.ControlModifier)
       verify(field.pasteRunning)
       keyClick(Qt.Key_X)
-      tryCompare(field, "pasteRunning", false)
+      tryCompare(field, "pasteRunning", false, root.pasteWait)
       compare(field.text, "x")
     }
     function test_long_path_scrolls() {
@@ -148,7 +153,7 @@ Item {
     }
     function test_middle_click_primary() {
       mouseClick(field, 15, 15, Qt.MiddleButton)
-      tryCompare(field, "pasteRunning", false)
+      tryCompare(field, "pasteRunning", false, root.pasteWait)
       compare(field.text, "folder")
     }
     function test_paste_keeps_field_length_limit() {
@@ -195,7 +200,7 @@ Item {
       source("delayed")
       keyClick(Qt.Key_V, Qt.ControlModifier)
       keyClick(Qt.Key_V, Qt.ControlModifier)
-      tryCompare(field, "pasteRunning", false)
+      tryCompare(field, "pasteRunning", false, root.pasteWait)
       compare(field.text, "later")
       source("normal")
       paste(Qt.Key_V, Qt.ControlModifier)

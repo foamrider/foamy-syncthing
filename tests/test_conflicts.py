@@ -19,15 +19,21 @@ ROOT = Path(__file__).resolve().parents[1]
 KIT = Path(os.environ.get("FOAMY_KIT", Path.home() / "GitHub/Personal/foamy-kit"))
 
 
-def isolated_env(base, **overrides):
-    """os.environ with `overrides`, then the kit's host isolation
-    (preview/hostenv.py: no Omarchy bin dir or AppImage libraries on PATH and
-    LD_LIBRARY_PATH, dead audio and system-bus addresses). Imported here, so the
+def hostenv():
+    """The kit checkout's preview/hostenv.py. Imported on use, so the
     helper-only tests run without a foamy-kit checkout."""
     sys.path.insert(0, str(KIT / "preview"))
     import hostenv
 
-    return hostenv.isolate(dict(os.environ, **overrides), base)
+    return hostenv
+
+
+def isolated_env(base, **overrides):
+    """os.environ with `overrides`, then the kit's host isolation
+    (hostenv.isolate: no Omarchy bin dir or AppImage libraries on PATH and
+    LD_LIBRARY_PATH, dead audio, system and session bus addresses, no
+    display)."""
+    return hostenv().isolate(dict(os.environ, **overrides), base)
 
 
 MAX_INPUT_BYTES = 1048576
@@ -473,11 +479,18 @@ ShellRoot {
                 XDG_RUNTIME_DIR=str(runtime),
                 TEST_CONFLICT_STATE=str(state),
             )
-            result = subprocess.run(
-                [runner, "-p", str(base), "--no-color"], env=env, text=True, capture_output=True, timeout=180
-            )
-            output = result.stdout + result.stderr
-            self.assertEqual(result.returncode, 0, output)
+            # Its own process group: stop() also ends any stub scan (a stalled
+            # one sleeps 30 s) that outlived the shell's own cleanup.
+            with tempfile.TemporaryFile("w+", errors="replace") as out:
+                with hostenv().ProcessGroup(
+                    [runner, "-p", str(base), "--no-color"], env=env, stdout=out, stderr=subprocess.STDOUT
+                ) as shell:
+                    status = shell.wait(180)
+                # After stop(): nothing in the group writes to it any more.
+                out.seek(0)
+                output = out.read()
+            self.assertIsNotNone(status, "qs did not finish within 180 s\n" + output)
+            self.assertEqual(status, 0, output)
             self.assertIn("CONFLICT_SCAN passed=8 failed=0", output)
             records = [json.loads(line) for line in state.read_text().splitlines()]
             self.assertEqual(records[0]["paths"], ['private-Canary-847 📁 "quote"\n--exec', "-leading-dash"])
