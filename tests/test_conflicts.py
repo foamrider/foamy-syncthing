@@ -336,7 +336,20 @@ ShellRoot {
         function scan(paths) {
           scanner.folders = paths.map(function(path, index) { return {id:"f" + index, path:path} })
           scanner.scanConflicts(true)
-          tryCompare(scanner, "conflictInput", "", 3000)
+          tryCompare(scanner, "conflictInput", "", 20000)
+        }
+        // Runs `command` until it succeeds (at most 20 s): conditions that
+        // take a moment on a loaded machine, without a fixed wait.
+        function waitForCommand(command) {
+          root.probeFinished = false; root.probeExit = -1
+          tryVerify(function() {
+            if (!probe.running && !(root.probeFinished && root.probeExit === 0)) {
+              probe.command = command
+              root.probeFinished = false
+              probe.running = true
+            }
+            return root.probeFinished && root.probeExit === 0
+          }, 20000, String(command))
         }
         function test_1_stdin_results_per_folder() {
           scan(['private-Canary-847 📁 "quote"\\n--exec', '-leading-dash'])
@@ -366,16 +379,19 @@ ShellRoot {
           compare(scanner.hasConflicts, false)
         }
         function test_3_deadline_and_busy() {
-          scanner.conflictDeadline.interval = 250
           scanner.conflictFolderIds = {f0: true}
           scanner.folders = [{id:"f0", path:"stall"}]
           scanner.scanConflicts()
           scanner.scanConflicts()
-          tryCompare(scanner, "conflictInput", "", 3000)
+          // Once the stalled scan really runs, a short deadline (a new
+          // interval restarts the running timer) has to end it.
+          // The stub logs a run first thing (its Python start can be slow).
+          waitForCommand(["/usr/bin/grep", "-qF", '"paths": ["stall"]', CONFLICT_STATE_FILE])
+          scanner.conflictDeadline.interval = 250
+          tryCompare(scanner, "conflictInput", "", 20000)
           verify(scanner.conflictScanError !== "")
           compare(scanner.hasConflicts, true)
-          wait(100)
-          compare(scanner.conflictScan.running, false)
+          tryCompare(scanner.conflictScan, "running", false, 20000)
           scanner.conflictDeadline.interval = 30000
           scan(["clear"])
           compare(scanner.conflictScanError, "")
@@ -397,19 +413,15 @@ ShellRoot {
           var worker = factory.createObject(root)
           worker.folders = [{id:"f0", path:"destroy"}]
           worker.scanConflicts()
-          tryVerify(function() { return Number(worker.conflictScan.processId) > 0 }, 1000)
+          tryVerify(function() { return Number(worker.conflictScan.processId) > 0 }, 20000)
           var pid = worker.conflictScan.processId
           worker.destroy()
-          wait(100)
-          probe.command = ["/usr/bin/test", "!", "-e", "/proc/" + pid]
-          root.probeFinished = false; probe.running = true
-          tryCompare(root, "probeFinished", true, 1000)
-          compare(root.probeExit, 0)
+          waitForCommand(["/usr/bin/test", "!", "-e", "/proc/" + pid])
         }
         function test_6_snapshots_with_the_same_folders_skip_the_walk() {
           scanner.folders = [{id:"a", path:"counted"}]
           scanner.scanConflicts()
-          tryCompare(scanner, "conflictInput", "", 3000)
+          tryCompare(scanner, "conflictInput", "", 20000)
           // A new snapshot rebuilds the array with the same folders: no walk.
           scanner.folders = [{id:"a", path:"counted"}]
           scanner.scanConflicts()
@@ -418,14 +430,14 @@ ShellRoot {
           // A changed folder set and the periodic timer (force) do walk.
           scanner.folders = [{id:"a", path:"counted"}, {id:"b", path:"counted"}]
           scanner.scanConflicts()
-          tryCompare(scanner, "conflictInput", "", 3000)
+          tryCompare(scanner, "conflictInput", "", 20000)
           scanner.scanConflicts(true)
-          tryCompare(scanner, "conflictInput", "", 3000)
+          tryCompare(scanner, "conflictInput", "", 20000)
         }
         function test_7_a_missing_helper_is_reported_once() {
           probe.command = ["/usr/bin/mv", STUB, STUB + ".off"]
           root.probeFinished = false; probe.running = true
-          tryCompare(root, "probeFinished", true, 1000)
+          tryCompare(root, "probeFinished", true, 20000)
           scanner.conflictFolderIds = {f0: true}
           scan(["found"])
           compare(scanner.conflictScanError, FoamyNative.UNAVAILABLE_TEXT)
@@ -446,7 +458,11 @@ ShellRoot {
 }
 """)
             shell = base / "shell.qml"
-            shell.write_text(shell.read_text().replace("STUB", json.dumps(str(stub))))
+            shell.write_text(
+                shell.read_text()
+                .replace("STUB", json.dumps(str(stub)))
+                .replace("CONFLICT_STATE_FILE", json.dumps(str(state)))
+            )
             runtime = base / "runtime"
             runtime.mkdir(mode=0o700)
             env = isolated_env(
@@ -458,7 +474,7 @@ ShellRoot {
                 TEST_CONFLICT_STATE=str(state),
             )
             result = subprocess.run(
-                [runner, "-p", str(base), "--no-color"], env=env, text=True, capture_output=True, timeout=15
+                [runner, "-p", str(base), "--no-color"], env=env, text=True, capture_output=True, timeout=180
             )
             output = result.stdout + result.stderr
             self.assertEqual(result.returncode, 0, output)

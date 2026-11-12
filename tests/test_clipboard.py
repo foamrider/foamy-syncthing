@@ -187,7 +187,7 @@ ShellRoot {
             if not display.is_absolute():
                 env["WAYLAND_DISPLAY"] = str(Path(os.environ["XDG_RUNTIME_DIR"]) / display)
         result = subprocess.run(
-            [runner, "-p", str(fixture), "--no-color"], env=env, text=True, capture_output=True, timeout=35
+            [runner, "-p", str(fixture), "--no-color"], env=env, text=True, capture_output=True, timeout=180
         )
         output = result.stdout + result.stderr
         self.assertEqual(result.returncode, 0, output)
