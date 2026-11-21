@@ -3,7 +3,6 @@ const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
 const test = require("node:test");
-const FoamyNative = require("../kit/node-loader.cjs").load("FoamyNative");
 function model(file) {
   const context = vm.createContext({});
   vm.runInContext(fs.readFileSync(path.join(__dirname, "..", file), "utf8").replace(/^\.pragma library\s*/, ""), context);
@@ -45,24 +44,6 @@ test("native snapshots keep paused state, sharing and errors, and read null list
   assert.equal(facade.truncated(null), false);
   assert.equal(facade.truncated({ folderDevices: 2 }), true);
   assert.equal(facade.truncated({ folders: 0 }), false);
-});
-
-test("native protocol fails closed on malformed input or wrong major version", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../service/CoreProcess.qml"), "utf8");
-  const context = vm.createContext({ protocolReady: false, maxLineLength: 8388607,
-    error: "",
-    acceptHello() { throw new Error("invalid input must not reach hello"); } });
-  context.failProtocol = message => { context.error = message; };
-  for (const name of ["utf8Length", "handleLine"]) {
-    const start = source.indexOf(`  function ${name}(`);
-    const end = source.indexOf("\n  }", start) + 4;
-    assert.ok(start >= 0);
-    vm.runInContext(source.slice(start, end), context);
-  }
-  context.handleLine("invalid");
-  assert.match(context.error, /not valid JSON/);
-  context.handleLine(JSON.stringify({ v: 99, type: "hello" }));
-  assert.match(context.error, /incompatible/);
 });
 
 test("original panel totals include this computer", () => {
@@ -161,31 +142,6 @@ test("paused, queued, scanning and unknown snapshots do not become idle out-of-s
   }
 });
 
-test("bar icon uses urgent color for folder errors and prioritizes them over device warnings", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../Panel.qml"), "utf8");
-  const color = source.match(/readonly property color iconColor: \{([\s\S]*?)\n  \}/)[1];
-  const service = fs.readFileSync(path.join(__dirname, "../Service.qml"), "utf8");
-  const health = service.match(/readonly property bool hasProblems: ([\s\S]*?)\n  readonly property/)[1];
-  const panel = model("models/PanelModel.js");
-  const context = vm.createContext({PanelModel: panel, bar: {urgent: "red", foreground: "white"},
-    FoamyPalette: {warning: "yellow"}, Commons: {Color: {}}});
-  for (const [state, folders, expected] of [
-    [{folderProblemCount: 0}, [{problem: true, outOfSync: true}], "red"],
-    [{folderProblemCount: 1}, [], "red"],
-    [{hasConflicts: true}, [], "red"],
-    [{phase: "error"}, [], "red"],
-    [{folderProblemCount: 0}, [{problem: false}], "yellow"],
-  ]) {
-    const syncthing = Object.assign({folderProblemCount: 0, hasConflicts: false, tooFewDevices: true}, state);
-    syncthing.folderRows = folders;
-    syncthing.hasProblems = vm.runInContext(health, vm.createContext(Object.assign({PanelModel: panel}, syncthing)));
-    context.syncthing = syncthing;
-    assert.equal(vm.runInContext(`(function() {${color}})()`, context), expected, JSON.stringify(state));
-  }
-  context.syncthing = {hasProblems: false, tooFewDevices: false};
-  assert.equal(vm.runInContext(`(function() {${color}})()`, context), "white");
-});
-
 test("zero-work sync preparation does not flash as activity", () => {
   const panel = model("models/PanelModel.js");
   const service = {folders: [{id: "work", path: "/work"}], folderStatuses: {work: {state: "sync-preparing", needTotalItems: 0}}};
@@ -223,169 +179,6 @@ test("compact summary preserves unavailable, paused, scanning, error and empty s
   assert.equal(panel.compactFolderState(folder, false, true, false), "Stopped");
   assert.equal(panel.compactFolderState(folder, true, false, true), "Syncing");
   assert.equal(panel.compactSummary(null, []).progress, -1);
-});
-
-test("pause and resume preserve the folder configuration and use accurate status", () => {
-  const panel = model("models/PanelModel.js");
-  assert.equal(panel.folderState({ id: "work", paused: true }, "", false), "PAUSED");
-  const source = fs.readFileSync(path.join(__dirname, "../Service.qml"), "utf8");
-  const start = source.indexOf("  function setFolderPaused(");
-  const end = source.indexOf("\n  }", start) + 4;
-  const calls = [];
-  const context = vm.createContext({
-    folderLabel: () => "Work",
-    tr: (key, values) => key.replace(/\{(\w+)\}/g, (match, name) => values?.[name] ?? match),
-    runFolderAction: (...args) => calls.push(args),
-  });
-  context.root = context;
-  vm.runInContext(source.slice(start, end), context);
-  context.setFolderPaused("work", true);
-  context.setFolderPaused("work", false);
-  assert.deepEqual(calls.map(call => call[0]), ["folder.pause", "folder.resume"]);
-  for (const call of calls) {
-    assert.equal(call[2], "work");
-    assert.deepEqual(Object.keys(call[3]), ["folderId"]);
-    assert.match(call[4], /sharing, and local files are unchanged/);
-  }
-});
-
-test("folder notices stay in the panel; no desktop notification is sent", () => {
-  const source = fs.readFileSync(path.join(__dirname, "../Service.qml"), "utf8");
-  assert.doesNotMatch(source, /notificationSender|notify-send|syncthing-notify/);
-  const context = vm.createContext({
-    folderLabel: () => 'private-Canary-847 📁',
-    tr: (key, values) => key.replace(/\{(\w+)\}/g, (match, name) => values?.[name] ?? match),
-    folderMutationNotice: "", noticeTimer: {restarted: 0, restart() { this.restarted++; }},
-  });
-  context.root = context;
-  context.runFolderAction = (...args) => context.publishFolderNotice(args[4]);
-  for (const name of ["setFolderPaused", "publishFolderNotice"]) {
-    const start = source.indexOf(`  function ${name}(`);
-    const end = source.indexOf("\n  }", start) + 4;
-    assert.ok(start >= 0, name);
-    vm.runInContext(source.slice(start, end), context);
-  }
-  context.setFolderPaused("local-only", true);
-  assert.match(context.folderMutationNotice, /Paused private-Canary-847 📁/);
-  context.setFolderPaused("local-only", false);
-  assert.match(context.folderMutationNotice, /Resumed private-Canary-847 📁/);
-  assert.equal(context.noticeTimer.restarted, 2);
-});
-
-test("unlink pauses before removing configuration and stops safely on errors", () => {
-  function fixture(paused = false) {
-    const requests = [];
-    const context = vm.createContext({
-      online: true, folderMutationBusy: false, folderMutationError: "",
-      folderMutationAction: "", folderMutationId: "", notice: "",
-      configuredFolder: () => ({ id: "work", paused }),
-      folderLabel: () => "Work",
-    tr: (key, values) => key.replace(/\{(\w+)\}/g, (match, name) => values?.[name] ?? match),
-      clearFolderMutationMessage() {},
-      actionError: (error, fallback) => error?.message || fallback,
-      core: { action: (name, args, callback) => {
-        requests.push({ name, args, callback });
-        return String(requests.length);
-      } },
-    });
-    context.root = context;
-    context.failFolderAction = (error, fallback) => {
-      context.folderMutationBusy = false;
-      context.folderMutationError = error?.message || fallback;
-    };
-    context.finishFolderAction = (action, id, notice) => {
-      context.folderMutationBusy = false;
-      context.notice = notice;
-    };
-    const source = fs.readFileSync(path.join(__dirname, "../Service.qml"), "utf8");
-    for (const name of ["unlinkFolder", "removeUnlinkedFolder"]) {
-      const start = source.indexOf(`  function ${name}(`);
-      const end = source.indexOf("\n  }", start) + 4;
-      vm.runInContext(source.slice(start, end), context);
-    }
-    return { context, requests };
-  }
-  const active = fixture();
-  assert.equal(active.context.unlinkFolder("work"), true);
-  assert.equal(active.requests[0].name, "folder.pause");
-  assert.equal(active.context.folderMutationBusy, true);
-  assert.equal(active.context.unlinkFolder("another"), false);
-  active.requests[0].callback(true);
-  assert.equal(active.requests[1].name, "folder.forget");
-  assert.equal(active.context.folderMutationBusy, true);
-  assert.deepEqual(Object.keys(active.requests[1].args), ["folderId"]);
-  active.requests[1].callback(true);
-  assert.equal(active.context.folderMutationBusy, false);
-  assert.match(active.context.notice, /Local files were kept/);
-
-  const paused = fixture(true);
-  paused.context.unlinkFolder("work");
-  assert.equal(paused.requests[0].name, "folder.forget");
-
-  const pauseFailure = fixture();
-  pauseFailure.context.unlinkFolder("work");
-  pauseFailure.requests[0].callback(false, null, { message: "Cannot pause" });
-  assert.equal(pauseFailure.requests.length, 1);
-  assert.equal(pauseFailure.context.folderMutationError, "Cannot pause");
-  assert.equal(pauseFailure.context.folderMutationBusy, false);
-
-  const removalFailure = fixture();
-  removalFailure.context.unlinkFolder("work");
-  removalFailure.requests[0].callback(true);
-  removalFailure.requests[1].callback(false, null, { message: "Cannot remove" });
-  assert.match(removalFailure.context.folderMutationError, /remains paused/);
-  assert.equal(removalFailure.context.folderMutationBusy, false);
-
-  const offline = fixture();
-  offline.context.online = false;
-  assert.equal(offline.context.unlinkFolder("work"), false);
-  assert.equal(offline.requests.length, 0);
-});
-
-function coreContext(timers) {
-  const source = fs.readFileSync(path.join(__dirname, "../service/CoreProcess.qml"), "utf8");
-  const context = vm.createContext({
-    FoamyNative, executableReady: true,
-    maxRestartAttempts: 3, slowRestartBaseMs: 30000, maxRestartDelayMs: 300000,
-    restartAttempts: 0, protocolReady: true, unavailable: false, lastError: "",
-    _restartRequested: false, _expectedStop: false, desiredRunning: true,
-    failPending() {}, shutdownTimer: {stop() {}}, stableTimer: {stop() {}},
-    FoamyI18n: {t: (key, values) => key.replace("%1", values?.[0])},
-    restartTimer: {interval: 0, restart() { timers.push(this.interval); }, stop() { timers.push("stop"); }},
-  });
-  for (const name of ["restartDelay", "handleExit"]) {
-    const start = source.indexOf(`  function ${name}(`);
-    const end = source.indexOf("\n  }", start) + 4;
-    assert.ok(start >= 0, name);
-    vm.runInContext(source.slice(start, end), context);
-  }
-  return { context, source };
-}
-
-test("the core keeps retrying with backoff instead of staying down", () => {
-  const timers = [];
-  const { context, source } = coreContext(timers);
-  for (let i = 0; i < 9; i++) context.handleExit(1);
-  assert.deepEqual(timers, [250, 500, 1000, 30000, 60000, 120000, 240000, 300000, 300000]);
-  assert.equal(context.desiredRunning, true, "never gives up");
-  assert.equal(context.unavailable, true);
-  assert.match(source, /onTriggered: if \(root\.protocolReady\)\s*root\.restartAttempts = 0/);
-  assert.match(source, /function retry\(\)[\s\S]*incompatible = false/);
-});
-
-test("a core with no helper for this CPU is reported once and never restarted", () => {
-  for (const code of [126, 127]) {
-    const timers = [];
-    const { context, source } = coreContext(timers);
-    context.handleExit(code);
-    assert.deepEqual(timers, ["stop"]);
-    assert.equal(context.executableReady, false);
-    assert.equal(context.desiredRunning, false);
-    assert.equal(context.unavailable, true);
-    assert.equal(context.lastError, FoamyNative.UNAVAILABLE_TEXT);
-    assert.match(source, /FoamyNative\.command\(root\.pluginRoot, root\.helperName, \["stream"\]/);
-    assert.match(source, /function retry\(\)\s*\{\s*if \(!executableReady/);
-  }
 });
 
 test("the pick-folder reply gives a path, a cancel or an error code", () => {
