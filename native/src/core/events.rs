@@ -187,7 +187,7 @@ mod tests {
     fn retry_delays_back_off_to_a_bounded_ceiling() {
         // 250 ms doubling to 8 s plus at most 100 ms jitter: never a busy
         // loop against a dead Syncthing, never longer than the ceiling.
-        let mut previous = Duration::ZERO;
+        // The bounds of each attempt also make every delay longer than the last.
         for attempt in 0..=5u32 {
             let delay = retry_delay(attempt);
             let floor = Duration::from_millis(250 << attempt);
@@ -195,8 +195,6 @@ mod tests {
                 delay >= floor && delay <= floor + Duration::from_millis(100),
                 "attempt {attempt}: {delay:?}"
             );
-            assert!(delay > previous, "attempt {attempt}: {delay:?}");
-            previous = delay;
         }
         assert_eq!(retry_delay(6), retry_delay(5));
         assert_eq!(retry_delay(u32::MAX), retry_delay(5));

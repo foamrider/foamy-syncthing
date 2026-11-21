@@ -1058,8 +1058,15 @@ mod tests {
         let mut huge = b"HTTP/1.1 200 OK\r\nX-Padding: ".to_vec();
         huge.resize(huge.len() + MAX_HEADER_BYTES, b'a');
         huge.extend_from_slice(b"\r\n\r\n");
+        // The cap is on all header lines together, not on each line.
+        let mut many = b"HTTP/1.1 200 OK\r\n".to_vec();
+        while many.len() <= MAX_HEADER_BYTES {
+            many.extend_from_slice(b"X-Padding: aaaaaaaaaaaaaaaa\r\n");
+        }
+        many.extend_from_slice(b"\r\n");
         for (name, reply) in [
             ("headers over the cap", huge),
+            ("many header lines over the cap", many),
             (
                 "a short body",
                 b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc".to_vec(),

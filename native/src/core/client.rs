@@ -861,8 +861,11 @@ mod tests {
             "{second}"
         );
 
-        // Another origin (another port here) ends the request with an error:
-        // no request follows, and the other origin never sees a connection.
+        // Another origin (another port here) ends the request with an error.
+        // The transport dials only its own address, so a followed
+        // cross-origin redirect would show here as a second request to this
+        // peer; the `other` listener only guards a transport that would dial
+        // the Location's host.
         let other = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         other.set_nonblocking(true).unwrap();
         let away = format!("http://{}/rest/system/status", other.local_addr().unwrap());
