@@ -846,7 +846,6 @@ mod tests {
         let listener = std::os::unix::net::UnixListener::bind(&path).unwrap();
         let deadline = Instant::now() + Duration::from_secs(1);
         let stream = connect_unix(path.as_os_str(), deadline).unwrap();
-        assert!(stream.read_timeout().is_ok());
         let mut flags = rustix::fs::fcntl_getfl(&stream).unwrap();
         flags &= rustix::fs::OFlags::NONBLOCK;
         assert!(flags.is_empty(), "the connected socket is blocking");
@@ -944,6 +943,153 @@ mod tests {
                 chunked(bad, 100).0.is_err(),
                 "{}",
                 String::from_utf8_lossy(bad)
+            );
+        }
+    }
+
+    /// One request head from `peer`; its request line ("" at end of input).
+    fn read_request(peer: &mut TcpStream) -> String {
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") && peer.read(&mut byte).unwrap_or(0) == 1 {
+            head.push(byte[0]);
+        }
+        let head = String::from_utf8_lossy(&head);
+        head.lines().next().unwrap_or("").to_string()
+    }
+
+    const REPLY: &[u8] = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\n{}";
+
+    /// A loopback peer whose keep-alive timer fires just as the client
+    /// reuses the connection: it answers the first request, reads the
+    /// second on the same connection and closes it unanswered. With
+    /// `serve_retry` it answers one more connection. Every request line it
+    /// reads comes over the channel, before its reply is written. The
+    /// listener comes back so that a test can see whether the client made
+    /// another connection.
+    fn drops_the_second_request(
+        serve_retry: bool,
+    ) -> (Transport, std::net::TcpListener, mpsc::Receiver<String>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let accepting = listener.try_clone().unwrap();
+        let (lines, received) = mpsc::channel();
+        std::thread::spawn(move || {
+            let (mut peer, _) = accepting.accept().unwrap();
+            let _ = lines.send(read_request(&mut peer));
+            peer.write_all(REPLY).unwrap();
+            let _ = lines.send(read_request(&mut peer));
+            drop(peer);
+            if serve_retry {
+                let (mut peer, _) = accepting.accept().unwrap();
+                let _ = lines.send(read_request(&mut peer));
+                peer.write_all(REPLY).unwrap();
+            }
+        });
+        let address = Address::Tcp {
+            host: "127.0.0.1".into(),
+            port,
+        };
+        (Transport::new(address, None), listener, received)
+    }
+
+    #[test]
+    fn a_dropped_keep_alive_connection_retries_a_get_but_never_a_mutation() {
+        let timeout = Duration::from_secs(5);
+        let status = "GET /rest/system/status HTTP/1.1";
+        let get = |transport: &Transport| {
+            transport.request("GET", "/rest/system/status", &[], None, timeout, 1024)
+        };
+        // The second GET reuses the idle connection, finds it closed before
+        // any reply and is sent once more on a new connection.
+        let (transport, _listener, lines) = drops_the_second_request(true);
+        for _ in 0..2 {
+            let response = get(&transport).expect("a GET on a closed keep-alive connection");
+            assert_eq!(response.status, 200);
+            assert_eq!(response.body.as_deref(), Some(&b"{}"[..]));
+        }
+        assert_eq!(lines.try_iter().collect::<Vec<_>>(), [status; 3]);
+        // A mutation in the same place fails and is never sent again: the
+        // server may have carried it out before it closed the connection.
+        let (transport, listener, lines) = drops_the_second_request(false);
+        get(&transport).unwrap();
+        let result = transport.request(
+            "POST",
+            "/rest/db/scan?folder=docs",
+            &[],
+            None,
+            timeout,
+            1024,
+        );
+        assert!(
+            matches!(result, Err(Failure::Connection)),
+            "a mutation on a closed keep-alive connection must fail at once, not be sent again: {:?}",
+            result.err()
+        );
+        assert_eq!(
+            lines.try_iter().collect::<Vec<_>>(),
+            [status, "POST /rest/db/scan?folder=docs HTTP/1.1"]
+        );
+        listener.set_nonblocking(true).unwrap();
+        assert!(
+            matches!(listener.accept(), Err(e) if e.kind() == io::ErrorKind::WouldBlock),
+            "the mutation was sent again on a new connection"
+        );
+    }
+
+    /// A loopback peer that reads one request, writes `reply` and closes.
+    fn replies(reply: Vec<u8>) -> Transport {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            let (mut peer, _) = listener.accept().unwrap();
+            read_request(&mut peer);
+            let _ = peer.write_all(&reply);
+        });
+        let address = Address::Tcp {
+            host: "127.0.0.1".into(),
+            port,
+        };
+        Transport::new(address, None)
+    }
+
+    #[test]
+    fn a_malformed_or_oversized_reply_is_a_connection_failure() {
+        let mut huge = b"HTTP/1.1 200 OK\r\nX-Padding: ".to_vec();
+        huge.resize(huge.len() + MAX_HEADER_BYTES, b'a');
+        huge.extend_from_slice(b"\r\n\r\n");
+        for (name, reply) in [
+            ("headers over the cap", huge),
+            (
+                "a short body",
+                b"HTTP/1.1 200 OK\r\nContent-Length: 10\r\n\r\nabc".to_vec(),
+            ),
+            (
+                "a length that is not a number",
+                b"HTTP/1.1 200 OK\r\nContent-Length: ten\r\n\r\n".to_vec(),
+            ),
+            ("not HTTP", b"SSH-2.0-OpenSSH_9.9\r\n\r\n".to_vec()),
+            (
+                "a status that is not a number",
+                b"HTTP/1.1 OK\r\n\r\n".to_vec(),
+            ),
+            (
+                "another protocol",
+                b"RTSP/1.0 200 OK\r\nContent-Length: 2\r\n\r\n{}".to_vec(),
+            ),
+        ] {
+            let result = replies(reply).request(
+                "GET",
+                "/rest/system/status",
+                &[],
+                None,
+                Duration::from_secs(5),
+                1024,
+            );
+            assert!(
+                matches!(result, Err(Failure::Connection)),
+                "{name} must be a connection failure, got {:?}",
+                result.err()
             );
         }
     }

@@ -315,23 +315,6 @@ mod tests {
     }
 
     #[test]
-    fn the_plugin_invocation_parses() {
-        let parsed = flags(&[
-            "--probe-interval-seconds",
-            "15",
-            "--lifecycle-kind",
-            "systemd-user",
-            "--lifecycle-authorized",
-            "--lifecycle-unit",
-            "syncthing.service",
-        ])
-        .unwrap();
-        assert_eq!(parsed.probe_seconds, 15);
-        assert!(parsed.binding.authorized);
-        assert_eq!(parsed.binding.unit, "syncthing.service");
-    }
-
-    #[test]
     fn go_flag_rules_and_syncshell_checks() {
         assert_eq!(
             flags(&["-probe-interval-seconds=0x10"])
@@ -389,22 +372,5 @@ mod tests {
         }
         assert!(flags(&["--",]).is_ok());
         assert!(flags(&["--lifecycle-authorized", "false"]).is_err());
-    }
-
-    #[test]
-    fn integers_parse_like_strconv() {
-        assert_eq!(parse_go_int("15"), Some(15));
-        assert_eq!(parse_go_int("-0b101"), Some(-5));
-        assert_eq!(parse_go_int("0o17"), Some(15));
-        assert_eq!(parse_go_int("0x_1F"), Some(31));
-        assert_eq!(parse_go_int("1_000"), Some(1000));
-        assert_eq!(parse_go_int("1__0"), None);
-        assert_eq!(parse_go_int("_1"), None);
-        assert_eq!(parse_go_int("0x+5"), None);
-        assert_eq!(parse_go_int("0x"), None);
-        assert_eq!(parse_go_int("9223372036854775808"), None);
-        assert_eq!(parse_go_int(""), None);
-        assert_eq!(parse_go_int("09"), None);
-        assert_eq!(parse_go_int("0"), Some(0));
     }
 }

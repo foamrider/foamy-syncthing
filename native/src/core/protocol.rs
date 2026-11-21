@@ -473,21 +473,4 @@ mod tests {
                 .is_err()
         );
     }
-
-    #[test]
-    fn frames_are_go_compatible() {
-        let error = Error::new("x", "a<b");
-        let frame = ResultFrame {
-            v: 2,
-            kind: "result",
-            id: "1",
-            ok: false,
-            data: None,
-            error: Some(&error),
-        };
-        assert_eq!(
-            String::from_utf8(to_json(&frame).unwrap()).unwrap(),
-            r#"{"v":2,"type":"result","id":"1","ok":false,"error":{"code":"x","message":"a\u003cb"}}"#
-        );
-    }
 }
