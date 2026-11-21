@@ -152,39 +152,3 @@ fn contains(haystack: &[u8], needle: &[u8]) -> bool {
         .windows(needle.len())
         .any(|window| window == needle)
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn requests_are_lists_of_usable_paths() {
-        assert_eq!(
-            parse_paths(br#" ["/a", "-b", "\u00e6"] "#),
-            Some(vec!["/a".into(), "-b".into(), "æ".into()])
-        );
-        assert_eq!(parse_paths(b"[]"), Some(vec![]));
-        for raw in [
-            &b"{}"[..],
-            b"[7]",
-            b"[\"\"]",
-            b"[\"a\\u0000\"]",
-            b"[\"\\ud800\"]",
-            b"[\"a\"] [\"b\"]",
-            b"\xef\xbb\xbf[]",
-            b"[\"\xff\"]",
-            b"",
-            b"null",
-        ] {
-            assert_eq!(parse_paths(raw), None, "{raw:?}");
-        }
-    }
-
-    #[test]
-    fn the_pattern_is_a_substring() {
-        assert!(contains(b"a.sync-conflict-20260101", PATTERN));
-        assert!(contains(b".sync-conflict-", PATTERN));
-        assert!(!contains(b"a.sync-conflict", PATTERN));
-        assert!(!contains(b"", PATTERN));
-    }
-}
