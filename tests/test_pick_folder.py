@@ -13,15 +13,17 @@ FOAMY_HELPER: JSON argv prefix of the helper (default: bin/<machine>/…)."""
 import json
 import os
 import platform
+import select
 import shutil
 import subprocess
 import tempfile
-import time
 import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 DBUS_DAEMON = shutil.which("dbus-daemon")
+# A unix socket path must fit in sun_path (108 bytes with its terminator).
+SOCKET_PATH_MAX = 100
 
 
 def helper():
@@ -34,6 +36,10 @@ def helper():
 class PickFolderTests(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="foamy-syncthing-pick-")
+        if len(os.fsencode(Path(temp.name) / "runtime" / "bus")) > SOCKET_PATH_MAX:
+            # A long TMPDIR: the daemon could not bind its socket there.
+            temp.cleanup()
+            temp = tempfile.TemporaryDirectory(prefix="foamy-syncthing-pick-", dir="/tmp")
         self.addCleanup(temp.cleanup)
         self.root = Path(temp.name)
         self.runtime = self.root / "runtime"
@@ -59,10 +65,9 @@ class PickFolderTests(unittest.TestCase):
         self.assertEqual((code, reply["ok"], reply["code"]), (1, False, "INVALID_ARGUMENT"))
 
     def test_without_a_session_bus(self):
-        # A dead socket, an address without a unix socket, and an empty one
-        # (read as unset: then $XDG_RUNTIME_DIR/bus, which the test's
-        # directory does not have).
-        for bus in (f"unix:path={self.root}/absent", "tcp:host=localhost,port=1", ""):
+        # A dead socket, an address without a unix socket, and none at all
+        # (then $XDG_RUNTIME_DIR/bus, which the test's directory does not have).
+        for bus in (f"unix:path={self.root}/absent", "tcp:host=localhost,port=1", None):
             with self.subTest(bus=bus):
                 code, reply = self.pick(bus=bus)
                 self.assertEqual((code, reply["ok"], reply["code"]), (1, False, "NO_SESSION_BUS"))
@@ -87,20 +92,24 @@ class PickFolderTests(unittest.TestCase):
 </busconfig>
 """)
         daemon = subprocess.Popen(
-            [DBUS_DAEMON, f"--config-file={config}", "--nofork", "--nopidfile"],
-            stdout=subprocess.DEVNULL,
+            [DBUS_DAEMON, f"--config-file={config}", "--nofork", "--nopidfile", "--print-address=1"],
+            stdout=subprocess.PIPE,
             stderr=subprocess.DEVNULL,
             env={"PATH": "/usr/bin:/bin", "HOME": str(self.root), "XDG_RUNTIME_DIR": str(self.runtime)},
             start_new_session=True,
         )
-        self.addCleanup(lambda: (daemon.terminate(), daemon.wait(5)))
-        deadline = time.monotonic() + 10
-        while not socket.exists():
-            self.assertIsNone(daemon.poll(), "dbus-daemon exited")
-            self.assertLess(time.monotonic(), deadline, "dbus-daemon never listened")
-            time.sleep(0.02)
-        code, reply = self.pick("Title", "Choose", bus=None)  # found through XDG_RUNTIME_DIR
-        self.assertEqual((code, reply["ok"], reply["code"]), (1, False, "PORTAL_UNAVAILABLE"))
+        self.addCleanup(lambda: (daemon.terminate(), daemon.wait(5), daemon.stdout.close()))
+        # dbus-daemon prints its address only once it listens; the socket
+        # file exists a moment earlier, at bind().
+        ready, _, _ = select.select([daemon.stdout], [], [], 10)
+        self.assertTrue(ready, "dbus-daemon never listened")
+        self.assertTrue(daemon.stdout.readline().startswith(b"unix:path="), "dbus-daemon exited")
+        self.assertTrue(socket.exists())
+        # An empty address counts as unset: both find the bus through XDG_RUNTIME_DIR.
+        for bus in (None, ""):
+            with self.subTest(bus=bus):
+                code, reply = self.pick("Title", "Choose", bus=bus)
+                self.assertEqual((code, reply["ok"], reply["code"]), (1, False, "PORTAL_UNAVAILABLE"))
 
 
 if __name__ == "__main__":
