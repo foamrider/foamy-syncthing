@@ -6,6 +6,7 @@ service."""
 
 import json
 import sys
+import time
 import unittest
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlsplit
@@ -29,6 +30,11 @@ SHOW = [
     "--property=ExecStart",
     "--property=Environment",
 ]
+
+
+def controls(lifecycle):
+    """What the panel's service buttons depend on."""
+    return (lifecycle["classification"], lifecycle["canControl"], lifecycle["canStart"])
 
 
 class CoreTest(unittest.TestCase):
@@ -522,6 +528,37 @@ class FolderActionTests(CoreTest):
         core.request("shutdown", "5")
         core.finish()
 
+    def test_overlap_resolves_tilde_and_refuses_relative_paths(self):
+        # A configured "~/Docs" is Syncthing's home (its `tilde`, not the
+        # core's HOME), so a new folder inside it overlaps. A relative
+        # configured path cannot be checked and refuses the add.
+        core = self.core(start=False)
+        st_home = core.home / "st-home"
+        (st_home / "Docs" / "inner").mkdir(parents=True)
+        (core.home / "Other").mkdir()
+        core.syncthing.state["tilde"] = str(st_home)
+        core.syncthing.state["folders"] = [fake_syncthing.folder("~/Docs")]
+        core.start()
+        core.ready()
+        args = {"folderId": "new", "createDirectory": False, "label": "", "deviceIds": [], "pendingDeviceId": ""}
+        result = core.action("folder.add-existing", "1", dict(args, path=str(st_home / "Docs" / "inner")))
+        self.assertEqual(
+            result.get("error"), {"code": "path_overlap", "message": "folder path overlaps an existing folder"}
+        )
+        with core.syncthing.lock:
+            core.syncthing.state["folders"][0]["path"] = "Docs"
+        result = core.action("folder.add-existing", "2", dict(args, path=str(core.home / "Other")))
+        self.assertEqual(
+            result.get("error"),
+            {
+                "code": "path_unresolved",
+                "message": "cannot check folder overlap; set existing relative folder paths to absolute paths in Syncthing",
+            },
+        )
+        self.assertFalse(core.syncthing.calls("POST", "/rest/config/folders"))
+        core.request("shutdown", "3")
+        core.finish()
+
     def test_actions_need_syncthing_online(self):
         core = self.core(start=False)
         core.syncthing.close()
@@ -615,6 +652,52 @@ class LifecycleTests(CoreTest):
             self.assertEqual(core.latest_state()["lifecycle"]["targetMatch"], matches, overrides)
         self.assertFalse([c for c in core.calls() if c[0] == "systemctl" and c != SHOW])
         core.request("shutdown", "4")
+        core.finish()
+
+    def test_a_healthy_instance_with_an_inactive_unit_is_external(self):
+        # Syncshell issue 45: a Syncthing that answers while the user unit is
+        # inactive was started by someone else. No Start button, and it stays
+        # so once that Syncthing goes away.
+        core, _ = self.folder_core(systemctl={"ActiveState": "inactive"})
+        state = core.ready()["state"]
+        self.assertTrue(state["connection"]["online"])
+        self.assertEqual(controls(state["lifecycle"]), ("external", False, False))
+        core.syncthing.down = lambda: True
+        core.request("refresh", "1")
+        state = core.latest_state()
+        self.assertFalse(state["connection"]["online"])
+        self.assertEqual(controls(state["lifecycle"]), ("external", False, False))
+        self.assertEqual(core.action("lifecycle.start", "2")["error"]["code"], "lifecycle_forbidden")
+        self.assertFalse([c for c in core.calls() if c[0] == "systemctl" and c != SHOW])
+        core.request("shutdown", "3")
+        core.finish()
+
+    def test_an_active_unit_without_its_api_can_still_be_controlled(self):
+        core = self.core(start=False)
+        core.syncthing.down = lambda: True
+        core.start()
+        state = core.ready()["state"]
+        self.assertFalse(state["connection"]["online"])
+        self.assertEqual(controls(state["lifecycle"]), ("unit-active-api-unavailable", True, False))
+        core.request("shutdown", "1")
+        core.finish()
+
+    def test_a_flatpak_configuration_gets_no_service_control(self):
+        # Discovery falls back to SyncThingy's Flatpak config; the native
+        # syncthing.service must never count as its unit.
+        core = self.core(start=False)
+        flatpak = core.home / ".var/app/com.github.zocker_160.SyncThingy/config/syncthing/config.xml"
+        flatpak.parent.mkdir(parents=True)
+        core.config_path.rename(flatpak)
+        core.start()
+        state = core.ready()["state"]
+        self.assertTrue(state["connection"]["online"], state["connection"])
+        lifecycle = state["lifecycle"]
+        self.assertEqual(lifecycle["targetMatch"], False)
+        self.assertEqual(controls(lifecycle), ("external", False, False))
+        self.assertEqual(core.action("lifecycle.stop", "1")["error"]["code"], "lifecycle_forbidden")
+        self.assertFalse([c for c in core.calls() if c[0] == "systemctl" and c != SHOW])
+        core.request("shutdown", "2")
         core.finish()
 
     def test_without_authority_nothing_runs(self):
@@ -1058,6 +1141,55 @@ class EventTests(CoreTest):
         core.request("shutdown", "1")
         core.finish()
 
+    def test_activity_resumes_when_syncthing_restarts_its_event_ids(self):
+        # A restarted Syncthing numbers its events from 1 again; the core
+        # must start its cursor over instead of waiting for ids above the old.
+        core, _ = self.folder_core()
+        core.ready()
+        core.syncthing.wait_polling()
+        for _ in range(3):
+            core.syncthing.add_event("FolderSummary", {"folder": "docs"})
+        until = time.monotonic() + 10
+        while not any("since=3&" in c["target"] for c in core.syncthing.calls("GET", "/rest/events")):
+            self.assertLess(time.monotonic(), until, "the core never polled after event 3")
+            time.sleep(0.05)
+        core.syncthing.overrides[("GET", "/rest/events")] = (500, b"restarting")
+        core.snapshot(lambda s: s["connection"]["fresh"] is False, timeout=10)
+        with core.syncthing.lock:
+            core.syncthing.state["events"] = []
+            core.syncthing.next_event = 1
+        core.syncthing.add_event("ItemStarted", {"folder": "docs", "item": "after.txt", "action": "update"})
+        del core.syncthing.overrides[("GET", "/rest/events")]
+        state = core.snapshot(lambda s: s["activity"]["files"], 15, "activity after the restart")["state"]
+        self.assertEqual([f["path"] for f in state["activity"]["files"]], ["after.txt"])
+        core.request("shutdown", "1")
+        core.finish()
+
+    def test_local_index_updates_are_bounded_and_rescan_new_directories(self):
+        # One LocalIndexUpdated looks up at most 16 files, rescans a new
+        # directory instead of listing it, and keeps at most 12 activity rows.
+        core, _ = self.folder_core()
+        names = [f"gone-{i:02}.txt" for i in range(20)]
+        files = core.syncthing.state["files"]
+        for name in names:
+            files[("docs", name)] = {"local": {"type": "FILE_INFO_TYPE_FILE", "deleted": True}}
+        files[("docs", "photos")] = {"local": {"type": "FILE_INFO_TYPE_DIRECTORY", "deleted": False}}
+        core.ready()
+        core.syncthing.wait_polling()
+        core.syncthing.add_event("LocalIndexUpdated", {"folder": "docs", "filenames": ["photos"] + names})
+        state = core.snapshot(lambda s: s["activity"]["files"], timeout=10)["state"]
+        read = {c["target"] for c in core.syncthing.calls("GET", "/rest/db/file")}
+        self.assertEqual(len(read), 16, sorted(read))  # "photos" and gone-00 .. gone-14
+        self.assertFalse([t for t in read if "gone-15" in t or "gone-19" in t])
+        self.assertIn("/rest/db/scan?folder=docs&sub=photos", [c["target"] for c in core.syncthing.calls("POST")])
+        activity = state["activity"]["files"]
+        self.assertEqual(len(activity), 12)
+        self.assertTrue(
+            all(f["action"] == "removing" and f["detail"] == "Removing " + f["path"] for f in activity), activity
+        )
+        core.request("shutdown", "1")
+        core.finish()
+
     def test_unreachable_events_mark_the_snapshot_stale(self):
         core, _ = self.folder_core()
         core.ready()
@@ -1077,6 +1209,19 @@ class LiveConfigTests(CoreTest):
         state = core.snapshot(lambda s: s["lifecycle"]["activeState"] == "activating", timeout=10)["state"]
         self.assertTrue(state["lifecycle"]["active"])
         core.request("shutdown", "1")
+        core.finish()
+
+    def test_configure_applies_the_probe_interval_at_once(self):
+        # The panel's settings reach a running core through `configure`.
+        # Started with a 15 s probe, the change must show well before that.
+        core, _ = self.folder_core()
+        core.ready()
+        core.set_systemctl({"ActiveState": "activating"})
+        result = core.request("configure", "1", config={"probeIntervalSeconds": 1, "refreshIntervalSeconds": 60})
+        self.assertTrue(result["ok"], result)
+        state = core.snapshot(lambda s: s["lifecycle"]["activeState"] == "activating", 5, "a probe after configure")
+        self.assertTrue(state["state"]["lifecycle"]["active"])
+        core.request("shutdown", "2")
         core.finish()
 
 
