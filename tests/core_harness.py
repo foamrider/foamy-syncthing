@@ -123,15 +123,6 @@ def silent_dns_prefix(directory):
     return prefix if probe.returncode == 0 else None
 
 
-def proc_argv(pid):
-    """/proc/<pid>/cmdline as a list, without a binfmt emulator's prefix
-    (qemu-aarch64-static <binary> <argv...>)."""
-    argv = Path(f"/proc/{pid}/cmdline").read_bytes().split(b"\0")[:-1]
-    if argv and os.path.basename(argv[0]).startswith(b"qemu-"):
-        argv = argv[2:]
-    return argv
-
-
 class Core:
     """One core process against one fake Syncthing."""
 
@@ -143,7 +134,6 @@ class Core:
         config=True,
         systemctl=None,
         start=True,
-        gui_address=None,
         unix_socket=None,
     ):
         self.temp = tempfile.TemporaryDirectory(prefix="foamy-syncthing-core-")
@@ -170,7 +160,7 @@ class Core:
         )
         self.syncthing.state["paths"]["config"] = str(self.config_path)
         if config:
-            self.write_config(tls=tls, api_key=api_key, address=gui_address or self.syncthing.address)
+            self.write_config(tls=tls, api_key=api_key, address=self.syncthing.address)
         self.set_systemctl(systemctl or {})
         self.env = {
             "HOME": str(self.home),

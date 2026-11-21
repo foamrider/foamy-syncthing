@@ -221,7 +221,6 @@ class FakeSyncthing:
         self.requests = []
         self.lock = threading.Lock()
         self.overrides = {}
-        self.delays = {}
         self.down = None
         self.next_event = 1
         handler = self._handler()
@@ -315,9 +314,6 @@ class FakeSyncthing:
                     # A stopped Syncthing: drop the connection unanswered.
                     self.close_connection = True
                     return
-                delay = fake.delays.get(target.path)
-                if delay:
-                    time.sleep(delay)
                 override = fake.overrides.get((self.command, target.path))
                 if override is not None:
                     status, payload = override

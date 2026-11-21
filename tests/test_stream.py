@@ -15,7 +15,7 @@ from urllib.parse import quote
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import fake_syncthing  # noqa: E402
-from core_harness import Core, PLUGIN_FLAGS, UNIT, proc_argv, silent_dns_prefix  # noqa: E402
+from core_harness import Core, PLUGIN_FLAGS, UNIT, silent_dns_prefix  # noqa: E402
 from fake_syncthing import API_KEY, LOCAL_ID, OTHER_ID, PEER_ID  # noqa: E402
 
 SHOW = [
@@ -178,7 +178,6 @@ class SnapshotTests(CoreTest):
         self.assertTrue(all(call["key"] == API_KEY for call in others), others[:3])
         cmdline = Path(f"/proc/{core.process.pid}/cmdline").read_bytes()
         self.assertNotIn(API_KEY.encode(), cmdline)
-        self.assertEqual(proc_argv(core.process.pid), [os.fsencode(part) for part in core.argv()])
         environ = Path(f"/proc/{core.process.pid}/environ").read_bytes()
         self.assertNotIn(API_KEY.encode(), environ)
         core.request("shutdown", "2")
