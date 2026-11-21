@@ -5,7 +5,6 @@ the protocol bounds, against a fake Syncthing and a fake systemctl
 service."""
 
 import json
-import os
 import sys
 import time
 import unittest
