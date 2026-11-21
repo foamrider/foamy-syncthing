@@ -9,18 +9,24 @@ a counting stub for the install probe.
 The host is Omarchy 4.5, the installed /usr/share/omarchy/shell
 (FOAMY_HOST_45 picks another 4.5 tree).
 
-Checks: one service and one settings leader for three bars; the core starts
-without --desktop-authorized; the install probe stops once Syncthing is
-online; snapshots with the same folders start no conflict walk; .stversions
-is ignored and conflicts are flagged per folder, a "~/" folder path included;
-the popup body is built on open only; row delegates survive a snapshot (keyed
-model); settings open; a
-folder chooser left open goes with its Panel (the real pick-folder helper,
-blocked on a session bus that never answers, is gone once the Panel is
-destroyed and nothing of it outlives the run); a crash-looping core keeps
-being retried with a backoff capped at 5 minutes, and right-click/open starts
-it now; a leftover user unit blocking the install is named in the popup
-summary, not in the bar tooltip. The service scene: pause, resume and unlink
+Checks: one service and one settings leader for three bars, and a new leader
+when the first bar goes, whose settings reach the core as `configure`; the
+core's exact argv (lifecycle authority for syncthing.service, no desktop
+bridge); the install probe stops for a full interval once Syncthing is
+online; snapshots with the same folders start no conflict walk and a moved
+folder starts one; .stversions is ignored and conflicts are flagged per
+folder, a "~/" folder path included, with an urgent bar and its tooltip; the
+status IPC reply; the popup body is built on open only; row delegates
+survive a snapshot (keyed model); a plain p stops syncing and Ctrl+P does
+not; settings open; a folder chooser left open goes with its Panel (the real
+pick-folder helper, blocked on a session bus that never answers, is gone
+once the Panel is destroyed and nothing of it outlives the run), and one the
+bus refuses reopens the popup with its error; a crash-looping core is
+started four times, then retried with a backoff capped at 5 minutes, and
+right-click/open starts it now; a leftover user unit blocking the install is
+named in the popup summary, not in the bar tooltip, and Install starts
+nothing. The live scene: the real core's snapshot reaches the header, the
+devices and the service controls. The service scene: pause, resume and unlink
 send the right requests in order and settle on failure, a failed stop
 settles, the bar colour follows folder problems, too few devices and a
 Syncthing outage, every kind of broken core output stops the core once
@@ -87,6 +93,7 @@ ShellRoot {
   FileView { id: probeLog; path: PROBE_LOG; watchChanges: true; printErrors: false; onFileChanged: reload() }
   FileView { id: coreLog; path: CORE_LOG; watchChanges: true; printErrors: false; onFileChanged: reload() }
   FileView { id: pickerLog; path: PICKER_LOG; watchChanges: true; printErrors: false; onFileChanged: reload() }
+  FileView { id: snapshotFile; path: SNAPSHOT; blockLoading: true; blockWrites: true; printErrors: false }
   Connections {
     target: shell.service ? shell.service.conflictScan : null
     function onRunningChanged() { if (shell.service.conflictScan.running) shell.scans++ }
@@ -111,22 +118,45 @@ ShellRoot {
 
   FoamyWait { id: wait }
   property int probesOnline: 0
+  property double onlineAt: 0
   // Waits for `condition`, counts it as a check, then goes on (also after a timeout).
   function expect(condition, ms, what, next) { wait.waitFor(condition, ms, function(ok) { check(ok, what); next() }) }
+  function requests() {
+    return coreLog.text().split("\n").filter(function(l) { return l.indexOf('{"request"') === 0 }).map(function(l) { return JSON.parse(l).request })
+  }
+  function lifecycleActions() {
+    return requests().filter(function(r) { return r.type === "action" && r.action.indexOf("lifecycle.") === 0 }).map(function(r) { return r.action })
+  }
+  function configured(seconds) {
+    return requests().some(function(r) { return r.type === "configure" && r.config && r.config.refreshIntervalSeconds === seconds })
+  }
   function step0() {
     check(Plugin.ServiceRegistry.instance === service, "service registered")
     check(Kit.FoamyShared.memberCount("syncthing") === 3, "three members")
     check(service.preferences.minimumConnectedDevices === 2 && service.settingsReady, "leader fed settings")
     check(service.online, "online through the fake core")
-    check(coreLog.text().indexOf("--desktop-authorized") < 0 && coreLog.text().indexOf("--probe-interval-seconds") >= 0, "no desktop bridge flag: " + coreLog.text().slice(0, 200))
+    // The argv the real core must accept: lifecycle authority for the one
+    // unit, no desktop bridge. The core can start before the leader's
+    // settings arrive, so the interval is the default or the saved one.
+    var argv = JSON.parse(coreLog.text().split("\n")[0]).argv
+    check(argv.length === 8 && argv[0] === "stream" && argv[1] === "--probe-interval-seconds" && /^\d+$/.test(argv[2])
+          && Number(argv[2]) >= 5 && Number(argv[2]) <= 300
+          && JSON.stringify(argv.slice(3)) === JSON.stringify(["--lifecycle-kind", "systemd-user", "--lifecycle-authorized", "--lifecycle-unit", "syncthing.service"]),
+          "the core's argv: " + JSON.stringify(argv))
     check(shell.probes() >= 1, "install probe ran while offline")
     check(JSON.stringify(service.conflictFolderIds) === JSON.stringify({ docs: true }), "per-folder conflicts, .stversions ignored: " + JSON.stringify(service.conflictFolderIds))
     check(service.folderRows.length === 2 && service.folderRows[0].label === "Documents", "configured label first")
     // Escaped icon-font glyphs (\u{…}) still decode: conflicts → the "notify" glyph.
     check(panels[0].barIcon.codePointAt(0) === 0xf09e0 && panels[0].barIcon.length === 2, "bar glyph decodes: " + panels[0].barIcon.codePointAt(0))
     check(Qt.colorEqual(panels[0].iconColor, panels[0].bar.urgent), "conflicts make the bar urgent")
+    check(panels[0].tooltip === "Syncthing: Needs attention\nLeft: details · Right: refresh", "bar tooltip: " + JSON.stringify(panels[0].tooltip))
     check(service.tooFewDevices === false && service.deviceCounts.connected === 2, "device counts include this computer")
+    // The documented foamy.syncthing.status reply (README).
+    var status = JSON.parse(service.diagnostics.state())
+    check(status.online === true && status.folders === 2 && status.peers === 1 && status.conflicts === true && status.error === "",
+          "foamy.syncthing.status state: " + JSON.stringify(status))
     shell.probesOnline = shell.probes()
+    shell.onlineAt = Date.now()
     shell.scans = 0
     // Snapshots with the same folders (refreshes) must not walk again.
     service.refresh(); service.refresh()
@@ -143,11 +173,11 @@ ShellRoot {
     savedRow = view ? view.rowItem(0) : null
     check(savedRow !== null, "row delegate exists")
     check(view && view.listWheel && view.listWheel.target !== null, "the overview list scrolls with the kit wheel handling")
+    // The other devices only; the fake core reports no Syncthing version.
+    check(view && view.headerMeta === "1 / 2 devices online", "header without a version: " + (view && view.headerMeta))
     check(service.refresh(), "a refresh starts")
-    wait.waitFor(function() { return !service.refreshing }, 10000, function() {
-      // A conflict walk would start right after the snapshot; give it a moment to show.
-      wait.after(300, step2)
-    }, "the refresh ends")
+    // The fake core, like the real one, sends the snapshot before the result.
+    wait.waitFor(function() { return !service.refreshing }, 10000, step2, "the refresh ends")
   }
   function step2() {
     check(panels[1].popup.bodyItem.rowItem(0) === savedRow, "row delegate survives a snapshot (keyed model)")
@@ -157,10 +187,32 @@ ShellRoot {
     check(panels[1].bar.saved.length === 1 && panels[1].bar.saved[0].settings.refreshIntervalSec === 300, "saved inline through the bar")
     check(panels[1].bar.saved[0].settings.minimumConnectedDevices === 2 && panels[1].bar.saved[0].settings.probeIntervalSec === 5,
           "a save keeps the widget's other settings")
-    check(shell.scans === 0, "no conflict walk for unchanged folders (" + shell.scans + ")")
-    check(shell.probes() === shell.probesOnline, "install probe idle while online (" + shell.probesOnline + " -> " + shell.probes() + ")")
-    panels[1].openSettings()
-    expect(function() { return panels[1].editingSettings }, 10000, "settings open", step3)
+    // A shell shortcut (Ctrl+P) must not stop syncing; a plain p does. A
+    // service action is marked running as soon as it is sent.
+    var view = panels[1].popup.bodyItem
+    view.textKey("p", Qt.ControlModifier)
+    check(!service.serviceActionRunning, "Ctrl+P sends nothing")
+    view.textKey("p", Qt.NoModifier)
+    check(service.serviceActionRunning, "a plain p sends a service action")
+    expect(function() { return !service.serviceActionRunning && shell.lifecycleActions().length >= 1 }, 10000, "the p key's request ends", function() {
+      check(JSON.stringify(shell.lifecycleActions()) === JSON.stringify(["lifecycle.stop"]),
+            "only the plain p stops the active service: " + JSON.stringify(shell.lifecycleActions()))
+      movedFolder()
+    })
+  }
+  // Refreshes with the same folders started no conflict walk; a moved
+  // folder starts exactly one.
+  function movedFolder() {
+    var state = JSON.parse(snapshotFile.text())
+    state.folders[1].path = state.folders[1].path.replace(/Photos$/, "Pictures")
+    snapshotFile.setText(JSON.stringify(state))
+    check(service.refresh(), "a refresh with a moved folder starts")
+    expect(function() { return shell.scans >= 1 && !service.conflictScan.running }, 10000, "a moved folder starts a conflict walk", function() {
+      check(shell.scans === 1, "one walk, none for the unchanged refreshes before (" + shell.scans + ")")
+      check(JSON.stringify(service.conflictFolderIds) === JSON.stringify({ docs: true }), "conflicts after the walk: " + JSON.stringify(service.conflictFolderIds))
+      panels[1].openSettings()
+      expect(function() { return panels[1].editingSettings }, 10000, "settings open", step3)
+    })
   }
   function step3() {
     panels[1].close()
@@ -187,10 +239,28 @@ ShellRoot {
   }
   function step7() {
     check(pickerLog.text().indexOf("closed") >= 0, "the chooser's helper went with its Panel: " + pickerLog.text())
-    check(Kit.FoamyShared.memberCount("syncthing") === 2, "leader left, re-elected")
-    console.log("FOAMY CHECKS " + checks)
-    console.log("FOAMY DONE")
-    Qt.quit()
+    check(Kit.FoamyShared.memberCount("syncthing") === 2, "two members left")
+    // panels[1] is now the first member, so the leader: its save must reach
+    // the core as a configure request.
+    panels[1].save("refreshIntervalSec", 120)
+    expect(function() { return shell.configured(120) }, 10000, "the new leader's setting reaches the core", step8)
+  }
+  function step8() {
+    // The bus refuses this second chooser's authentication.
+    panels[1].browseFolder()
+    expect(function() { return panels[1].opened && !panels[1].returningFromBrowser && panels[1].pickerError !== "" }, 15000,
+           "the refused chooser ends and the popup opens again", function() {
+      check(panels[1].pickerError === "The folder chooser needs a session bus, and there is none; enter the path manually.",
+            "chooser error: " + panels[1].pickerError)
+      check(pickerLog.text().indexOf("refused") >= 0, "the chooser reached the refusing bus: " + pickerLog.text())
+      // The probe runs every 5 s while offline: a full interval online without one.
+      wait.after(Math.max(0, 6000 - (Date.now() - shell.onlineAt)), function() {
+        check(shell.probes() === shell.probesOnline, "install probe idle while online (" + shell.probesOnline + " -> " + shell.probes() + ")")
+        console.log("FOAMY CHECKS " + checks)
+        console.log("FOAMY DONE")
+        Qt.quit()
+      })
+    })
   }
 }
 """
@@ -211,16 +281,16 @@ ShellRoot {
   FileView { id: coreLog; path: CORE_LOG; watchChanges: true; printErrors: false; onFileChanged: reload() }
   Component.onCompleted: {
     service = Qt.createComponent(Qt.resolvedUrl("plugin/Service.qml")).createObject(null)
-    wait.waitFor(function() { return service.core.restartAttempts >= 4 && service.core.restartTimer.running }, 30000, slowRetry,
-                 "the crashing core reaches its slow retry")
+    wait.waitFor(function() { return !service.core.running && service.core.restartTimer.running && service.core.restartTimer.interval === 30000 },
+                 30000, slowRetry, "the crashing core reaches its slow retry")
   }
   FoamyWait { id: wait }
   property int before: 0
   function slowRetry() {
     var core = service.core
-    check(core.restartAttempts === 4, "three fast restarts, then a slow one (" + core.restartAttempts + ")")
+    // Counted from the fake core's argv log: the first start and three fast restarts.
+    check(shell.starts() === 4, "three fast restarts, then a slow one (" + shell.starts() + " starts)")
     check(core.restartTimer.running && core.restartTimer.interval === 30000, "slow retry scheduled, not given up")
-    check(core.desiredRunning, "still wants to run")
     check(JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 20].map(core.restartDelay))
             === JSON.stringify([250, 500, 1000, 30000, 60000, 120000, 240000, 300000, 300000, 300000]),
           "backoff doubles to a 5-minute cap: " + [1, 2, 3, 4, 5, 6, 7, 8, 9, 20].map(core.restartDelay))
@@ -267,6 +337,9 @@ ShellRoot {
       check(service.compactSummary.title === "Installation needs cleanup", "title: " + service.compactSummary.title)
       check(service.compactSummary.detail === blocking + " exists, but Syncthing isn't installed", "detail: " + service.compactSummary.detail)
       check(!service.canInstall, "Install stays disabled")
+      // Pressing Install over the leftover unit starts nothing.
+      service.installSyncthing()
+      check(service.packageStatus === "" && !service.packageController.packageActionRunning, "Install over a leftover unit: " + service.packageStatus)
       check(panel.tooltip.indexOf(blocking) < 0 && panel.tooltip.indexOf("Installation needs cleanup") >= 0, "tooltip: " + panel.tooltip)
       console.log("FOAMY CHECKS " + checks)
       console.log("FOAMY DONE")
@@ -659,6 +732,11 @@ ShellRoot {
         check(laptop && laptop.connected && laptop.subtitle === peer, "connected peer: " + (laptop && laptop.subtitle))
         var phone = shell.device(view, "<phone & co>")
         check(phone && !phone.connected && phone.subtitle === "0 shared folders", "disconnected peer, no version: " + (phone && phone.subtitle))
+        // The panel's argv gives the real core its lifecycle authority, and
+        // the core's "managed" reaches the controls and the bar.
+        check(service.canControlService && service.serviceActive && service.serviceAvailable,
+              "service controls: " + JSON.stringify(service.lifecycle))
+        check(panel.barIcon.codePointAt(0) === 0xf0160, "healthy bar glyph: " + panel.barIcon.codePointAt(0))
         console.log("FOAMY CHECKS " + checks)
         console.log("FOAMY DONE")
         Qt.quit()
@@ -686,13 +764,15 @@ def prepare(work, real_core=False):
 def write_snapshot(work, home):
     """The fake core's state. Docs lives in the shell's HOME and is configured
     as `~/Docs`: Syncthing keeps a folder path as entered, so the conflict scan
-    has to expand it before the helper walks it."""
+    has to expand it before the helper walks it. The scene later moves Photos
+    to the empty Pictures."""
     docs = home / "Docs"
     (docs / "notes").mkdir(parents=True)
     (docs / "notes/plan.sync-conflict-20260101-000000-ABCDEFG.md").touch()
     photos = work / "Photos"
     (photos / ".stversions").mkdir(parents=True)
     (photos / ".stversions/a.sync-conflict-20260101-000000-ABCDEFG~20260102-000000.jpg").touch()
+    (work / "Pictures").mkdir()
     snapshot = {
         "connection": {"online": True, "phase": "online", "fresh": True},
         "identity": {"deviceId": "LOCAL"},
@@ -732,13 +812,16 @@ def write_snapshot(work, home):
 
 
 class SilentBus:
-    """A session bus (abstract socket) that accepts and never answers, so
-    pick-folder waits on it. Each client's "connected <comm>" and, when its
-    socket closes (the process is gone), "closed" go to `log`."""
+    """A session bus (abstract socket). The first client is accepted and never
+    answered, so pick-folder waits on it: its "connected <comm>" and, when
+    its socket closes (the process is gone), "closed" go to `log`. Later
+    clients get REJECTED for their AUTH line ("refused" in `log`), as a bus
+    that does not take this user would answer."""
 
     def __init__(self, log):
         self.log = log
         self.pids = []
+        self.clients = 0
         self.name = f"foamy-syncthing-picker-{os.getpid()}-{id(self)}"
         self.server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.server.bind("\0" + self.name)
@@ -759,11 +842,15 @@ class SilentBus:
                 client, _ = self.server.accept()
             except OSError:
                 return
-            threading.Thread(target=self.hold, args=(client,), daemon=True).start()
+            self.clients += 1
+            threading.Thread(target=self.hold, args=(client, self.clients), daemon=True).start()
 
-    def hold(self, client):
+    def hold(self, client, number):
         pid = struct.unpack("3i", client.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))[0]
         self.pids.append(pid)
+        if number > 1:
+            self.refuse(client, pid)
+            return
         try:
             comm = Path(f"/proc/{pid}/comm").read_text().strip()
         except OSError:
@@ -776,6 +863,20 @@ class SilentBus:
             except OSError:
                 break
         self.write(f"closed {pid}")
+        client.close()
+
+    def refuse(self, client, pid):
+        received = b""
+        try:
+            while b"\r\n" not in received:
+                data = client.recv(4096)
+                if not data:
+                    break
+                received += data
+            client.sendall(b"REJECTED EXTERNAL\r\n")
+        except OSError:
+            pass
+        self.write(f"refused {pid}")
         client.close()
 
     def survivors(self):
@@ -853,11 +954,9 @@ def run(host, shell, crash=False, blocked=False, snapshot=None, env=None, missin
         shutil.rmtree(work, ignore_errors=True)
 
 
-def run_live(host, failing_version=False):
+def run_live(host):
     """LIVE_SHELL with the real core, a fake Syncthing in the shell's HOME and
-    fake systemctl/syncthing first on PATH (no real service is ever asked).
-    failing_version: /rest/system/version fails and the peer reports a
-    version with an escape sequence; neither may show."""
+    fake systemctl/syncthing first on PATH (no real service is ever asked)."""
     work = Path(tempfile.mkdtemp(prefix=f"foamy-syncthing-live-{host}-"))
     syncthing = None
     try:
@@ -873,9 +972,6 @@ def run_live(host, failing_version=False):
         syncthing = fake_syncthing.FakeSyncthing(home)
         (home / "Docs").mkdir()
         syncthing.state["folders"] = [fake_syncthing.folder(home / "Docs")]
-        if failing_version:
-            syncthing.overrides[("GET", "/rest/system/version")] = (500, b"boom")
-            syncthing.state["connections"][fake_syncthing.PEER_ID]["clientVersion"] = "v2.0.9\x1b[31m"
         config = Path(runner.env["XDG_STATE_HOME"]) / "syncthing"
         config.mkdir(parents=True)
         syncthing.state["paths"]["config"] = str(config / "config.xml")
@@ -901,8 +997,8 @@ def run_live(host, failing_version=False):
             {
                 "FAKE_CALLS": str(work / "calls.jsonl"),
                 "FAKE_SYSTEMCTL_STATE": str(systemctl),
-                "FOAMY_EXPECT_VERSION": "" if failing_version else "v2.0.10",
-                "FOAMY_EXPECT_PEER": "1 shared folder" if failing_version else "1 shared folder · v2.0.9",
+                "FOAMY_EXPECT_VERSION": "v2.0.10",
+                "FOAMY_EXPECT_PEER": "1 shared folder · v2.0.9",
             }
         )
         runner.run(timeout=90)
@@ -910,7 +1006,7 @@ def run_live(host, failing_version=False):
         warnings = [line for line in lines if "WARN" in line and "/plugin/" in line and "/plugin/kit/" not in line]
         warnings += [f"FOAMY FAIL host command ran: {line}" for line in runner.host_commands()]
         checks = [line.split("FOAMY CHECKS")[1].strip() for line in lines if "FOAMY CHECKS" in line]
-        label = f"{host} live{' failing version' if failing_version else ''}"
+        label = f"{host} live"
         if runner.ok and not warnings:
             print(f"{label}: runtime passed ({checks[0] if checks else '?'} checks)")
             runner.cleanup()
@@ -942,7 +1038,5 @@ if not run(
 if not run("4.5", MISSING_SHELL, missing_helper=True, name="missing helper"):
     status = 1
 if not run_live("4.5"):
-    status = 1
-if not run_live("4.5", failing_version=True):
     status = 1
 sys.exit(status)
