@@ -30,8 +30,9 @@ test('offline and truncated data never report connected or up to date', () => {
   assert.equal(rows(service, [{...folder, devices: [{deviceID: 'missing'}]}]).folders[0].state, 'Unavailable');
   assert.equal(rows(service, [{...folder, devices: []}]).folders[0].state, 'Up to date');
 });
-test('pending work and refreshes do not imply an active transfer', () => {
-  const pending = rows({...service, refreshing: true}, [{...folder, needItems: 1, syncing: true}]);
+test('waiting work keeps the peer connected; an active sync shows local progress', () => {
+  // A queued folder (sync-waiting) is not a transfer: the peer row stays Connected.
+  const pending = rows(service, [{...folder, state: 'sync-waiting', needItems: 1}]);
   assert.equal(pending.folders[0].state, 'Waiting to sync');
   assert.equal(pending.devices[0].state, 'Connected');
   const active = rows(service, [{...folder, state: 'syncing', needBytes: 280, needItems: 1}]);
