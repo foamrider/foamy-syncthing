@@ -147,6 +147,8 @@ ShellRoot {
     panels[1].save("refreshIntervalSec", 300)
     check(panels[1].popup.bodyItem.settings.refreshIntervalSec === 300, "saved value shows before it is reflected")
     check(panels[1].bar.saved.length === 1 && panels[1].bar.saved[0].settings.refreshIntervalSec === 300, "saved inline through the bar")
+    check(panels[1].bar.saved[0].settings.minimumConnectedDevices === 2 && panels[1].bar.saved[0].settings.probeIntervalSec === 5,
+          "a save keeps the widget's other settings")
     check(shell.scans === 0, "no conflict walk for unchanged folders (" + shell.scans + ")")
     check(shell.probes() === shell.probesOnline, "install probe idle while online (" + shell.probesOnline + " -> " + shell.probes() + ")")
     panels[1].openSettings()
