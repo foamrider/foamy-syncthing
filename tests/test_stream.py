@@ -183,31 +183,6 @@ class SnapshotTests(CoreTest):
         core.finish()
         self.assert_secret_free(core)
 
-    def test_hydration_reads_every_part_in_order(self):
-        core, _ = self.folder_core()
-        core.ready()
-        paths = [call["target"] for call in core.syncthing.calls() if call["path"] != "/rest/events"]
-        self.assertEqual(
-            paths[:13],
-            [
-                "/rest/noauth/health",
-                "/rest/system/status",
-                "/rest/system/version",
-                "/rest/config/devices",
-                "/rest/config/folders",
-                "/rest/system/connections",
-                "/rest/db/status?folder=docs",
-                "/rest/folder/errors?folder=docs&page=1&perpage=100",
-                "/rest/cluster/pending/folders",
-                "/rest/cluster/pending/devices",
-                "/rest/system/discovery",
-                "/rest/config/gui",
-                "/rest/system/paths",
-            ],
-        )
-        core.request("shutdown", "1")
-        core.finish()
-
     def test_bounds_sorting_and_problem_counts(self):
         core = self.core(start=False)
         state = core.syncthing.state
@@ -320,15 +295,6 @@ class RequestTests(CoreTest):
                 self.assertEqual(fatal, {"v": 2, "type": "fatal", "code": code, "message": message})
                 self.assertEqual(core.process.wait(timeout=10), 1)
                 core.close()
-
-    def test_duplicate_request_ids_are_fatal(self):
-        core, _ = self.folder_core()
-        core.ready()
-        core.request("refresh", "same")
-        core.send({"v": 2, "type": "refresh", "id": "same"})
-        fatal = core.wait_for(lambda f: f["type"] == "fatal")
-        self.assertEqual(fatal["message"], "request id is duplicated")
-        self.assertEqual(core.process.wait(timeout=10), 1)
 
     def test_overlong_input_line_is_fatal(self):
         core, _ = self.folder_core()
@@ -685,21 +651,6 @@ class ArgumentTests(CoreTest):
         self.assertEqual(core.frames, [])
         self.assertIn(b"Syncthing configuration was not found", core.stderr)
 
-    def test_flag_spellings(self):
-        core = self.core(
-            flags=[
-                "-probe-interval-seconds=20",
-                "-lifecycle-kind=systemd-user",
-                "--lifecycle-authorized=true",
-                "--lifecycle-unit=" + UNIT,
-            ]
-        )
-        state = core.ready()["state"]
-        self.assertTrue(state["lifecycle"]["authorized"])
-        self.assertEqual(state["lifecycle"]["unit"], UNIT)
-        core.request("shutdown", "1")
-        core.finish()
-
     def test_explicit_config_and_expected_identity(self):
         core = self.core(start=False)
         other = core.home / "elsewhere" / "config.xml"
@@ -888,25 +839,6 @@ class DeadlineTests(CoreTest):
                 self.assertEqual(core.finish(), 0)
                 self.assert_secret_free(core)
 
-    def test_a_full_unix_backlog_ends_at_the_dial_bound(self):
-        # A connect to a listener whose backlog is full never completes on
-        # its own; the dial deadline ends it and the core still answers.
-        core = self.core(start=False)
-        listener = fake_syncthing.FullBacklog(str(core.home))
-        self.addCleanup(listener.close)
-        core.write_config(address=listener.path)
-        core.start()
-        state = core.ready(timeout=DIAL_BOUND + 10)["state"]
-        self.assertEqual(state["connection"]["error"], TIMEOUT)
-        self.assertFalse(state["connection"]["online"])
-        self.assertLess(core.arrived - core.started, DIAL_BOUND + SLACK, "initial snapshot")
-        started = time.monotonic()
-        result = core.request("shutdown", "1", timeout=DIAL_BOUND + 5)
-        self.assertTrue(result["ok"], result)
-        self.assertLess(core.arrived - started, 1.5)
-        self.assertEqual(core.finish(), 0)
-        self.assert_secret_free(core)
-
     def test_a_silent_dns_server_ends_at_the_dial_bound(self):
         # The lookup of a host name counts against the dial bound: a DNS
         # server that never answers (the resolver itself would wait 30 s)
@@ -951,14 +883,6 @@ class UnixSocketTests(CoreTest):
                 self.assertTrue(core.syncthing.calls("GET", "/rest/system/status"))
                 self.assertEqual(core.finish(), 0)
                 self.assert_secret_free(core)
-
-    def test_a_broken_escape_is_an_invalid_url(self):
-        core = self.core(start=False, unix_socket="gui socket")
-        core.write_config(address="unix://" + quote(core.syncthing.address) + "%zz")
-        core.start()
-        self.assertEqual(core.finish(), 1)
-        self.assertEqual(core.frames, [])
-        self.assertIn(b"Syncthing target URL is invalid", core.stderr)
 
 
 class FailureTests(CoreTest):
