@@ -29,10 +29,11 @@ nothing. The live scene: the real core's snapshot reaches the header, the
 devices and the service controls. The service scene: pause, resume and unlink
 send the right requests in order and settle on failure, a failed stop
 settles, the bar colour follows folder problems, too few devices and a
-Syncthing outage, every kind of broken core output stops the core once
-without a restart until recover(), and a core that dies ends a held folder
-action. Without a helper for this CPU the core and the folder chooser say so
-and nothing is retried.
+Syncthing outage, folder changes are refused while Syncthing is down, every
+kind of broken core output stops the core once without a restart until
+recover(), and a core that dies ends a held folder action. Without a helper
+for this CPU the core and the folder chooser say so and recover() launches
+nothing.
 Requires ~/GitHub/Personal/foamy-kit (or FOAMY_KIT)."""
 
 import json
@@ -203,6 +204,8 @@ ShellRoot {
   // Refreshes with the same folders started no conflict walk; a moved
   // folder starts exactly one.
   function movedFolder() {
+    // The refreshes and the p action have all ended by now.
+    check(shell.scans === 0, "no conflict walk for unchanged folders (" + shell.scans + ")")
     var state = JSON.parse(snapshotFile.text())
     state.folders[1].path = state.folders[1].path.replace(/Photos$/, "Pictures")
     snapshotFile.setText(JSON.stringify(state))
@@ -248,8 +251,10 @@ ShellRoot {
   function step8() {
     // The bus refuses this second chooser's authentication.
     panels[1].browseFolder()
-    expect(function() { return panels[1].opened && !panels[1].returningFromBrowser && panels[1].pickerError !== "" }, 15000,
-           "the refused chooser ends and the popup opens again", function() {
+    // The bus logs "refused" after it answers, so wait for the log line too.
+    expect(function() {
+      return panels[1].opened && !panels[1].returningFromBrowser && panels[1].pickerError !== "" && pickerLog.text().indexOf("refused") >= 0
+    }, 15000, "the refused chooser ends and the popup opens again", function() {
       check(panels[1].pickerError === "The folder chooser needs a session bus, and there is none; enter the path manually.",
             "chooser error: " + panels[1].pickerError)
       check(pickerLog.text().indexOf("refused") >= 0, "the chooser reached the refusing bus: " + pickerLog.text())
@@ -281,8 +286,11 @@ ShellRoot {
   FileView { id: coreLog; path: CORE_LOG; watchChanges: true; printErrors: false; onFileChanged: reload() }
   Component.onCompleted: {
     service = Qt.createComponent(Qt.resolvedUrl("plugin/Service.qml")).createObject(null)
-    wait.waitFor(function() { return !service.core.running && service.core.restartTimer.running && service.core.restartTimer.interval === 30000 },
-                 30000, slowRetry, "the crashing core reaches its slow retry")
+    // The argv log reloads after the exit is seen, so wait for the count too.
+    // The next start is 30 s away, so the count cannot overshoot.
+    wait.waitFor(function() {
+      return !service.core.running && service.core.restartTimer.running && service.core.restartTimer.interval === 30000 && shell.starts() >= 4
+    }, 30000, slowRetry, "the crashing core reaches its slow retry")
   }
   FoamyWait { id: wait }
   property int before: 0
@@ -579,6 +587,11 @@ ShellRoot {
     check(service.refresh(), "a refresh starts")
     expect(function() { return service.phase === "error" && colour(panel.bar.urgent) }, 10000, "Syncthing down makes the bar urgent", function() {
       check(panel.barIcon.codePointAt(0) === 0xf09e0, "notify glyph while down: " + panel.barIcon.codePointAt(0))
+      // Folder changes are refused before a request while Syncthing is down.
+      check(!service.unlinkFolder("docs") && service.folderMutationError === "Syncthing must be online to unlink a folder",
+            "unlink is refused offline: " + service.folderMutationError)
+      check(!service.setFolderPaused("docs", true) && service.folderMutationError === "Syncthing must be online to manage folders",
+            "pause is refused offline: " + service.folderMutationError)
       check(actions().length === mark, "no other action: " + JSON.stringify(since()))
       console.log("FOAMY CHECKS " + checks)
       console.log("FOAMY DONE")
@@ -665,15 +678,20 @@ ShellRoot {
     wait.waitFor(function() { return !service.core.executableReady }, 20000, function(ok) {
       check(ok, "the missing helper is noticed")
       check(service.core.unavailable && service.lastError === FoamyNative.UNAVAILABLE_TEXT, "core error: " + service.lastError)
+      // A relaunch of a missing helper fails within milliseconds and leaves
+      // the same state, so count launches instead of reading the state.
+      var launches = service.core.generation
       service.recover()
       wait.after(500, function() {
+        check(service.core.generation === launches, "recover() launches nothing (" + (service.core.generation - launches) + ")")
         check(!service.core.running && !service.core.restartTimer.running, "recover() does not retry a missing helper")
         panel.open()
         panel.browseFolder()
         wait.waitFor(function() { return panel.opened && panel.pickerError !== "" && !panel.returningFromBrowser }, 15000, function(ok) {
           check(ok, "the chooser ends and the popup opens again")
           check(panel.pickerError === FoamyNative.UNAVAILABLE_TEXT, "chooser error: " + panel.pickerError)
-          check(!service.core.running, "the core is still not started")
+          check(!service.core.running && service.core.generation === launches,
+                "the core is still not started (" + (service.core.generation - launches) + " launches)")
           console.log("FOAMY CHECKS " + checks)
           console.log("FOAMY DONE")
           Qt.quit()
@@ -686,7 +704,8 @@ ShellRoot {
 
 # The real core against tests/fake_syncthing.py: the header's version and
 # device line, and each peer's version, end to end (Syncthing → helper →
-# Service → view). FOAMY_EXPECT_* say what this run's fake reports.
+# Service → view). The fake reports v2.0.10 for this device and v2.0.9 for
+# the connected peer.
 LIVE_SHELL = r"""
 import QtQuick
 import Quickshell
@@ -698,8 +717,6 @@ ShellRoot {
   property var service: null
   property var panel: null
   property int checks: 0
-  readonly property string version: Quickshell.env("FOAMY_EXPECT_VERSION")
-  readonly property string peer: Quickshell.env("FOAMY_EXPECT_PEER")
   function check(ok, what) { checks++; if (!ok) console.log("FOAMY FAIL " + what) }
   function device(view, name) {
     var devices = view && view.liveRows ? view.liveRows.devices : []
@@ -723,13 +740,13 @@ ShellRoot {
       wait.waitFor(function() { return panel.popup.bodyItem !== null && shell.device(panel.popup.bodyItem, "laptop") !== null }, 10000, function(ok) {
         var view = panel.popup.bodyItem
         check(ok, "the popup shows the devices")
-        check(service.syncthingVersion === version, "our version: '" + service.syncthingVersion + "'")
+        check(service.syncthingVersion === "v2.0.10", "our version: '" + service.syncthingVersion + "'")
         // The other devices only, like the Devices tab: laptop online, phone not.
-        check(view.headerMeta === "1 / 2 devices online" + (version ? " · " + version : ""), "header meta: " + view.headerMeta)
+        check(view.headerMeta === "1 / 2 devices online · v2.0.10", "header meta: " + view.headerMeta)
         check(view.summary.title === "Up to date" && view.summary.detail === "", "no folder count under Up to date: " + JSON.stringify(view.summary))
         check(view.errorText === "", "no error: " + view.errorText)
         var laptop = shell.device(view, "laptop")
-        check(laptop && laptop.connected && laptop.subtitle === peer, "connected peer: " + (laptop && laptop.subtitle))
+        check(laptop && laptop.connected && laptop.subtitle === "1 shared folder · v2.0.9", "connected peer: " + (laptop && laptop.subtitle))
         var phone = shell.device(view, "<phone & co>")
         check(phone && !phone.connected && phone.subtitle === "0 shared folders", "disconnected peer, no version: " + (phone && phone.subtitle))
         // The panel's argv gives the real core its lifecycle authority, and
@@ -997,8 +1014,6 @@ def run_live(host):
             {
                 "FAKE_CALLS": str(work / "calls.jsonl"),
                 "FAKE_SYSTEMCTL_STATE": str(systemctl),
-                "FOAMY_EXPECT_VERSION": "v2.0.10",
-                "FOAMY_EXPECT_PEER": "1 shared folder · v2.0.9",
             }
         )
         runner.run(timeout=90)
