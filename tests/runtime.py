@@ -18,8 +18,15 @@ model); settings open; a
 folder chooser left open goes with its Panel (the real pick-folder helper,
 blocked on a session bus that never answers, is gone once the Panel is
 destroyed and nothing of it outlives the run); a crash-looping core keeps
-being retried and right-click/open starts it now; a leftover user unit
-blocking the install is named in the popup summary, not in the bar tooltip.
+being retried with a backoff capped at 5 minutes, and right-click/open starts
+it now; a leftover user unit blocking the install is named in the popup
+summary, not in the bar tooltip. The service scene: pause, resume and unlink
+send the right requests in order and settle on failure, a failed stop
+settles, the bar colour follows folder problems, too few devices and a
+Syncthing outage, every kind of broken core output stops the core once
+without a restart until recover(), and a core that dies ends a held folder
+action. Without a helper for this CPU the core and the folder chooser say so
+and nothing is retried.
 Requires ~/GitHub/Personal/foamy-kit (or FOAMY_KIT)."""
 
 import json
@@ -117,6 +124,7 @@ ShellRoot {
     check(service.folderRows.length === 2 && service.folderRows[0].label === "Documents", "configured label first")
     // Escaped icon-font glyphs (\u{…}) still decode: conflicts → the "notify" glyph.
     check(panels[0].barIcon.codePointAt(0) === 0xf09e0 && panels[0].barIcon.length === 2, "bar glyph decodes: " + panels[0].barIcon.codePointAt(0))
+    check(Qt.colorEqual(panels[0].iconColor, panels[0].bar.urgent), "conflicts make the bar urgent")
     check(service.tooFewDevices === false && service.deviceCounts.connected === 2, "device counts include this computer")
     shell.probesOnline = shell.probes()
     shell.scans = 0
@@ -213,6 +221,9 @@ ShellRoot {
     check(core.restartAttempts === 4, "three fast restarts, then a slow one (" + core.restartAttempts + ")")
     check(core.restartTimer.running && core.restartTimer.interval === 30000, "slow retry scheduled, not given up")
     check(core.desiredRunning, "still wants to run")
+    check(JSON.stringify([1, 2, 3, 4, 5, 6, 7, 8, 9, 20].map(core.restartDelay))
+            === JSON.stringify([250, 500, 1000, 30000, 60000, 120000, 240000, 300000, 300000, 300000]),
+          "backoff doubles to a 5-minute cap: " + [1, 2, 3, 4, 5, 6, 7, 8, 9, 20].map(core.restartDelay))
     before = shell.starts()
     service.recover()
     wait.waitFor(function() { return shell.starts() > before }, 10000, function() {
@@ -260,6 +271,341 @@ ShellRoot {
       console.log("FOAMY CHECKS " + checks)
       console.log("FOAMY DONE")
       Qt.quit()
+    })
+  }
+}
+"""
+
+# Folder actions, start/stop, the bar colour and protocol failures through the
+# real Service and one Panel, against the fake core's request log. The fake
+# core fails or holds some actions (SERVICE_FAILURES); the scene rewrites
+# SNAPSHOT to change what the next refresh publishes.
+SERVICE_SHELL = r"""
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import "harness"
+import "plugin/kit" as Kit
+import "plugin" as Plugin
+
+ShellRoot {
+  id: shell
+  property var service: null
+  property var panel: null
+  property int checks: 0
+  // Actions already checked; since() is what came after them.
+  property int mark: 0
+  property int busyEnds: 0
+  function check(ok, what) { checks++; if (!ok) console.log("FOAMY FAIL " + what) }
+  function expect(condition, ms, what, next) { wait.waitFor(condition, ms, function(ok) { check(ok, what); next() }) }
+  function requests() {
+    return coreLog.text().split("\n").filter(function(l) { return l.indexOf('{"request"') === 0 }).map(function(l) { return JSON.parse(l).request })
+  }
+  // The actions the core received, without the scene's own fake.* ones.
+  function actions() {
+    return requests().filter(function(r) { return r.type === "action" && r.action.indexOf("fake.") !== 0 })
+      .map(function(r) { return r.action + " " + JSON.stringify(r.args) })
+  }
+  function since() { return actions().slice(mark) }
+  // Checks that exactly `expected` came since the last step, then moves the mark.
+  function sent(expected, what) {
+    var got = since()
+    check(JSON.stringify(got) === JSON.stringify(expected), what + ": " + JSON.stringify(got))
+    mark += expected.length
+  }
+  function rewrite(change) {
+    var state = JSON.parse(snapshotFile.text())
+    change(state)
+    snapshotFile.setText(JSON.stringify(state))
+  }
+  function needs(items) {
+    rewrite(function(state) { state.folders[0].status.needTotalItems = items })
+  }
+  function problems(count) {
+    rewrite(function(state) { state.counts.folderProblems = count })
+  }
+  function colour(value) { return Qt.colorEqual(panel.iconColor, value) }
+
+  FloatingWindow {
+    implicitWidth: 400; implicitHeight: 300
+    Item { id: host; width: 400; height: 300 }
+  }
+  Component { id: barComponent; MockBar { barSize: 34 } }
+  FileView { id: coreLog; path: CORE_LOG; watchChanges: true; printErrors: false; onFileChanged: reload() }
+  FileView { id: snapshotFile; path: SNAPSHOT; blockLoading: true; blockWrites: true; printErrors: false }
+  Connections {
+    target: shell.service
+    function onFolderMutationBusyChanged() { if (!shell.service.folderMutationBusy) shell.busyEnds++ }
+  }
+  FoamyWait { id: wait }
+
+  Component.onCompleted: {
+    service = Qt.createComponent(Qt.resolvedUrl("plugin/Service.qml")).createObject(null)
+    panel = Qt.createComponent(Qt.resolvedUrl("plugin/Panel.qml")).createObject(host, {
+      bar: barComponent.createObject(shell, { moduleName: "foamy.syncthing" }), moduleName: "foamy.syncthing", width: 40, height: 34,
+      settings: { minimumConnectedDevices: 0 } })
+    wait.waitFor(function() {
+      return service.online && service.settingsReady && service.folderRows.length === 5
+        && service.scannedFolderKey === service.folderKey && !service.conflictScan.running && service.conflictInput === ""
+    }, 20000, function(ok) {
+      check(ok, "the service comes online with five folders")
+      check(colour(panel.bar.foreground) && !service.tooFewDevices, "a healthy bar uses the bar colour")
+      pause()
+    })
+  }
+
+  function pause() {
+    check(service.setFolderPaused("docs", true), "pause starts")
+    expect(function() { return !service.folderMutationBusy && since().length >= 1 }, 10000, "the pause ends", function() {
+      sent(['folder.pause {"folderId":"docs"}'], "pause sends only the folder id")
+      check(service.folderMutationNotice === "Paused Documents. Folder configuration, sharing, and local files are unchanged.",
+            "pause notice: " + service.folderMutationNotice)
+      check(service.setFolderPaused("docs", false), "resume starts")
+      expect(function() { return !service.folderMutationBusy && since().length >= 1 }, 10000, "the resume ends", function() {
+        sent(['folder.resume {"folderId":"docs"}'], "resume sends only the folder id")
+        check(service.folderMutationNotice === "Resumed Documents. Folder configuration, sharing, and local files are unchanged.",
+              "resume notice: " + service.folderMutationNotice)
+        unlink()
+      })
+    })
+  }
+
+  // An active folder is paused first, and stays busy until its removal ends.
+  function unlink() {
+    var ends = busyEnds
+    check(service.unlinkFolder("docs"), "unlink starts")
+    check(service.folderMutationBusy, "unlink is busy at once")
+    check(!service.unlinkFolder("archive") && service.folderMutationError === "Another folder operation is already running",
+          "a second unlink is refused while one runs: " + service.folderMutationError)
+    expect(function() { return !service.folderMutationBusy && since().length >= 2 }, 10000, "the unlink ends", function() {
+      sent(['folder.pause {"folderId":"docs"}', 'folder.forget {"folderId":"docs"}'], "unlink pauses, then removes")
+      check(busyEnds === ends + 1, "busy from the pause to the removal (" + (busyEnds - ends) + " ends)")
+      check(service.folderMutationNotice === "Unlinked Documents from Syncthing. Local files were kept.",
+            "unlink notice: " + service.folderMutationNotice)
+      check(service.unlinkFolder("archive"), "unlinking a paused folder starts")
+      expect(function() { return !service.folderMutationBusy && since().length >= 1 }, 10000, "the paused unlink ends", function() {
+        sent(['folder.forget {"folderId":"archive"}'], "a paused folder is removed without a pause")
+        failedPause()
+      })
+    })
+  }
+
+  function failedPause() {
+    check(service.unlinkFolder("fail-pause"), "unlink with a failing pause starts")
+    expect(function() { return !service.folderMutationBusy && since().length >= 1 }, 10000, "the failed pause ends", function() {
+      check(service.folderMutationError === "Cannot pause", "pause error: " + service.folderMutationError)
+      sent(['folder.pause {"folderId":"fail-pause"}'], "nothing is removed after a failed pause")
+      check(service.unlinkFolder("fail-forget"), "unlink with a failing removal starts")
+      expect(function() { return !service.folderMutationBusy && since().length >= 2 }, 10000, "the failed removal ends", function() {
+        check(service.folderMutationError === "Cannot remove The folder remains paused; its local files are unchanged.",
+              "removal error: " + service.folderMutationError)
+        sent(['folder.pause {"folderId":"fail-forget"}', 'folder.forget {"folderId":"fail-forget"}'], "failing removal")
+        check(!service.unlinkFolder("missing-id") && service.folderMutationError === "The selected folder is no longer configured",
+              "an unknown folder is refused: " + service.folderMutationError)
+        lifecycle()
+      })
+    })
+  }
+
+  // A failed stop settles; the unknown folder above sent nothing before it.
+  function lifecycle() {
+    check(service.toggleService(), "stop starts")
+    expect(function() { return !service.serviceActionRunning && since().length >= 1 }, 10000, "the stop ends", function() {
+      sent(["lifecycle.stop {}"], "stop is the only request")
+      check(service.controlError === "authorized user-service action failed", "stop error: " + service.controlError)
+      outOfSync()
+    })
+  }
+
+  function outOfSync() {
+    // An idle folder with outstanding items is a problem although Syncthing counts none.
+    needs(2)
+    check(service.refresh(), "a refresh starts")
+    expect(function() { return colour(panel.bar.urgent) && !service.refreshing }, 10000, "an out-of-sync folder makes the bar urgent", function() {
+      check(panel.barIcon.codePointAt(0) === 0xf09e0, "notify glyph: " + panel.barIcon.codePointAt(0))
+      needs(0)
+      check(service.refresh(), "a second refresh starts")
+      expect(function() { return colour(panel.bar.foreground) && !service.refreshing }, 10000, "an up-to-date folder clears it", function() {
+        check(panel.barIcon.codePointAt(0) === 0xf0160, "default glyph: " + panel.barIcon.codePointAt(0))
+        folderProblems()
+      })
+    })
+  }
+
+  // A problem Syncthing counts is urgent too, ahead of the too-few-devices warning.
+  function folderProblems() {
+    problems(1)
+    check(service.refresh(), "a refresh starts")
+    expect(function() { return colour(panel.bar.urgent) && !service.refreshing }, 10000, "a counted folder problem makes the bar urgent", function() {
+      // Two connected with this computer: three is too few.
+      panel.save("minimumConnectedDevices", 3)
+      expect(function() { return service.tooFewDevices }, 10000, "the saved minimum reaches the service", function() {
+        check(colour(panel.bar.urgent), "a folder problem stays urgent with too few devices")
+        problems(0)
+        check(service.refresh(), "a refresh starts")
+        expect(function() { return colour(Kit.FoamyPalette.warning) && !service.refreshing }, 10000, "too few devices is a warning", function() {
+          protocol(0, -1)
+        })
+      })
+    })
+  }
+
+  readonly property var badLines: ['not json', '{"v":99,"type":"snapshot"}', '{"v":2,"type":"snapshot","revision":1,"state":{}}',
+    '{"v":2,"type":"result","id":"999999","ok":true}', '{"v":2,"type":"fatal","code":"x","message":"boom"}', '{"v":2,"type":"bogus"}']
+  // Online with no restart under way. recover() after a protocol failure
+  // launches the core twice today (the first one is stopped right after its
+  // hello), so wait until no restart is pending.
+  function settled() { return service.online && service.core.desiredRunning && !service.core.restartTimer.running }
+  // Each bad line stops the core once: the pending request fails once, nothing
+  // restarts by itself, and recover() starts it again.
+  function protocol(index, generation) {
+    if (index >= badLines.length) {
+      coreExit(generation)
+      return
+    }
+    var line = badLines[index]
+    expect(function() { return settled() && service.core.generation > generation }, 10000, "the core runs before " + line, function() {
+      var calls = 0, late = 0, error = null
+      var running = service.core.generation
+      service.core.action("fake.hold", {}, function(ok, data, failure) { calls++; error = failure })
+      service.core.action("fake.emit", { line: line }, null)
+      expect(function() {
+        return service.core.incompatible && service.phase === "core-incompatible" && calls === 1 && error && error.code === "core_unavailable" && !service.core.running
+      }, 10000, "the core stops on " + line, function() {
+        wait.after(500, function() {
+          check(calls === 1, "the pending request failed once (" + calls + ")")
+          check(!service.core.running && !service.core.restartTimer.running && service.core.generation === running, "no restart by itself after " + line)
+          check(service.core.refresh(function() { late++ }) === "" && late === 0, "no request while stopped")
+          service.recover()
+          protocol(index + 1, running)
+        })
+      })
+    })
+  }
+
+  // A core that dies ends the folder action it holds and comes back by itself.
+  function coreExit(generation) {
+    expect(function() { return settled() && service.core.generation > generation }, 10000, "recover() starts the core again", function() {
+      var running = service.core.generation
+      check(service.setFolderPaused("hold-me", true) && service.folderMutationBusy, "a held pause is busy")
+      service.core.action("fake.exit", {}, null)
+      expect(function() { return !service.folderMutationBusy && service.folderMutationError !== "" }, 10000, "the held pause fails with the core", function() {
+        expect(function() { return settled() && service.core.generation > running && since().length >= 1 }, 5000, "the core restarts at once", function() {
+          sent(['folder.pause {"folderId":"hold-me"}'], "the held pause")
+          offline()
+        })
+      })
+    })
+  }
+
+  // Syncthing down is urgent, ahead of the too-few-devices warning.
+  function offline() {
+    rewrite(function(state) {
+      state.connection = { online: false, phase: "error", error: { code: "connection", message: "could not connect to Syncthing" } }
+    })
+    check(service.refresh(), "a refresh starts")
+    expect(function() { return service.phase === "error" && colour(panel.bar.urgent) }, 10000, "Syncthing down makes the bar urgent", function() {
+      check(panel.barIcon.codePointAt(0) === 0xf09e0, "notify glyph while down: " + panel.barIcon.codePointAt(0))
+      check(actions().length === mark, "no other action: " + JSON.stringify(since()))
+      console.log("FOAMY CHECKS " + checks)
+      console.log("FOAMY DONE")
+      Qt.quit()
+    })
+  }
+}
+"""
+
+SERVICE_FAILURES = {
+    "folder.pause fail-pause": {"code": "offline", "message": "Cannot pause"},
+    "folder.forget fail-forget": {"code": "folder_changed", "message": "Cannot remove"},
+    "folder.pause hold-me": "hold",
+    "lifecycle.stop": {"code": "lifecycle_failed", "message": "authorized user-service action failed"},
+}
+
+
+def service_snapshot(work):
+    """Five folders whose paths do not exist (the real conflict scan finds
+    none): `docs` first, `archive` paused."""
+
+    def folder(folder_id, label="", paused=False):
+        return {
+            "id": folder_id,
+            "label": label,
+            "path": str(work / "absent" / folder_id),
+            "paused": paused,
+            "devices": [{"id": "PEER1"}],
+            "status": {"state": "idle", "needTotalItems": 0, "globalFiles": 1, "globalBytes": 10},
+        }
+
+    return {
+        "connection": {"online": True, "phase": "online", "fresh": True},
+        "identity": {"deviceId": "LOCAL"},
+        "lifecycle": {
+            "active": True,
+            "canControl": True,
+            "targetMatch": True,
+            "activeState": "active",
+            "unitFileState": "enabled",
+        },
+        "webUi": {"url": "http://127.0.0.1:8384"},
+        "counts": {"folders": 5, "devices": 1, "connectedDevices": 1, "folderProblems": 0},
+        "devices": [
+            {"id": "LOCAL", "name": "this", "connected": True},
+            {"id": "PEER1", "name": "laptop", "connected": True},
+        ],
+        "folders": [
+            folder("docs", "Documents"),
+            folder("archive", "Archive", paused=True),
+            folder("fail-pause"),
+            folder("fail-forget"),
+            folder("hold-me"),
+        ],
+        "pendingFolders": {},
+    }
+
+
+# No helper for this CPU: the core and the folder chooser say so once, and
+# nothing is retried.
+MISSING_SHELL = r"""
+import QtQuick
+import Quickshell
+import "harness"
+import "plugin" as Plugin
+import "plugin/kit/FoamyNative.js" as FoamyNative
+
+ShellRoot {
+  id: shell
+  property var service: null
+  property var panel: null
+  property int checks: 0
+  function check(ok, what) { checks++; if (!ok) console.log("FOAMY FAIL " + what) }
+  FloatingWindow {
+    implicitWidth: 400; implicitHeight: 300
+    Item { id: host; width: 400; height: 300 }
+  }
+  Component { id: barComponent; MockBar { barSize: 34 } }
+  FoamyWait { id: wait }
+  Component.onCompleted: {
+    service = Qt.createComponent(Qt.resolvedUrl("plugin/Service.qml")).createObject(null)
+    panel = Qt.createComponent(Qt.resolvedUrl("plugin/Panel.qml")).createObject(host, {
+      bar: barComponent.createObject(shell, { moduleName: "foamy.syncthing" }), moduleName: "foamy.syncthing", width: 40, height: 34 })
+    wait.waitFor(function() { return !service.core.executableReady }, 20000, function(ok) {
+      check(ok, "the missing helper is noticed")
+      check(service.core.unavailable && service.lastError === FoamyNative.UNAVAILABLE_TEXT, "core error: " + service.lastError)
+      service.recover()
+      wait.after(500, function() {
+        check(!service.core.running && !service.core.restartTimer.running, "recover() does not retry a missing helper")
+        panel.open()
+        panel.browseFolder()
+        wait.waitFor(function() { return panel.opened && panel.pickerError !== "" && !panel.returningFromBrowser }, 15000, function(ok) {
+          check(ok, "the chooser ends and the popup opens again")
+          check(panel.pickerError === FoamyNative.UNAVAILABLE_TEXT, "chooser error: " + panel.pickerError)
+          check(!service.core.running, "the core is still not started")
+          console.log("FOAMY CHECKS " + checks)
+          console.log("FOAMY DONE")
+          Qt.quit()
+        })
+      })
     })
   }
 }
@@ -446,21 +792,29 @@ class SilentBus:
         self.server.close()
 
 
-def run(host, shell, crash=False, blocked=False):
+def run(host, shell, crash=False, blocked=False, snapshot=None, env=None, missing_helper=False, name=""):
+    """snapshot(work): the fake core's state (default: write_snapshot's); env:
+    added to the shell's environment; missing_helper: no helper for this CPU."""
     work = Path(tempfile.mkdtemp(prefix=f"foamy-syncthing-runtime-{host}-"))
     bus = None
     try:
         plugin = prepare(work)
+        if missing_helper:
+            (plugin / "bin" / platform.machine() / "foamy-syncthing-helper").unlink()
         qml = shell.replace("PROBE_LOG", json.dumps(str(work / "probe.log"))).replace(
             "CORE_LOG", json.dumps(str(work / "core.log"))
         )
         qml = qml.replace("PICKER_LOG", json.dumps(str(work / "picker.log")))
+        qml = qml.replace("SNAPSHOT", json.dumps(str(work / "snapshot.json")))
         (work / "probe.log").touch()
         (work / "core.log").touch()
         (work / "picker.log").touch()
         bus = SilentBus(work / "picker.log")
         runner = harness.Run(host, qml, plugin=plugin, prefix=f"foamy-syncthing-qs-{host}-")
-        write_snapshot(work, Path(runner.env["HOME"]))
+        if snapshot is None:
+            write_snapshot(work, Path(runner.env["HOME"]))
+        else:
+            (work / "snapshot.json").write_text(json.dumps(snapshot(work)))
         runner.env.update(
             {
                 "FAKE_CORE_SNAPSHOT": str(work / "snapshot.json"),
@@ -474,12 +828,13 @@ def run(host, shell, crash=False, blocked=False):
             runner.env["FAKE_CORE_EXIT"] = "1"
         if blocked:
             runner.env["FAKE_PROBE_BLOCKING"] = str(Path(runner.env["HOME"]) / ".config/systemd/user/syncthing.service")
+        runner.env.update(env or {})
         runner.run(timeout=90)
         lines = runner.log.splitlines()
         # Any QML warning from the plugin's own files fails the run too.
         warnings = [line for line in lines if "WARN" in line and "/plugin/" in line and "/plugin/kit/" not in line]
         checks = [line.split("FOAMY CHECKS")[1].strip() for line in lines if "FOAMY CHECKS" in line]
-        label = f"{host}{' crash' if crash else ''}{' blocked' if blocked else ''}"
+        label = f"{host}{' crash' if crash else ''}{' blocked' if blocked else ''}{' ' + name if name else ''}"
         left = bus.survivors()
         if left:
             warnings.append(f"FOAMY FAIL the folder chooser's helper outlived the run (pid {left})")
@@ -575,6 +930,16 @@ if not run("4.5", SHELL):
 if not run("4.5", CRASH_SHELL, crash=True):
     status = 1
 if not run("4.5", BLOCKED_SHELL, blocked=True):
+    status = 1
+if not run(
+    "4.5",
+    SERVICE_SHELL,
+    snapshot=service_snapshot,
+    env={"FAKE_CORE_FAIL": json.dumps(SERVICE_FAILURES)},
+    name="service",
+):
+    status = 1
+if not run("4.5", MISSING_SHELL, missing_helper=True, name="missing helper"):
     status = 1
 if not run_live("4.5"):
     status = 1
