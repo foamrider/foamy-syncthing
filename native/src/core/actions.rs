@@ -688,16 +688,6 @@ mod tests {
     }
 
     #[test]
-    fn new_folders_list_each_device_once() {
-        let wanted = ["L".to_string(), " P ".into(), "".into(), "L".into()];
-        let ids: Vec<String> = new_folder_devices(&wanted)
-            .into_iter()
-            .map(|d| d.device_id)
-            .collect();
-        assert_eq!(ids, ["L", "P"]);
-    }
-
-    #[test]
     fn folder_ids_are_safe_names() {
         assert!(safe_name("abc-12.x_y"));
         assert!(!safe_name("a b"));

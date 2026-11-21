@@ -483,6 +483,18 @@ mod tests {
             eval_symlinks(&format!("{root}/file/x")).unwrap_err(),
             "not a directory"
         );
+        // A link loop ends with an error instead of hanging the action. The
+        // walk runs on its own thread so that a missing bound fails this
+        // test instead of hanging the test run.
+        std::os::unix::fs::symlink("loop-b", base.join("loop-a")).unwrap();
+        std::os::unix::fs::symlink("loop-a", base.join("loop-b")).unwrap();
+        let (sender, receiver) = std::sync::mpsc::channel();
+        let looped = format!("{root}/loop-a");
+        std::thread::spawn(move || sender.send(eval_symlinks(&looped)));
+        let walked = receiver
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("a link loop must end with an error");
+        assert_eq!(walked.unwrap_err(), "EvalSymlinks: too many links");
         fs::remove_dir_all(&base).unwrap();
     }
 }

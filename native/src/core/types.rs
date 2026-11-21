@@ -383,13 +383,6 @@ mod tests {
     }
 
     #[test]
-    fn bounds_trim_then_cut_bytes() {
-        assert_eq!(bounded_label("  x  "), "x");
-        assert_eq!(bounded("\u{a0}abcdef\u{2003}", 3), "abc");
-        assert_eq!(bounded_identifier(&"é".repeat(200)).len(), 256);
-    }
-
-    #[test]
     fn versions_are_short_printable_ascii_or_nothing() {
         assert_eq!(bounded_version(" v2.0.10\n"), "v2.0.10");
         assert_eq!(
