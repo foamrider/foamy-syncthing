@@ -36,8 +36,9 @@ Targets Omarchy 4.5, with runtime feature detection only.
   only while Syncthing is offline; the conflict scan runs on folder-set
   changes and the 5-minute timer.
 - Don't unlink a user's real folder to test removal: the tests exercise the
-  native pause/forget contract with mocks, `tests/fake-core.py` and the
-  fake Syncthing in `tests/fake_syncthing.py`.
+  native pause/forget contract with `tests/fake-core.py` (the service
+  scene of `tests/runtime.py`) and the fake Syncthing in
+  `tests/fake_syncthing.py`.
 
 ## Native helper
 

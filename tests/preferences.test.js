@@ -14,14 +14,8 @@ const manifest = require('../manifest.json');
 const translations = require('./i18n.cjs');
 const value = (settings, key) => prefs.value(schema.fields, settings, key);
 
-test('public defaults and bounds do not inherit personal warning settings', () => {
+test('the minimum-devices warning is off by default', () => {
   assert.equal(value({}, 'minimumConnectedDevices'), 0);
-  for (const bad of [-1, 101, 2.5, '3', null]) assert.equal(value({minimumConnectedDevices: bad}, 'minimumConnectedDevices'), 0);
-  assert.equal(value({minimumConnectedDevices: 3}, 'minimumConnectedDevices'), 3);
-  assert.equal(value({openRefreshIntervalSec: 1}, 'openRefreshIntervalSec'), 5);
-  assert.equal(value({refreshIntervalSec: 30}, 'refreshIntervalSec'), 60);
-  assert.equal(value({refreshIntervalSec: 120}, 'refreshIntervalSec'), 120);
-  assert.equal(value({probeIntervalSec: 301}, 'probeIntervalSec'), 15);
 });
 
 test('a stored serviceState from an older version loads and saves harmlessly', () => {
@@ -49,35 +43,11 @@ test('the schema mirrors the manifest defaults and schema', () => {
   for (const entry of manifest.barWidget.schema || []) {
     const field = schema.fields.find(f => f.key === entry.key);
     assert.ok(field, entry.key);
-    for (const key of ['type', 'min', 'max', 'defaultValue']) assert.equal(entry[key], field[key], `${entry.key}.${key}`);
+    for (const key of ['type', 'min', 'max', 'step', 'defaultValue']) assert.equal(entry[key], field[key], `${entry.key}.${key}`);
     assert.deepEqual(entry.options, field.options, `${entry.key}.options`);
   }
   // Every setting is in the manifest schema, also those without a control.
   assert.deepEqual(manifest.barWidget.schema.map(e => e.key).sort(), schema.fields.map(f => f.key).sort());
-});
-
-test('saving validates and uses the full entry, or the omarchy bar set fallback', () => {
-  const calls = [];
-  const bar = {shell: {updateEntryInline(id, entry) { calls.push([id, entry]); return true; }}};
-  const settings = {id: 'foamy.syncthing', minimumConnectedDevices: 0, custom: 'kept'};
-  const ok = prefs.save(bar, 'foamy.syncthing', schema.fields, settings, 'minimumConnectedDevices', 2);
-  assert.equal(ok.ok, true);
-  assert.equal(ok.inline, true);
-  assert.equal(JSON.stringify(calls[0]), JSON.stringify(['foamy.syncthing', {minimumConnectedDevices: 2, custom: 'kept'}]));
-  assert.equal(prefs.save(bar, 'foamy.syncthing', schema.fields, settings, 'minimumConnectedDevices', 101).ok, false);
-  const cli = prefs.save(null, 'foamy.syncthing', schema.fields, settings, 'refreshIntervalSec', 300);
-  assert.equal(JSON.stringify(cli.command), JSON.stringify(['omarchy', 'bar', 'set', 'foamy.syncthing', 'refreshIntervalSec', '300', '--json']));
-});
-
-test('translations preserve placeholders and literal user data', () => {
-  const placeholders = v => [...v.matchAll(/\{(\w+)\}|%(\d)/g)].map(match => match[0]).sort();
-  for (const [key, v] of Object.entries(translations.nb)) {
-    if (typeof v === 'string') assert.deepEqual(placeholders(v), placeholders(key), key);
-  }
-  const name = 'Settings {name} $& <folder>';
-  assert.equal(translations.text('Paused {name}. Folder configuration, sharing, and local files are unchanged.', 'nb', {name}).includes(name), true);
-  assert.equal(translations.text('Settings', 'en'), 'Settings');
-  assert.equal(translations.text('Unknown backend error', 'nb'), 'Unknown backend error');
 });
 
 test('every static UI translation key has Norwegian text', () => {

@@ -711,6 +711,8 @@ fn decode<T: DeserializeOwned + Default>(bytes: &[u8]) -> Result<T, Error> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::{Read, Write};
+    use std::sync::{Arc, Mutex};
 
     #[test]
     fn an_unsupported_cpu_reports_the_kits_message() {
@@ -761,14 +763,132 @@ mod tests {
         assert_eq!(events[1].data, Some(Value::Null));
     }
 
-    #[test]
-    fn folder_devices_serialize_with_their_id() {
-        let device = FolderDevice {
-            device_id: "A".into(),
+    fn reply(status: &str, extra: &str, body: &str) -> String {
+        format!(
+            "HTTP/1.1 {status}\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        )
+    }
+
+    fn redirect(to: &str) -> String {
+        reply("302 Found", &format!("Location: {to}\r\n"), "")
+    }
+
+    /// A loopback peer that answers connection `n` with `answer(n)` (one GET
+    /// per connection) and records every request head it reads.
+    fn peer(answer: impl Fn(usize) -> String + Send + 'static) -> (u16, Arc<Mutex<Vec<String>>>) {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let heads = Arc::new(Mutex::new(Vec::new()));
+        let seen = Arc::clone(&heads);
+        // The thread stays blocked in `accept` until the test binary exits.
+        std::thread::spawn(move || {
+            for (n, stream) in listener.incoming().enumerate() {
+                let Ok(mut stream) = stream else { return };
+                let mut head = Vec::new();
+                let mut byte = [0u8; 1];
+                while !head.ends_with(b"\r\n\r\n") && stream.read(&mut byte).unwrap_or(0) == 1 {
+                    head.push(byte[0]);
+                }
+                // Recorded before the answer, so the client has seen every
+                // head once its call returns.
+                seen.lock()
+                    .unwrap()
+                    .push(String::from_utf8_lossy(&head).into_owned());
+                let _ = stream.write_all(answer(n).as_bytes());
+            }
+        });
+        (port, heads)
+    }
+
+    fn client_for(port: u16) -> Client {
+        let address = http::Address::Tcp {
+            host: "127.0.0.1".into(),
+            port,
         };
+        Client::new(
+            Transport::new(address, None),
+            ApiKey::new("redirect-Canary-9".into()),
+            "http",
+            format!("http://127.0.0.1:{port}"),
+        )
+    }
+
+    #[test]
+    fn only_same_origin_locations_are_followed() {
+        let client = client_for(8384);
+        let follow = |location: &str| client.same_origin(location, "/rest/db/status?folder=a");
         assert_eq!(
-            serde_json::to_string(&device).unwrap(),
-            r#"{"deviceID":"A"}"#
+            follow("http://127.0.0.1:8384/rest/x?y").as_deref(),
+            Some("/rest/x?y")
         );
+        assert_eq!(follow("HTTP://127.0.0.1:8384").as_deref(), Some("/"));
+        assert_eq!(follow("http://127.0.0.1:8384?q").as_deref(), Some("/?q"));
+        assert_eq!(follow("/rest/y").as_deref(), Some("/rest/y"));
+        assert_eq!(follow("other").as_deref(), Some("/rest/db/other"));
+        // Another scheme, port or host is another origin: Go's
+        // "cross-origin redirect rejected".
+        for refused in [
+            "https://127.0.0.1:8384/",
+            "http://127.0.0.1:8385/",
+            "http://localhost:8384/",
+            "http://evil.example/",
+            "//evil.example/x",
+            "http://127.0.0.1:8384@evil.example/",
+        ] {
+            assert_eq!(follow(refused), None, "{refused}");
+        }
+    }
+
+    #[test]
+    fn redirects_carry_the_key_only_on_the_origin_and_stop_after_two() {
+        // Same origin: followed as a GET, with the key.
+        let (port, heads) = peer(|n| {
+            if n == 0 {
+                redirect("/rest/moved")
+            } else {
+                reply("200 OK", "", r#"{"myID":"X"}"#)
+            }
+        });
+        assert_eq!(client_for(port).status().unwrap().my_id, "X");
+        let second = heads.lock().unwrap()[1].clone();
+        assert!(
+            second.starts_with("GET /rest/moved HTTP/1.1\r\n"),
+            "{second}"
+        );
+        assert!(
+            second.contains("X-API-Key: redirect-Canary-9\r\n"),
+            "{second}"
+        );
+
+        // Another origin (another port here) ends the request with an error.
+        // The transport dials only its own address, so a followed
+        // cross-origin redirect would show here as a second request to this
+        // peer; the `other` listener only guards a transport that would dial
+        // the Location's host.
+        let other = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        other.set_nonblocking(true).unwrap();
+        let away = format!("http://{}/rest/system/status", other.local_addr().unwrap());
+        let (port, heads) = peer(move |_| redirect(&away));
+        let error = client_for(port).status().unwrap_err();
+        assert_eq!(
+            (error.code, error.message.as_str()),
+            (Code::Connection, "could not connect to Syncthing")
+        );
+        assert_eq!(heads.lock().unwrap().len(), 1);
+        // A connection the client made would wait in the backlog by now.
+        assert!(
+            other
+                .accept()
+                .is_err_and(|e| e.kind() == std::io::ErrorKind::WouldBlock)
+        );
+
+        // The third redirect is refused: three requests, no fourth.
+        let (port, heads) = peer(|_| redirect("/rest/again"));
+        assert_eq!(
+            client_for(port).status().unwrap_err().code,
+            Code::Connection
+        );
+        assert_eq!(heads.lock().unwrap().len(), 3);
     }
 }

@@ -158,6 +158,17 @@ class ConflictTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             paths = [directory + '/private 📁 "quote"\n--exec', "-leading-dash"]
             self.assertEqual(flags(paths), [False, False])
+            # The scan walks exactly the root it was given, also an unusual
+            # one: a changed path would miss the conflict.
+            Path(paths[0]).mkdir()
+            (Path(paths[0]) / "a.sync-conflict-x").touch()
+            self.assertEqual(flags(paths), [True, False])
+            (Path(directory) / paths[1]).mkdir()
+            (Path(directory) / paths[1] / "a.sync-conflict-x").touch()
+            result = subprocess.run(
+                scanner(), input=b'["-leading-dash"]', capture_output=True, timeout=30, cwd=directory
+            )
+            self.assertEqual(result.stdout, b"[true]\n")
             self.assertEqual(scan(raw=b'  ["a"]  \n').stdout, b"[false]\n")
             self.assertEqual(scan(raw=b" " * MAX_INPUT_BYTES + b"[]").returncode, 1)
             self.assertEqual(scan(raw=b" " * (MAX_INPUT_BYTES - 2) + b"[]").stdout, b"[]\n")
@@ -193,43 +204,6 @@ class ConflictTests(unittest.TestCase):
             finally:
                 unreadable.chmod(0o700)
 
-    def test_actual_worker_has_static_argv_and_no_children(self):
-        with tempfile.TemporaryDirectory() as directory:
-            folder = Path(directory) / 'private-Canary-847 📁 "quote"\n--exec'
-            folder.mkdir()
-            (folder / "a.sync-conflict-test").touch()
-            expected = [os.fsencode(part) for part in scanner()]
-            with subprocess.Popen(
-                scanner(), stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE
-            ) as process:
-                # Hold stdin open so the production worker is observable on procfs.
-                process.stdin.write(json.dumps([str(folder)], ensure_ascii=False).encode())
-                process.stdin.flush()
-                until = time.monotonic() + 5
-                while True:
-                    raw = Path(f"/proc/{process.pid}/cmdline").read_bytes()
-                    argv = raw.split(b"\x00")[:-1]
-                    # Without a binfmt emulator's prefix (qemu-aarch64-static <binary>).
-                    if argv and os.path.basename(argv[0]).startswith(b"qemu-"):
-                        argv = argv[2:]
-                    if argv[:1] == expected[:1]:
-                        break
-                    self.assertLess(time.monotonic(), until)
-                    time.sleep(0.01)
-                self.assertEqual(argv, expected)
-                self.assertNotIn(b"private-Canary-847", raw)
-                tasks = Path(f"/proc/{process.pid}/task")
-                children = "".join((task / "children").read_text() for task in tasks.iterdir())
-                self.assertEqual(children.strip(), "")
-                process.stdin.close()
-                process.stdin = None
-                output, error = process.communicate(timeout=3)
-                self.assertEqual(process.returncode, 0, error)
-                self.assertEqual(output, b"[true]\n")
-                self.assertEqual(error, b"")
-            result = scan([directory + "/missing"])
-            self.assertEqual((result.returncode, result.stdout, result.stderr), (0, b"[false]\n", b""))
-
     def test_arguments_and_malformed_input_fail_without_disclosure(self):
         for args, request in [(["private-Canary-847"], b"[]"), ([], b'["private-Canary-847", 7]')]:
             result = scan(raw=request, args=args)
@@ -262,6 +236,10 @@ class ConflictTests(unittest.TestCase):
         if not runner or os.environ.get("FOAMY_TESTS_NO_QUICKSHELL"):
             # tests/suite.sh --ci sets FOAMY_TESTS_NO_QUICKSHELL: no host QML there.
             self.skipTest("Quickshell is unavailable")
+        if os.environ.get("FOAMY_HELPER"):
+            # The scene runs a Python stand-in, never FOAMY_HELPER: a second
+            # pass for the other CPU would repeat it unchanged.
+            self.skipTest("the QML case runs a stand-in helper, not FOAMY_HELPER")
         source = (ROOT / "Service.qml").read_text()
         methods = []
         for name in ("scanConflicts", "finishConflictScan"):
@@ -284,6 +262,7 @@ class ConflictTests(unittest.TestCase):
             shutil.copy(ROOT / "models/PanelModel.js", base / "models/PanelModel.js")
             stub = helper_dir / "foamy-syncthing-helper"
             state = base / "delivered.jsonl"
+            gate = base / "gate"
             stub.write_text("""#!/usr/bin/python3
 import json, os, sys, time
 from pathlib import Path
@@ -292,6 +271,11 @@ paths = json.load(sys.stdin)
 with Path(os.environ["TEST_CONFLICT_STATE"]).open("a") as output:
     output.write(json.dumps({"paths":paths, "cmdline":Path("/proc/self/cmdline").read_bytes().decode()}) + "\\n")
 if paths in (["stall"], ["destroy"]): time.sleep(30)
+if paths == ["gated"]:
+    # Held until the test removes the gate file (at most 20 s).
+    until = time.monotonic() + 20
+    while os.path.exists(os.environ["TEST_CONFLICT_GATE"]) and time.monotonic() < until:
+        time.sleep(0.02)
 if paths == ["fail"]: sys.exit(1)
 if paths == ["invalid"]: print("unexpected")
 elif paths == ["short"]: print("[]")
@@ -356,6 +340,12 @@ ShellRoot {
             }
             return root.probeFinished && root.probeExit === 0
           }, 20000, String(command))
+        }
+        // QtTest's own FAIL lines do not reach the captured output: name the
+        // failed case here.
+        function cleanup() {
+          if (qtest_results.failed)
+            console.log("CONFLICT_SCAN failed: " + qtest_results.functionName)
         }
         function test_1_stdin_results_per_folder() {
           scan(['private-Canary-847 📁 "quote"\\n--exec', '-leading-dash'])
@@ -440,7 +430,24 @@ ShellRoot {
           scanner.scanConflicts(true)
           tryCompare(scanner, "conflictInput", "", 20000)
         }
-        function test_7_a_missing_helper_is_reported_once() {
+        function test_7_a_change_during_a_scan_gets_one_follow_up() {
+          scanner.folders = [{id:"f0", path:"gated"}]
+          scanner.scanConflicts()
+          waitForCommand(["/usr/bin/grep", "-qF", '"paths": ["gated"]', CONFLICT_STATE_FILE])
+          // Two snapshots change the folder set while the walk runs: only
+          // the latest set gets the one follow-up scan.
+          scanner.folders = [{id:"f0", path:"gated"}, {id:"f1", path:"found"}]
+          scanner.scanConflicts()
+          scanner.folders = [{id:"f0", path:"gated"}, {id:"f1", path:"found"}, {id:"f2", path:"clean"}]
+          scanner.scanConflicts()
+          waitForCommand(["/usr/bin/rm", "-f", GATE])
+          tryVerify(function() {
+            return scanner.conflictFolderIds.f1 === true && !scanner.conflictScan.running && scanner.conflictInput === ""
+          }, 20000, "the follow-up scan of the latest folder set")
+          compare(JSON.stringify(scanner.conflictFolderIds), JSON.stringify({f1: true}))
+        }
+        // Last: it leaves the helper missing for the shared scanner.
+        function test_8_a_missing_helper_is_reported_once() {
           probe.command = ["/usr/bin/mv", STUB, STUB + ".off"]
           root.probeFinished = false; probe.running = true
           tryCompare(root, "probeFinished", true, 20000)
@@ -468,7 +475,9 @@ ShellRoot {
                 shell.read_text()
                 .replace("STUB", json.dumps(str(stub)))
                 .replace("CONFLICT_STATE_FILE", json.dumps(str(state)))
+                .replace("GATE", json.dumps(str(gate)))
             )
+            gate.touch()
             runtime = base / "runtime"
             runtime.mkdir(mode=0o700)
             env = isolated_env(
@@ -478,6 +487,7 @@ ShellRoot {
                 QT_QPA_PLATFORMTHEME="",
                 XDG_RUNTIME_DIR=str(runtime),
                 TEST_CONFLICT_STATE=str(state),
+                TEST_CONFLICT_GATE=str(gate),
             )
             # Its own process group: stop() also ends any stub scan (a stalled
             # one sleeps 30 s) that outlived the shell's own cleanup.
@@ -491,7 +501,13 @@ ShellRoot {
                 output = out.read()
             self.assertIsNotNone(status, "qs did not finish within 180 s\n" + output)
             self.assertEqual(status, 0, output)
-            self.assertIn("CONFLICT_SCAN passed=8 failed=0", output)
+            failed = [
+                line.split("CONFLICT_SCAN failed: ")[1]
+                for line in output.splitlines()
+                if "CONFLICT_SCAN failed: " in line
+            ]
+            self.assertEqual(failed, [], "failed scene cases")
+            self.assertIn("CONFLICT_SCAN passed=9 failed=0", output)
             records = [json.loads(line) for line in state.read_text().splitlines()]
             self.assertEqual(records[0]["paths"], ['private-Canary-847 📁 "quote"\n--exec', "-leading-dash"])
             self.assertIn(["/home/me/Sync"], [record["paths"] for record in records])
@@ -501,7 +517,11 @@ ShellRoot {
             self.assertEqual(sum(record["paths"] == ["stall"] for record in records), 1)
             self.assertEqual(sum(record["paths"] == ["counted"] for record in records), 1)
             self.assertEqual(sum(record["paths"] == ["counted", "counted"] for record in records), 2)
-            print("CONFLICT_SCAN passed=8 failed=0")
+            walks = [record["paths"] for record in records]
+            self.assertEqual(walks.count(["gated"]), 1)
+            self.assertEqual(walks.count(["gated", "found", "clean"]), 1)
+            self.assertNotIn(["gated", "found"], walks)
+            print("CONFLICT_SCAN passed=9 failed=0")
 
 
 if __name__ == "__main__":

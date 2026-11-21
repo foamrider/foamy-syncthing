@@ -1,8 +1,9 @@
 #!/bin/bash
 # foamy-syncthing's own tests; tests/validate.sh runs this after the linters.
 #   --ci    no Quickshell, no Omarchy host: node, and the helper, the install
-#           script and the clipboard helper against fakes (bin/x86_64, and
-#           bin/aarch64 too where this machine can run it)
+#           script and the clipboard helper against fakes (bin/x86_64; the
+#           core, the conflict scan and the folder chooser with bin/aarch64
+#           too where this machine can run it)
 #   --fast  skip the offscreen runtime tests
 set -uo pipefail
 cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." || exit 1
@@ -35,7 +36,10 @@ if printf '[]' | "bin/$other/foamy-syncthing-helper" conflicts >/dev/null 2>&1; 
   (
     ulimit -c 0
     export FOAMY_HELPER="[\"bin/$other/foamy-syncthing-helper\"]"
-    run python3 -I -m unittest discover -s tests -p 'test_*.py'
+    # Only these run the helper; the other test files don't depend on the CPU.
+    run python3 -I -m unittest discover -s tests -p 'test_stream.py'
+    run python3 -I -m unittest discover -s tests -p 'test_conflicts.py'
+    run python3 -I -m unittest discover -s tests -p 'test_pick_folder.py'
     exit "$status"
   ) || status=1
 else

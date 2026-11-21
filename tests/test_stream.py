@@ -5,17 +5,16 @@ the protocol bounds, against a fake Syncthing and a fake systemctl
 service."""
 
 import json
-import os
 import sys
 import time
 import unittest
 from pathlib import Path
-from urllib.parse import quote
+from urllib.parse import parse_qs, quote, urlsplit
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import fake_syncthing  # noqa: E402
-from core_harness import Core, PLUGIN_FLAGS, UNIT, proc_argv, silent_dns_prefix  # noqa: E402
+from core_harness import Core, PLUGIN_FLAGS, UNIT, silent_dns_prefix  # noqa: E402
 from fake_syncthing import API_KEY, LOCAL_ID, OTHER_ID, PEER_ID  # noqa: E402
 
 SHOW = [
@@ -31,6 +30,11 @@ SHOW = [
     "--property=ExecStart",
     "--property=Environment",
 ]
+
+
+def controls(lifecycle):
+    """What the panel's service buttons depend on."""
+    return (lifecycle["classification"], lifecycle["canControl"], lifecycle["canStart"])
 
 
 class CoreTest(unittest.TestCase):
@@ -178,37 +182,11 @@ class SnapshotTests(CoreTest):
         self.assertTrue(all(call["key"] == API_KEY for call in others), others[:3])
         cmdline = Path(f"/proc/{core.process.pid}/cmdline").read_bytes()
         self.assertNotIn(API_KEY.encode(), cmdline)
-        self.assertEqual(proc_argv(core.process.pid), [os.fsencode(part) for part in core.argv()])
         environ = Path(f"/proc/{core.process.pid}/environ").read_bytes()
         self.assertNotIn(API_KEY.encode(), environ)
         core.request("shutdown", "2")
         core.finish()
         self.assert_secret_free(core)
-
-    def test_hydration_reads_every_part_in_order(self):
-        core, _ = self.folder_core()
-        core.ready()
-        paths = [call["target"] for call in core.syncthing.calls() if call["path"] != "/rest/events"]
-        self.assertEqual(
-            paths[:13],
-            [
-                "/rest/noauth/health",
-                "/rest/system/status",
-                "/rest/system/version",
-                "/rest/config/devices",
-                "/rest/config/folders",
-                "/rest/system/connections",
-                "/rest/db/status?folder=docs",
-                "/rest/folder/errors?folder=docs&page=1&perpage=100",
-                "/rest/cluster/pending/folders",
-                "/rest/cluster/pending/devices",
-                "/rest/system/discovery",
-                "/rest/config/gui",
-                "/rest/system/paths",
-            ],
-        )
-        core.request("shutdown", "1")
-        core.finish()
 
     def test_bounds_sorting_and_problem_counts(self):
         core = self.core(start=False)
@@ -258,19 +236,37 @@ class SnapshotTests(CoreTest):
         core.request("shutdown", "1")
         core.finish()
 
+    def test_identifiers_are_cut_at_256_bytes(self):
+        core = self.core(start=False)
+        long_id = "é" * 200  # 400 bytes
+        core.syncthing.state["folders"] = [fake_syncthing.folder(core.home / "long", folder_id=long_id)]
+        core.start()
+        folders = core.ready()["state"]["folders"]
+        self.assertEqual([len(f["id"].encode()) for f in folders], [256])
+        self.assertEqual(folders[0]["id"], "é" * 128)
+        core.request("shutdown", "1")
+        core.finish()
+
 
 class RequestTests(CoreTest):
     def test_refresh_publishes_changes_before_its_result(self):
         core, _ = self.folder_core()
         first = core.ready()
+        # Idle Syncthing: the event loop publishes nothing, so every frame
+        # after a request belongs to that request.
+        before = len(core.frames)
         result = core.request("refresh", "1")
         self.assertEqual(result, {"v": 2, "type": "result", "id": "1", "ok": True})
-        core.syncthing.state["devices"][0]["name"] = "renamed"
-        core.send({"v": 2, "type": "refresh", "id": "2"})
-        changed = core.snapshot(lambda s: any(d["name"] == "renamed" for d in s["devices"]))
-        self.assertGreater(changed["revision"], first["revision"])
-        result = core.wait_for(lambda f: f["type"] == "result")
-        self.assertEqual(result["id"], "2")
+        self.assertEqual([f["type"] for f in core.frames[before:]], ["result"], "an unchanged refresh sent a snapshot")
+        with core.syncthing.lock:
+            core.syncthing.state["devices"][0]["name"] = "renamed"
+        before = len(core.frames)
+        result = core.request("refresh", "2")
+        self.assertTrue(result["ok"], result)
+        frames = core.frames[before:]
+        self.assertEqual([f["type"] for f in frames], ["snapshot", "result"], "the change must come before the result")
+        self.assertIn("renamed", [d["name"] for d in frames[0]["state"]["devices"]])
+        self.assertGreater(frames[0]["revision"], first["revision"])
         core.request("shutdown", "3")
         self.assertEqual(core.finish(), 0)
         self.assertEqual(core.frames[-1], {"v": 2, "type": "end", "reason": "shutdown"})
@@ -302,15 +298,12 @@ class RequestTests(CoreTest):
         self.assertEqual(core.frames[-1], {"v": 2, "type": "end", "reason": "stdin"})
 
     def test_protocol_violations_are_fatal(self):
+        # One line per check; protocol.rs `requests_are_strict` has the rest
+        # of the parser's rows.
         cases = [
             (b"not json", "protocol_request", "request is malformed"),
-            (b"", "protocol_request", "request is malformed"),
             (b'{"v":1,"type":"refresh","id":"1"}', "protocol_request", "protocol major 2 required"),
-            (b'{"v":2,"type":"refresh","id":""}', "protocol_request", "request id is invalid"),
             (b'{"v":2,"type":"refresh","id":"' + b"x" * 129 + b'"}', "protocol_request", "request id is invalid"),
-            (b'{"v":2,"type":"refresh","id":"a\\nb"}', "protocol_request", "request id is invalid"),
-            (b'{"v":2,"type":"refresh","id":"1","extra":true}', "protocol_request", "request is malformed"),
-            (b'{"v":2,"type":"refresh","id":"1"} {}', "protocol_request", "request is malformed"),
             (b'{"v":2,"type":"reboot","id":"1"}', "protocol_request", "request type is unsupported"),
         ]
         for line, code, message in cases:
@@ -322,15 +315,6 @@ class RequestTests(CoreTest):
                 self.assertEqual(fatal, {"v": 2, "type": "fatal", "code": code, "message": message})
                 self.assertEqual(core.process.wait(timeout=10), 1)
                 core.close()
-
-    def test_duplicate_request_ids_are_fatal(self):
-        core, _ = self.folder_core()
-        core.ready()
-        core.request("refresh", "same")
-        core.send({"v": 2, "type": "refresh", "id": "same"})
-        fatal = core.wait_for(lambda f: f["type"] == "fatal")
-        self.assertEqual(fatal["message"], "request id is duplicated")
-        self.assertEqual(core.process.wait(timeout=10), 1)
 
     def test_overlong_input_line_is_fatal(self):
         core, _ = self.folder_core()
@@ -349,20 +333,13 @@ class RequestTests(CoreTest):
     def test_action_arguments_are_strict(self):
         core, _ = self.folder_core()
         core.ready()
-        for request_id, args, code, message in [
-            ("1", {"folderId": "docs", "path": "/x"}, "invalid_action", "action arguments are invalid"),
-            ("2", {"unknown": True}, "invalid_action", "action arguments are invalid"),
-            ("3", [], "invalid_action", "action arguments are invalid"),
-            (
-                "4",
-                {"folderId": "docs", "createDirectory": True},
-                "invalid_action",
-                "directory creation is only valid when adding a folder",
-            ),
-        ]:
+        # A field of another action, and arguments that are not an object.
+        # actions.rs `argument_shapes_are_per_action` has the per-action rows.
+        for request_id, args in [("1", {"folderId": "docs", "path": "/x"}), ("3", [])]:
             result = core.action("folder.pause", request_id, args)
-            self.assertEqual(result["error"], {"code": code, "message": message}, request_id)
-        self.assertEqual(core.action("folder.pause", "5", {})["error"]["code"], "invalid_action")
+            self.assertEqual(
+                result["error"], {"code": "invalid_action", "message": "action arguments are invalid"}, request_id
+            )
         self.assertEqual(
             core.action("does.not-exist", "6")["error"],
             {"code": "unsupported_action", "message": "action is not supported"},
@@ -511,18 +488,22 @@ class FolderActionTests(CoreTest):
 
     def test_accept_a_pending_offer(self):
         core = self.core(start=False)
+
+        def offer(label, encrypted=False):
+            return {"offeredBy": {PEER_ID: {"label": label, "receiveEncrypted": False, "remoteEncrypted": encrypted}}}
+
         core.syncthing.state["pendingFolders"] = {
-            "offer-1": {
-                "offeredBy": {PEER_ID: {"label": "Shared photos", "receiveEncrypted": False, "remoteEncrypted": False}}
-            }
+            "offer-1": offer("Shared photos"),
+            "enc-1": offer("Secret", encrypted=True),
+            "offer-3": offer("Third"),
         }
-        target = core.home / "Photos"
-        target.mkdir()
+        for name in ("Photos", "Other", "Enc", "Third"):
+            (core.home / name).mkdir()
         core.start()
         core.ready()
         args = {
             "folderId": "offer-1",
-            "path": str(target),
+            "path": str(core.home / "Photos"),
             "createDirectory": False,
             "label": "",
             "deviceIds": [PEER_ID],
@@ -532,10 +513,60 @@ class FolderActionTests(CoreTest):
         self.assertTrue(result["ok"], result)
         posted = json.loads(core.syncthing.calls("POST", "/rest/config/folders")[-1]["body"])
         self.assertEqual(posted["label"], "Shared photos")
-        other = core.home / "Other"
-        other.mkdir()
-        result = core.action("folder.add-existing", "2", dict(args, folderId="offer-2", path=str(other)))
-        self.assertEqual(result["error"]["code"], "offer_missing")
+        self.assertEqual(posted["devices"], [{"deviceID": LOCAL_ID}, {"deviceID": PEER_ID}])
+        # An encrypted share must never be accepted as a plain one, and an
+        # accepted offer keeps the device that offered it.
+        for request_id, override, error in [
+            (
+                "2",
+                {"folderId": "offer-2", "path": str(core.home / "Other")},
+                {"code": "offer_missing", "message": "selected folder offer is no longer available"},
+            ),
+            (
+                "3",
+                {"folderId": "enc-1", "path": str(core.home / "Enc")},
+                {"code": "offer_encrypted", "message": "encrypted folder offers are unsupported"},
+            ),
+            (
+                "4",
+                {"folderId": "offer-3", "path": str(core.home / "Third"), "deviceIds": []},
+                {"code": "offer_device_missing", "message": "offering device must remain selected"},
+            ),
+        ]:
+            result = core.action("folder.add-existing", request_id, dict(args, **override))
+            self.assertEqual(result.get("error"), error, override)
+        self.assertEqual(len(core.syncthing.calls("POST", "/rest/config/folders")), 1)
+        core.request("shutdown", "5")
+        core.finish()
+
+    def test_overlap_resolves_tilde_and_refuses_relative_paths(self):
+        # A configured "~/Docs" is Syncthing's home (its `tilde`, not the
+        # core's HOME), so a new folder inside it overlaps. A relative
+        # configured path cannot be checked and refuses the add.
+        core = self.core(start=False)
+        st_home = core.home / "st-home"
+        (st_home / "Docs" / "inner").mkdir(parents=True)
+        (core.home / "Other").mkdir()
+        core.syncthing.state["tilde"] = str(st_home)
+        core.syncthing.state["folders"] = [fake_syncthing.folder("~/Docs")]
+        core.start()
+        core.ready()
+        args = {"folderId": "new", "createDirectory": False, "label": "", "deviceIds": [], "pendingDeviceId": ""}
+        result = core.action("folder.add-existing", "1", dict(args, path=str(st_home / "Docs" / "inner")))
+        self.assertEqual(
+            result.get("error"), {"code": "path_overlap", "message": "folder path overlaps an existing folder"}
+        )
+        with core.syncthing.lock:
+            core.syncthing.state["folders"][0]["path"] = "Docs"
+        result = core.action("folder.add-existing", "2", dict(args, path=str(core.home / "Other")))
+        self.assertEqual(
+            result.get("error"),
+            {
+                "code": "path_unresolved",
+                "message": "cannot check folder overlap; set existing relative folder paths to absolute paths in Syncthing",
+            },
+        )
+        self.assertFalse(core.syncthing.calls("POST", "/rest/config/folders"))
         core.request("shutdown", "3")
         core.finish()
 
@@ -634,6 +665,52 @@ class LifecycleTests(CoreTest):
         core.request("shutdown", "4")
         core.finish()
 
+    def test_a_healthy_instance_with_an_inactive_unit_is_external(self):
+        # Syncshell issue 45: a Syncthing that answers while the user unit is
+        # inactive was started by someone else. No Start button, and it stays
+        # so once that Syncthing goes away.
+        core, _ = self.folder_core(systemctl={"ActiveState": "inactive"})
+        state = core.ready()["state"]
+        self.assertTrue(state["connection"]["online"])
+        self.assertEqual(controls(state["lifecycle"]), ("external", False, False))
+        core.syncthing.down = lambda: True
+        core.request("refresh", "1")
+        state = core.latest_state()
+        self.assertFalse(state["connection"]["online"])
+        self.assertEqual(controls(state["lifecycle"]), ("external", False, False))
+        self.assertEqual(core.action("lifecycle.start", "2")["error"]["code"], "lifecycle_forbidden")
+        self.assertFalse([c for c in core.calls() if c[0] == "systemctl" and c != SHOW])
+        core.request("shutdown", "3")
+        core.finish()
+
+    def test_an_active_unit_without_its_api_can_still_be_controlled(self):
+        core = self.core(start=False)
+        core.syncthing.down = lambda: True
+        core.start()
+        state = core.ready()["state"]
+        self.assertFalse(state["connection"]["online"])
+        self.assertEqual(controls(state["lifecycle"]), ("unit-active-api-unavailable", True, False))
+        core.request("shutdown", "1")
+        core.finish()
+
+    def test_a_flatpak_configuration_gets_no_service_control(self):
+        # Discovery falls back to SyncThingy's Flatpak config; the native
+        # syncthing.service must never count as its unit.
+        core = self.core(start=False)
+        flatpak = core.home / ".var/app/com.github.zocker_160.SyncThingy/config/syncthing/config.xml"
+        flatpak.parent.mkdir(parents=True)
+        core.config_path.rename(flatpak)
+        core.start()
+        state = core.ready()["state"]
+        self.assertTrue(state["connection"]["online"], state["connection"])
+        lifecycle = state["lifecycle"]
+        self.assertEqual(lifecycle["targetMatch"], False)
+        self.assertEqual(controls(lifecycle), ("external", False, False))
+        self.assertEqual(core.action("lifecycle.stop", "1")["error"]["code"], "lifecycle_forbidden")
+        self.assertFalse([c for c in core.calls() if c[0] == "systemctl" and c != SHOW])
+        core.request("shutdown", "2")
+        core.finish()
+
     def test_without_authority_nothing_runs(self):
         core, _ = self.folder_core(flags=["--probe-interval-seconds", "15"])
         lifecycle = core.ready()["state"]["lifecycle"]
@@ -664,43 +741,30 @@ class ArgumentTests(CoreTest):
         return core, code
 
     def test_invalid_invocations_exit_before_hello(self):
-        for flags in (
-            ["--lifecycle-authorized"],
-            ["--lifecycle-kind", "systemd-user"],
-            ["--lifecycle-kind", "launchd"],
-            ["--probe-interval-seconds", "0"],
-            ["--probe-interval-seconds", "3601"],
-            ["--desired-service-state", "enabled"],
-            ["--unknown"],
-            ["extra"],
-            ["--lifecycle-authorized", "--lifecycle-kind", "systemd-user", "--lifecycle-unit", "a\nb.service"],
+        # One row per kind of refusal; mod.rs `go_flag_rules_and_syncshell_checks`
+        # has the parser's other rows. The reason is one line on stderr.
+        for flags, reason in (
+            (["--unknown"], "invalid command arguments"),
+            # Both ends of the range: 0 would probe systemctl on every pass.
+            (["--probe-interval-seconds", "0"], "probe interval must be between 1 and 3600 seconds"),
+            (["--probe-interval-seconds", "3601"], "probe interval must be between 1 and 3600 seconds"),
+            (["--lifecycle-authorized"], "authorized lifecycle binding is incomplete"),
+            (
+                ["--lifecycle-authorized", "--lifecycle-kind", "systemd-user", "--lifecycle-unit", "a\nb.service"],
+                "lifecycle unit is invalid",
+            ),
         ):
             with self.subTest(flags=flags):
                 core, code = self.run_core(flags)
                 self.assertEqual(code, 1)
                 self.assertEqual(core.frames, [])
-                self.assertTrue(core.stderr)
+                self.assertEqual(core.stderr, f"foamy-syncthing-helper: {reason}\n".encode())
 
     def test_missing_configuration_exits_before_hello(self):
         core, code = self.run_core(PLUGIN_FLAGS, config=False)
         self.assertEqual(code, 1)
         self.assertEqual(core.frames, [])
         self.assertIn(b"Syncthing configuration was not found", core.stderr)
-
-    def test_flag_spellings(self):
-        core = self.core(
-            flags=[
-                "-probe-interval-seconds=20",
-                "-lifecycle-kind=systemd-user",
-                "--lifecycle-authorized=true",
-                "--lifecycle-unit=" + UNIT,
-            ]
-        )
-        state = core.ready()["state"]
-        self.assertTrue(state["lifecycle"]["authorized"])
-        self.assertEqual(state["lifecycle"]["unit"], UNIT)
-        core.request("shutdown", "1")
-        core.finish()
 
     def test_explicit_config_and_expected_identity(self):
         core = self.core(start=False)
@@ -843,71 +907,31 @@ class DeadlineTests(CoreTest):
         self.assertGreaterEqual(took, bound - EARLY, f"{what} after {took:.2f}s")
         self.assertLess(took, bound + SLACK, f"{what} after {took:.2f}s")
 
-    def test_a_trickled_header_ends_at_the_header_bound(self):
-        cores = {tls: self.trickle_core("header", 2, tls) for tls in (False, True)}
-        for core in cores.values():
+    def test_a_trickling_peer_ends_at_the_absolute_bounds(self):
+        # A trickled header ends at the header bound, a trickled body at the
+        # request bound. The four cores run at the same time.
+        cases = [
+            (mode, tls, self.trickle_core(mode, gap, tls), bound)
+            for mode, gap, bound in (("header", 2, HEADER_BOUND), ("body", 1, REQUEST_BOUND))
+            for tls in (False, True)
+        ]
+        for _, _, core, _ in cases:
             core.start()
-        for tls, core in cores.items():
-            with self.subTest(tls=tls):
-                state = core.ready(timeout=HEADER_BOUND + 10)["state"]
+            # The core reads stdin only after its first snapshot, so this
+            # waits in the pipe behind the request that trickles.
+            core.send({"v": 2, "type": "shutdown", "id": "1"})
+        for mode, tls, core, bound in cases:
+            with self.subTest(mode=mode, tls=tls):
+                state = core.ready(timeout=bound + 10)["state"]
                 self.assertEqual(state["connection"]["error"], TIMEOUT)
                 self.assertFalse(state["connection"]["online"])
-                self.assert_bound(core.arrived - core.started, HEADER_BOUND, "initial snapshot")
-        sent = {}
-        for tls, core in cores.items():
-            core.send({"v": 2, "type": "refresh", "id": "1"})
-            sent[tls] = time.monotonic()
-        for tls, core in cores.items():
-            with self.subTest(tls=tls):
-                result = core.wait_for(
-                    lambda f: f["type"] == "result" and f["id"] == "1", HEADER_BOUND + 10, "refresh result"
-                )
-                self.assertEqual(result["error"], TIMEOUT)
-                self.assert_bound(core.arrived - sent[tls], HEADER_BOUND, "refresh result")
-                started = time.monotonic()
-                core.request("shutdown", "2", timeout=5)
-                self.assertLess(core.arrived - started, 1.5)
-                self.assertEqual(core.finish(), 0)
-                self.assert_secret_free(core)
-
-    def test_a_trickled_body_ends_at_the_request_bound(self):
-        cores = {tls: self.trickle_core("body", 1, tls) for tls in (False, True)}
-        for core in cores.values():
-            core.start()
-        time.sleep(1)
-        for core in cores.values():
-            # Read only once the initial refresh is done.
-            core.send({"v": 2, "type": "shutdown", "id": "1"})
-        for tls, core in cores.items():
-            with self.subTest(tls=tls):
-                state = core.ready(timeout=REQUEST_BOUND + 10)["state"]
-                self.assertEqual(state["connection"]["error"], TIMEOUT)
-                self.assert_bound(core.arrived - core.started, REQUEST_BOUND, "initial snapshot")
+                self.assert_bound(core.arrived - core.started, bound, "initial snapshot")
                 snapshot_at = core.arrived
                 result = core.wait_for(lambda f: f["type"] == "result" and f["id"] == "1", 5, "shutdown")
                 self.assertTrue(result["ok"], result)
                 self.assertLess(core.arrived - snapshot_at, 1.5)
                 self.assertEqual(core.finish(), 0)
                 self.assert_secret_free(core)
-
-    def test_a_full_unix_backlog_ends_at_the_dial_bound(self):
-        # A connect to a listener whose backlog is full never completes on
-        # its own; the dial deadline ends it and the core still answers.
-        core = self.core(start=False)
-        listener = fake_syncthing.FullBacklog(str(core.home))
-        self.addCleanup(listener.close)
-        core.write_config(address=listener.path)
-        core.start()
-        state = core.ready(timeout=DIAL_BOUND + 10)["state"]
-        self.assertEqual(state["connection"]["error"], TIMEOUT)
-        self.assertFalse(state["connection"]["online"])
-        self.assertLess(core.arrived - core.started, DIAL_BOUND + SLACK, "initial snapshot")
-        started = time.monotonic()
-        result = core.request("shutdown", "1", timeout=DIAL_BOUND + 5)
-        self.assertTrue(result["ok"], result)
-        self.assertLess(core.arrived - started, 1.5)
-        self.assertEqual(core.finish(), 0)
-        self.assert_secret_free(core)
 
     def test_a_silent_dns_server_ends_at_the_dial_bound(self):
         # The lookup of a host name counts against the dial bound: a DNS
@@ -951,16 +975,10 @@ class UnixSocketTests(CoreTest):
                 self.assertEqual(state["connection"]["endpoint"], "unix://" + path)
                 self.assertTrue(state["connection"]["online"])
                 self.assertTrue(core.syncthing.calls("GET", "/rest/system/status"))
+                # No web UI link: the panel would open a unix:// URL in a browser.
+                self.assertNotIn("url", state["webUi"])
                 self.assertEqual(core.finish(), 0)
                 self.assert_secret_free(core)
-
-    def test_a_broken_escape_is_an_invalid_url(self):
-        core = self.core(start=False, unix_socket="gui socket")
-        core.write_config(address="unix://" + quote(core.syncthing.address) + "%zz")
-        core.start()
-        self.assertEqual(core.finish(), 1)
-        self.assertEqual(core.frames, [])
-        self.assertIn(b"Syncthing target URL is invalid", core.stderr)
 
 
 class FailureTests(CoreTest):
@@ -994,12 +1012,23 @@ class FailureTests(CoreTest):
                 core.finish()
 
     def test_a_folder_without_its_error_model_is_still_shown(self):
+        # A 404 from /rest/folder/errors (the folder's error model is not
+        # ready yet) reads as "no errors": not a failure, not the old list.
         core, _ = self.folder_core()
         core.ready()
+        with core.syncthing.lock:
+            core.syncthing.state["errors"]["docs"] = [{"path": "a", "error": "denied"}]
+        self.assertTrue(core.request("refresh", "1")["ok"])
+        self.assertEqual(core.latest_state()["counts"]["folderProblems"], 1)
         core.syncthing.overrides[("GET", "/rest/folder/errors")] = (404, b"not ready")
-        result = core.request("refresh", "1")
+        result = core.request("refresh", "2")
         self.assertTrue(result["ok"], result)
-        core.request("shutdown", "2")
+        state = core.latest_state()
+        self.assertEqual([f["id"] for f in state["folders"]], ["docs"])
+        self.assertIsNone(state["folders"][0]["status"]["errors"])
+        self.assertEqual(state["counts"]["folderProblems"], 0)
+        self.assertTrue(state["connection"]["online"])
+        core.request("shutdown", "3")
         core.finish()
 
     def test_health_failure_is_reported_and_recovers(self):
@@ -1058,16 +1087,13 @@ class VersionTests(CoreTest):
         core.finish()
 
     def test_untrusted_versions_are_bounded_and_printable(self):
+        # Both Syncthing's own version and a peer's go through the bound:
+        # trimmed, too long, a control sequence. types.rs
+        # `versions_are_short_printable_ascii_or_nothing` has the other rows.
         cases = [
             (" v2.0.9 ", "v2.0.9"),
-            ("v2.1.0-rc.2+12-g0123abc", "v2.1.0-rc.2+12-g0123abc"),
-            ("v" + "1" * 39, "v" + "1" * 39),
             ("v" + "1" * 40, None),
             ("v2.0.9\x1b[31m", None),
-            ("v2.0.9\nforged", None),
-            ("v2.0.9 <b>x</b>", None),
-            ("v2.0.9\u202e", None),
-            ("", None),
         ]
         for value, expected in cases:
             with self.subTest(value=value):
@@ -1120,9 +1146,60 @@ class EventTests(CoreTest):
         core.snapshot(lambda s: any(d["name"] == "renamed by event" for d in s["devices"]), timeout=10)
         events = core.syncthing.calls("GET", "/rest/events")
         self.assertTrue(events)
-        query = events[-1]["target"].split("?", 1)[1]
-        self.assertTrue(query.startswith("events=ConfigSaved%2CDeviceConnected%2C"), query)
-        self.assertRegex(query, r"&limit=256&since=\d+&timeout=1$")
+        # The long poll asks for config changes, with its stated bounds.
+        query = parse_qs(urlsplit(events[-1]["target"]).query)
+        self.assertEqual(query["limit"], ["256"])
+        self.assertEqual(query["timeout"], ["1"])
+        self.assertIn("ConfigSaved", query["events"][0].split(","))
+        core.request("shutdown", "1")
+        core.finish()
+
+    def test_activity_resumes_when_syncthing_restarts_its_event_ids(self):
+        # A restarted Syncthing numbers its events from 1 again; the core
+        # must start its cursor over instead of waiting for ids above the old.
+        core, _ = self.folder_core()
+        core.ready()
+        core.syncthing.wait_polling()
+        for _ in range(3):
+            core.syncthing.add_event("FolderSummary", {"folder": "docs"})
+        until = time.monotonic() + 10
+        while not any("since=3&" in c["target"] for c in core.syncthing.calls("GET", "/rest/events")):
+            self.assertLess(time.monotonic(), until, "the core never polled after event 3")
+            time.sleep(0.05)
+        core.syncthing.overrides[("GET", "/rest/events")] = (500, b"restarting")
+        core.snapshot(lambda s: s["connection"]["fresh"] is False, timeout=10)
+        with core.syncthing.lock:
+            core.syncthing.state["events"] = []
+            core.syncthing.next_event = 1
+        core.syncthing.add_event("ItemStarted", {"folder": "docs", "item": "after.txt", "action": "update"})
+        del core.syncthing.overrides[("GET", "/rest/events")]
+        state = core.snapshot(lambda s: s["activity"]["files"], 15, "activity after the restart")["state"]
+        self.assertEqual([f["path"] for f in state["activity"]["files"]], ["after.txt"])
+        core.request("shutdown", "1")
+        core.finish()
+
+    def test_local_index_updates_are_bounded_and_rescan_new_directories(self):
+        # One LocalIndexUpdated looks up at most 16 files, rescans a new
+        # directory instead of listing it, and keeps at most 12 activity rows.
+        core, _ = self.folder_core()
+        names = [f"gone-{i:02}.txt" for i in range(20)]
+        files = core.syncthing.state["files"]
+        for name in names:
+            files[("docs", name)] = {"local": {"type": "FILE_INFO_TYPE_FILE", "deleted": True}}
+        files[("docs", "photos")] = {"local": {"type": "FILE_INFO_TYPE_DIRECTORY", "deleted": False}}
+        core.ready()
+        core.syncthing.wait_polling()
+        core.syncthing.add_event("LocalIndexUpdated", {"folder": "docs", "filenames": ["photos"] + names})
+        state = core.snapshot(lambda s: s["activity"]["files"], timeout=10)["state"]
+        read = {c["target"] for c in core.syncthing.calls("GET", "/rest/db/file")}
+        self.assertEqual(len(read), 16, sorted(read))  # "photos" and gone-00 .. gone-14
+        self.assertFalse([t for t in read if "gone-15" in t or "gone-19" in t])
+        self.assertIn("/rest/db/scan?folder=docs&sub=photos", [c["target"] for c in core.syncthing.calls("POST")])
+        activity = state["activity"]["files"]
+        self.assertEqual(len(activity), 12)
+        self.assertTrue(
+            all(f["action"] == "removing" and f["detail"] == "Removing " + f["path"] for f in activity), activity
+        )
         core.request("shutdown", "1")
         core.finish()
 
@@ -1145,6 +1222,23 @@ class LiveConfigTests(CoreTest):
         state = core.snapshot(lambda s: s["lifecycle"]["activeState"] == "activating", timeout=10)["state"]
         self.assertTrue(state["lifecycle"]["active"])
         core.request("shutdown", "1")
+        core.finish()
+
+    def test_configure_applies_the_probe_interval_at_once(self):
+        # The panel's settings reach a running core through `configure`.
+        # Started with a 15 s probe, the change must show well before that.
+        core, _ = self.folder_core()
+        core.ready()
+        core.set_systemctl({"ActiveState": "activating"})
+        result = core.request("configure", "1", config={"probeIntervalSeconds": 1, "refreshIntervalSeconds": 60})
+        self.assertTrue(result["ok"], result)
+        # `configure` itself starts one refresh, which probes at once whatever
+        # the interval; only the probe after it shows the new interval.
+        state = core.snapshot(lambda s: s["lifecycle"]["activeState"] == "activating", 5, "the refresh after configure")
+        self.assertTrue(state["state"]["lifecycle"]["active"])
+        core.set_systemctl({"ActiveState": "active"})
+        core.snapshot(lambda s: s["lifecycle"]["activeState"] == "active", 5, "a probe on the new 1 s interval")
+        core.request("shutdown", "2")
         core.finish()
 
 

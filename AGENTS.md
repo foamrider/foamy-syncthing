@@ -56,25 +56,28 @@ rules a change must keep.
 ## Tests
 
 Run `tests/validate.sh` (after `mise install`) before calling a change
-ready; `tests/validate.sh --ci` is what CI runs. It ends with
-`tests/suite.sh`, which runs these:
+ready; `tests/validate.sh --ci` is what CI runs. Besides the linters it runs
+`bash tests/kit-check.sh`, `$FOAMY_KIT/check.sh .` and
+`omarchy plugin validate .`, and it ends with `tests/suite.sh`, which runs
+these:
 
 ```sh
 export FOAMY_KIT=~/GitHub/Personal/foamy-kit   # or the foamy-kit checkout in use
 node --test tests/*.test.js tests/*.test.cjs
 python3 -I -m unittest discover -s tests -p 'test_*.py'
-FOAMY_HELPER='["bin/aarch64/foamy-syncthing-helper"]' python3 -I -m unittest discover -s tests -p 'test_*.py'
+# the aarch64 build (qemu binfmt), only the files that run the helper:
+for file in test_stream.py test_conflicts.py test_pick_folder.py; do
+  FOAMY_HELPER='["bin/aarch64/foamy-syncthing-helper"]' python3 -I -m unittest discover -s tests -p "$file"
+done
 python3 tests/runtime.py
 python3 "$FOAMY_KIT"/preview/i18n_runtime.py .
-bash tests/kit-check.sh
-$FOAMY_KIT/check.sh .
-omarchy plugin validate .
 ```
 
 `tests/test_stream.py` is the core's black-box contract (fake Syncthing,
 fake `systemctl`); `tests/test_conflicts.py` the scan's;
-`tests/test_install_script.py` the install script's (fake `omarchy`,
-`systemctl` and `uwsm-app`).
+`tests/test_pick_folder.py` the folder chooser's (a private `dbus-daemon`,
+never the session bus); `tests/test_install_script.py` the install
+script's (fake `omarchy`, `systemctl` and `uwsm-app`).
 
 <!-- foamy-kit review: begin; managed by foamy-kit sync.sh, edit outside this block -->
 ## Code review

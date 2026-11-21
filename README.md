@@ -180,20 +180,21 @@ tests/validate.sh                     # every check below, the linters and the n
 tests/validate.sh --ci                # what CI runs: no Quickshell, no Omarchy host
 ```
 
-`tests/validate.sh` runs the linters and formatters (findings that existed
-at adoption are in `tests/lint/`), `kit/native/build-native.sh . --test`
-and then `tests/suite.sh`, which runs the tests one by one:
+`tests/validate.sh` runs `bash tests/kit-check.sh` (kit files and the
+native pin), `omarchy-plugin-validate .`, the kit's design lint
+(`"$FOAMY_KIT"/check.sh .`, FOAMY_KIT: a foamy-kit checkout), the linters
+and formatters (findings that existed at adoption are in `tests/lint/`),
+`kit/native/build-native.sh . --test` and then `tests/suite.sh`, which runs
+the tests one by one:
 
 ```sh
 node --test tests/*.test.js tests/*.test.cjs
 python3 -I -m unittest discover -s tests -p 'test_*.py'
-FOAMY_HELPER='["bin/aarch64/foamy-syncthing-helper"]' \
-  python3 -I -m unittest discover -s tests -p 'test_*.py'   # the aarch64 build (qemu binfmt)
+for file in test_stream.py test_conflicts.py test_pick_folder.py; do   # the aarch64 build (qemu binfmt)
+  FOAMY_HELPER='["bin/aarch64/foamy-syncthing-helper"]' python3 -I -m unittest discover -s tests -p "$file"
+done
 python3 tests/runtime.py              # offscreen on 4.5 (needs foamy-kit)
 python3 "$FOAMY_KIT"/preview/i18n_runtime.py .   # live language switch (the kit's catalog check)
-bash tests/kit-check.sh               # kit files and the native pin
-"$FOAMY_KIT"/check.sh .               # the kit's design lint (FOAMY_KIT: a foamy-kit checkout)
-omarchy-plugin-validate .
 ```
 
 The offscreen tests run on Omarchy 4.5, the installed `/usr/share/omarchy/shell`
