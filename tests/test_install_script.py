@@ -1,5 +1,6 @@
 """scripts/syncthing-install.sh against fake commands in a temporary HOME:
-the operation lock, its runtime directory and the blocking-file report.
+the operation lock, its runtime directory, the blocking-file report, the
+refusal to replace an existing Syncthing and the setup terminal's argv.
 
 Nothing here installs anything or opens a terminal: `omarchy`, `systemctl`
 and `uwsm-app` are logging fakes, and PATH holds only them and the few real
@@ -182,6 +183,47 @@ class InstallScriptTests(unittest.TestCase):
         result = self.script("run", "install-package", stdin="\n")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("state: incomplete", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_an_existing_syncthing_is_reported_and_never_reinstalled(self):
+        installed = self.base / "opt/syncthing"
+        installed.parent.mkdir()
+        installed.write_text("#!/usr/bin/bash\n")
+        installed.chmod(0o755)
+        (self.bin / "syncthing").symlink_to(installed)
+        # A leftover unit next to a working Syncthing does not make it incomplete.
+        unit = self.home / ".config/systemd/user/syncthing.service"
+        unit.parent.mkdir(parents=True)
+        unit.write_text("[Service]\n")
+        status = self.status()
+        self.assertEqual(
+            (status["state"], status["executable"], status["blocking"]), ("existing", str(installed.resolve()), "")
+        )
+        result = self.script("run", "install-package", stdin="\n")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("state: existing", result.stderr)
+        self.assertEqual(self.calls(), [])
+
+    def test_install_opens_the_setup_terminal_with_a_fixed_argv(self):
+        # This uwsm-app records its exact argv (NUL-separated) instead of a log line.
+        argv = self.base / "uwsm-app.argv"
+        (self.bin / "uwsm-app").write_text('#!/usr/bin/bash\nprintf \'%s\\0\' "$@" > "$TEST_ARGV"\n')
+        result = self.script("install", env=dict(self.env, TEST_ARGV=str(argv)))
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(
+            argv.read_text().split("\0")[:-1],
+            [
+                "--",
+                "xdg-terminal-exec",
+                "--title=Syncthing setup",
+                "--",
+                "bash",
+                str(SCRIPT.resolve()),
+                "run",
+                "install-package",
+            ],
+        )
+        # Opening the terminal installs nothing by itself.
         self.assertEqual(self.calls(), [])
 
 
