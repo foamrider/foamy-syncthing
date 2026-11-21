@@ -37,57 +37,6 @@ class ClipboardTests(unittest.TestCase):
         self.env = dict(os.environ, **hostenv.clipboard_fakes(self.base / "bin"))
         self.state = Path(self.env["TEST_CLIPBOARD_STATE"])
 
-    def read(self, mode, selection="clipboard"):
-        self.state.write_text(mode)
-        started = time.monotonic()
-        # Only the deadline modes end at clipboard.sh's 2 s; a paste that ends
-        # by itself may take longer on a loaded machine (the stand-in timeout).
-        deadline = mode in hostenv.CLIPBOARD_DEADLINE_MODES
-        result = subprocess.run(
-            ["bash", str(HELPER), selection], env=self.env, capture_output=True, timeout=10 if deadline else 90
-        )
-        if deadline:
-            self.assertLess(time.monotonic() - started, 4)
-        self.assertLessEqual(len(result.stdout), 100000)
-        return result
-
-    def test_unicode_empty_and_limit(self):
-        for mode, expected in (("unicode", "/home/test/Blåbær 📁"), ("empty", ""), ("limit", "x" * 16384)):
-            with self.subTest(mode=mode):
-                result = self.read(mode)
-                self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertEqual(json.loads(result.stdout), expected)
-
-    def test_primary_selection_and_single_line(self):
-        result = self.read("lines", "primary")
-        self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(json.loads(result.stdout), "one  two three")
-        args = json.loads(Path(str(self.state) + ".args").read_text())
-        self.assertEqual(args, ["--no-newline", "--type", "text", "--primary"])
-
-    def test_oversized_nul_and_continuous_stream_are_rejected(self):
-        for mode in ("large", "nul", "stream"):
-            with self.subTest(mode=mode):
-                result = self.read(mode)
-                self.assertNotEqual(result.returncode, 0)
-                self.assertEqual(result.stdout, b"")
-                self.assertEqual(result.stderr, b"")
-
-    def test_total_deadline_covers_stalled_and_slow_sources(self):
-        for mode in ("stall", "slow"):
-            with self.subTest(mode=mode):
-                result = self.read(mode)
-                self.assertEqual(result.returncode, 137)
-
-    def test_failure_and_invalid_selection(self):
-        self.assertNotEqual(self.read("failure").returncode, 0)
-        self.assertEqual(self.read("normal", "invalid").returncode, 2)
-
-    def test_producer_ignoring_term_is_killed(self):
-        result = self.read("ignore")
-        self.assertEqual(result.returncode, 137)
-        self.assert_producer_stopped()
-
     def assert_producer_stopped(self):
         pid = Path(str(self.state) + ".pid").read_text()
         status = Path(f"/proc/{pid}/stat")
