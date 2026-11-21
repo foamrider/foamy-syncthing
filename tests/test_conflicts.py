@@ -158,6 +158,17 @@ class ConflictTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             paths = [directory + '/private 📁 "quote"\n--exec', "-leading-dash"]
             self.assertEqual(flags(paths), [False, False])
+            # The scan walks exactly the root it was given, also an unusual
+            # one: a changed path would miss the conflict.
+            Path(paths[0]).mkdir()
+            (Path(paths[0]) / "a.sync-conflict-x").touch()
+            self.assertEqual(flags(paths), [True, False])
+            (Path(directory) / paths[1]).mkdir()
+            (Path(directory) / paths[1] / "a.sync-conflict-x").touch()
+            result = subprocess.run(
+                scanner(), input=b'["-leading-dash"]', capture_output=True, timeout=30, cwd=directory
+            )
+            self.assertEqual(result.stdout, b"[true]\n")
             self.assertEqual(scan(raw=b'  ["a"]  \n').stdout, b"[false]\n")
             self.assertEqual(scan(raw=b" " * MAX_INPUT_BYTES + b"[]").returncode, 1)
             self.assertEqual(scan(raw=b" " * (MAX_INPUT_BYTES - 2) + b"[]").stdout, b"[]\n")
@@ -330,6 +341,12 @@ ShellRoot {
             return root.probeFinished && root.probeExit === 0
           }, 20000, String(command))
         }
+        // QtTest's own FAIL lines do not reach the captured output: name the
+        // failed case here.
+        function cleanup() {
+          if (qtest_results.failed)
+            console.log("CONFLICT_SCAN failed: " + qtest_results.functionName)
+        }
         function test_1_stdin_results_per_folder() {
           scan(['private-Canary-847 📁 "quote"\\n--exec', '-leading-dash'])
           compare(scanner.conflictScanError, "")
@@ -484,6 +501,12 @@ ShellRoot {
                 output = out.read()
             self.assertIsNotNone(status, "qs did not finish within 180 s\n" + output)
             self.assertEqual(status, 0, output)
+            failed = [
+                line.split("CONFLICT_SCAN failed: ")[1]
+                for line in output.splitlines()
+                if "CONFLICT_SCAN failed: " in line
+            ]
+            self.assertEqual(failed, [], "failed scene cases")
             self.assertIn("CONFLICT_SCAN passed=9 failed=0", output)
             records = [json.loads(line) for line in state.read_text().splitlines()]
             self.assertEqual(records[0]["paths"], ['private-Canary-847 📁 "quote"\n--exec', "-leading-dash"])
