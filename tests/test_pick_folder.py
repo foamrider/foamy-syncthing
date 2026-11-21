@@ -72,10 +72,11 @@ class PickFolderTests(unittest.TestCase):
                 code, reply = self.pick(bus=bus)
                 self.assertEqual((code, reply["ok"], reply["code"]), (1, False, "NO_SESSION_BUS"))
 
-    @unittest.skipUnless(DBUS_DAEMON, "needs dbus-daemon")
     def test_a_real_bus_without_a_portal_is_unavailable(self):
         # A real daemon accepts the client's authentication, Hello, AddMatch
         # and OpenFile; with no portal on the bus the reply is "unavailable".
+        # A host without dbus-daemon fails here instead of skipping the case.
+        self.assertIsNotNone(DBUS_DAEMON, "dbus-daemon is not on PATH: install the dbus package")
         socket = self.runtime / "bus"
         config = self.root / "bus.conf"
         config.write_text(f"""<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN"
