@@ -187,8 +187,9 @@ and then `tests/suite.sh`, which runs the tests one by one:
 ```sh
 node --test tests/*.test.js tests/*.test.cjs
 python3 -I -m unittest discover -s tests -p 'test_*.py'
-FOAMY_HELPER='["bin/aarch64/foamy-syncthing-helper"]' \
-  python3 -I -m unittest discover -s tests -p 'test_*.py'   # the aarch64 build (qemu binfmt)
+for file in test_stream.py test_conflicts.py test_pick_folder.py; do   # the aarch64 build (qemu binfmt)
+  FOAMY_HELPER='["bin/aarch64/foamy-syncthing-helper"]' python3 -I -m unittest discover -s tests -p "$file"
+done
 python3 tests/runtime.py              # offscreen on 4.5 (needs foamy-kit)
 python3 "$FOAMY_KIT"/preview/i18n_runtime.py .   # live language switch (the kit's catalog check)
 bash tests/kit-check.sh               # kit files and the native pin
