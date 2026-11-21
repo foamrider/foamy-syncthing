@@ -236,6 +236,17 @@ class SnapshotTests(CoreTest):
         core.request("shutdown", "1")
         core.finish()
 
+    def test_identifiers_are_cut_at_256_bytes(self):
+        core = self.core(start=False)
+        long_id = "é" * 200  # 400 bytes
+        core.syncthing.state["folders"] = [fake_syncthing.folder(core.home / "long", folder_id=long_id)]
+        core.start()
+        folders = core.ready()["state"]["folders"]
+        self.assertEqual([len(f["id"].encode()) for f in folders], [256])
+        self.assertEqual(folders[0]["id"], "é" * 128)
+        core.request("shutdown", "1")
+        core.finish()
+
 
 class RequestTests(CoreTest):
     def test_refresh_publishes_changes_before_its_result(self):
@@ -734,6 +745,8 @@ class ArgumentTests(CoreTest):
         # has the parser's other rows. The reason is one line on stderr.
         for flags, reason in (
             (["--unknown"], "invalid command arguments"),
+            # Both ends of the range: 0 would probe systemctl on every pass.
+            (["--probe-interval-seconds", "0"], "probe interval must be between 1 and 3600 seconds"),
             (["--probe-interval-seconds", "3601"], "probe interval must be between 1 and 3600 seconds"),
             (["--lifecycle-authorized"], "authorized lifecycle binding is incomplete"),
             (
@@ -1219,8 +1232,12 @@ class LiveConfigTests(CoreTest):
         core.set_systemctl({"ActiveState": "activating"})
         result = core.request("configure", "1", config={"probeIntervalSeconds": 1, "refreshIntervalSeconds": 60})
         self.assertTrue(result["ok"], result)
-        state = core.snapshot(lambda s: s["lifecycle"]["activeState"] == "activating", 5, "a probe after configure")
+        # `configure` itself starts one refresh, which probes at once whatever
+        # the interval; only the probe after it shows the new interval.
+        state = core.snapshot(lambda s: s["lifecycle"]["activeState"] == "activating", 5, "the refresh after configure")
         self.assertTrue(state["state"]["lifecycle"]["active"])
+        core.set_systemctl({"ActiveState": "active"})
+        core.snapshot(lambda s: s["lifecycle"]["activeState"] == "active", 5, "a probe on the new 1 s interval")
         core.request("shutdown", "2")
         core.finish()
 
