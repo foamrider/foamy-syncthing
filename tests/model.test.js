@@ -52,8 +52,8 @@ test("every list the core cuts shows the panel-limits warning", () => {
   const source = fs.readFileSync(path.join(__dirname, "..", "native/src/core/types.rs"), "utf8");
   const struct = source.match(/pub struct Truncation \{([^}]*)\}/)[1];
   const keys = [...struct.matchAll(/(?:rename = "(\w+)"[^\n]*\n\s*)?pub (\w+): i64/g)].map(m => m[1] || m[2]);
-  assert.deepEqual(keys, ["devices", "folders", "folderDevices", "folderErrors", "pendingFolders",
-    "pendingOffers", "pendingDevices", "nearbyDevices"]);
+  // Every field is read, in any order; a field the pattern misses fails here.
+  assert.equal(keys.length, struct.match(/\bpub \w+:/g).length, JSON.stringify(keys));
   for (const key of keys) {
     assert.equal(facade.truncated({ [key]: 1 }), true, key);
     assert.equal(facade.truncated({ [key]: 0 }), false, key);
