@@ -709,7 +709,7 @@ fn decode<T: DeserializeOwned + Default>(bytes: &[u8]) -> Result<T, Error> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::sync::{Arc, Mutex};
@@ -763,7 +763,7 @@ mod tests {
         assert_eq!(events[1].data, Some(Value::Null));
     }
 
-    fn reply(status: &str, extra: &str, body: &str) -> String {
+    pub(crate) fn reply(status: &str, extra: &str, body: &str) -> String {
         format!(
             "HTTP/1.1 {status}\r\n{extra}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
             body.len()
@@ -774,9 +774,12 @@ mod tests {
         reply("302 Found", &format!("Location: {to}\r\n"), "")
     }
 
-    /// A loopback peer that answers connection `n` with `answer(n)` (one GET
-    /// per connection) and records every request head it reads.
-    fn peer(answer: impl Fn(usize) -> String + Send + 'static) -> (u16, Arc<Mutex<Vec<String>>>) {
+    /// A loopback peer that answers connection `n` with `answer(n, head)`
+    /// (one request without a body per connection; an empty answer drops the
+    /// connection) and records every request head it reads.
+    pub(crate) fn peer(
+        answer: impl Fn(usize, &str) -> String + Send + 'static,
+    ) -> (u16, Arc<Mutex<Vec<String>>>) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let heads = Arc::new(Mutex::new(Vec::new()));
@@ -792,16 +795,16 @@ mod tests {
                 }
                 // Recorded before the answer, so the client has seen every
                 // head once its call returns.
-                seen.lock()
-                    .unwrap()
-                    .push(String::from_utf8_lossy(&head).into_owned());
-                let _ = stream.write_all(answer(n).as_bytes());
+                let head = String::from_utf8_lossy(&head).into_owned();
+                let answer = answer(n, &head);
+                seen.lock().unwrap().push(head);
+                let _ = stream.write_all(answer.as_bytes());
             }
         });
         (port, heads)
     }
 
-    fn client_for(port: u16) -> Client {
+    pub(crate) fn client_for(port: u16) -> Client {
         let address = http::Address::Tcp {
             host: "127.0.0.1".into(),
             port,
@@ -843,7 +846,7 @@ mod tests {
     #[test]
     fn redirects_carry_the_key_only_on_the_origin_and_stop_after_two() {
         // Same origin: followed as a GET, with the key.
-        let (port, heads) = peer(|n| {
+        let (port, heads) = peer(|n, _| {
             if n == 0 {
                 redirect("/rest/moved")
             } else {
@@ -869,7 +872,7 @@ mod tests {
         let other = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         other.set_nonblocking(true).unwrap();
         let away = format!("http://{}/rest/system/status", other.local_addr().unwrap());
-        let (port, heads) = peer(move |_| redirect(&away));
+        let (port, heads) = peer(move |_, _| redirect(&away));
         let error = client_for(port).status().unwrap_err();
         assert_eq!(
             (error.code, error.message.as_str()),
@@ -884,7 +887,7 @@ mod tests {
         );
 
         // The third redirect is refused: three requests, no fourth.
-        let (port, heads) = peer(|_| redirect("/rest/again"));
+        let (port, heads) = peer(|_, _| redirect("/rest/again"));
         assert_eq!(
             client_for(port).status().unwrap_err().code,
             Code::Connection

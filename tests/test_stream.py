@@ -665,6 +665,34 @@ class LifecycleTests(CoreTest):
         core.request("shutdown", "4")
         core.finish()
 
+    def test_a_unit_whose_home_has_a_space_is_controlled(self):
+        # `systemctl show` prints ExecStart's argv joined by spaces, without
+        # the unit file's quotes, and quotes an Environment entry with a space.
+        core = self.core(start=False)
+        home = core.home / "My Sync"
+        home.mkdir()
+        core.config_path.rename(home / "config.xml")
+        core.env["STHOMEDIR"] = str(home)
+        core.set_systemctl(
+            {
+                "ExecStart": "{ path=/usr/bin/syncthing ; argv[]=/usr/bin/syncthing serve --home "
+                + str(home)
+                + " --no-browser ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; "
+                "code=(null) ; status=0/0 }"
+            }
+        )
+        core.start()
+        lifecycle = core.ready()["state"]["lifecycle"]
+        self.assertTrue(lifecycle["targetMatch"])
+        self.assertEqual(controls(lifecycle), ("managed", True, False))
+        core.set_systemctl({"Environment": f'"STHOMEDIR={home}" STNORESTART=1'})
+        core.request("refresh", "1")
+        lifecycle = core.latest_state()["lifecycle"]
+        self.assertTrue(lifecycle["targetMatch"])
+        self.assertEqual(controls(lifecycle), ("managed", True, False))
+        core.request("shutdown", "2")
+        core.finish()
+
     def test_a_healthy_instance_with_an_inactive_unit_is_external(self):
         # Syncshell issue 45: a Syncthing that answers while the user unit is
         # inactive was started by someone else. No Start button, and it stays

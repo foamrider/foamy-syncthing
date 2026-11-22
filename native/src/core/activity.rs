@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::client::{Event, FileEntry, FileInfo};
+use super::client::{Code, Event, FileEntry, FileInfo};
 use super::gocompat::base;
 use super::session::Session;
 use super::types::{
@@ -26,6 +26,8 @@ struct Record {
     activity: Activity,
     device_id: String,
     expires: Instant,
+    /// When the record was last stored, in store order.
+    stored: u64,
 }
 
 #[derive(Default)]
@@ -33,6 +35,7 @@ pub struct Activities {
     /// `folder\0path\0action` → record (sorted, as Syncshell sorts keys).
     records: BTreeMap<String, Record>,
     index: usize,
+    stores: u64,
 }
 
 /// An event's data decoded like Go's `json.Unmarshal` into a struct: absent
@@ -123,7 +126,9 @@ impl Activities {
             },
             device_id: bounded_identifier(device_id),
             expires: now + ACTIVITY_HOLD,
+            stored: self.stores,
         };
+        self.stores += 1;
         let exists = self.records.contains_key(&key);
         let before = self.records.len();
         self.records.retain(|current, r| {
@@ -131,10 +136,16 @@ impl Activities {
         });
         let replaced = self.records.len() != before;
         self.records.insert(key, record);
+        // Over the cap the record stored longest ago goes, never the one just
+        // stored (Syncshell drops the key that sorts first, which can be it).
         if self.records.len() > MAX_ACTIVITY
-            && let Some(first) = self.records.keys().next().cloned()
+            && let Some(oldest) = self
+                .records
+                .iter()
+                .min_by_key(|(_, r)| r.stored)
+                .map(|(key, _)| key.clone())
         {
-            self.records.remove(&first);
+            self.records.remove(&oldest);
         }
         !exists || replaced
     }
@@ -243,11 +254,12 @@ impl Session {
     pub fn process_activity_events(&self, events: &[Event], now: Instant) -> bool {
         let mut activities = self.activity.lock().unwrap_or_else(|e| e.into_inner());
         let mut changed = false;
+        let mut answered = true;
         for event in events {
             changed = match event.kind.as_str() {
                 "RemoteDownloadProgress" => activities.remote_progress(event, now),
                 "DownloadProgress" => activities.download_progress(event, now),
-                "LocalIndexUpdated" => self.local_index(&mut activities, event, now),
+                "LocalIndexUpdated" => self.local_index(&mut activities, event, now, &mut answered),
                 "ItemStarted" => activities.item_started(event, now),
                 "ItemFinished" => activities.item_finished(event),
                 "DeviceDisconnected" => activities.device_disconnected(event),
@@ -257,23 +269,42 @@ impl Session {
         changed
     }
 
-    fn local_index(&self, activities: &mut Activities, event: &Event, now: Instant) -> bool {
+    /// `answered` turns false once a request of this batch got no usable
+    /// answer; no further lookup or rescan is sent for the batch then.
+    fn local_index(
+        &self,
+        activities: &mut Activities,
+        event: &Event,
+        now: Instant,
+        answered: &mut bool,
+    ) -> bool {
         let Some(data) = data::<LocalIndex>(event) else {
             return false;
         };
         if data.folder.is_empty() {
             return false;
         }
+        let names: Vec<&str> = data
+            .filenames
+            .iter()
+            .take(MAX_LOCAL_INDEX_FILES)
+            .map(String::as_str)
+            .collect();
+        let infos = self.current_file_infos(&data.folder, &names, answered);
         let mut changed = false;
-        for name in data.filenames.iter().take(MAX_LOCAL_INDEX_FILES) {
-            let (info, failed) = self.current_file_info(&data.folder, name);
+        for (name, (info, failed)) in names.into_iter().zip(infos) {
             let entry: Option<FileEntry> = info.local.or(info.global);
             let Some(entry) = entry.filter(|_| !failed) else {
                 changed = activities.store(&data.folder, name, "syncing", "", now) || changed;
                 continue;
             };
             if is_directory(&entry.kind) && !entry.deleted {
-                let _ = self.client.rescan_subdirectory(&data.folder, name);
+                if *answered
+                    && let Err(error) = self.client.rescan_subdirectory(&data.folder, name)
+                    && error.code != Code::Http
+                {
+                    *answered = false;
+                }
                 continue;
             }
             let action = if entry.deleted { "removing" } else { "syncing" };
@@ -282,33 +313,58 @@ impl Session {
         changed
     }
 
-    /// Up to three reads 50 and 100 ms apart, settling early on a deletion;
-    /// the bool is "the last attempt failed and no earlier one succeeded".
-    fn current_file_info(&self, folder_id: &str, name: &str) -> (FileInfo, bool) {
-        let mut info = FileInfo::default();
-        let mut failed = false;
+    /// Up to three reads of each file 50 and 100 ms apart, settling a file
+    /// early on a deletion; per file, the bool is "the latest read that was
+    /// not empty failed". The files are read in rounds, so one event waits
+    /// 150 ms at most, not 150 ms per file. Only an HTTP status reply (a file
+    /// not in the index yet) is worth another read: any other failure (no
+    /// answer, a refused key, a reply that can't be read) would come back the
+    /// same, and a request without an answer waits for its own 15 s deadline.
+    /// The lookups of the batch end there; files not read yet have no entry.
+    fn current_file_infos(
+        &self,
+        folder_id: &str,
+        names: &[&str],
+        answered: &mut bool,
+    ) -> Vec<(FileInfo, bool)> {
+        let mut results: Vec<(FileInfo, bool)> =
+            names.iter().map(|_| (FileInfo::default(), false)).collect();
+        let mut pending: Vec<usize> = (0..names.len()).collect();
         for attempt in 0..3u32 {
-            match self.client.file_info(folder_id, name) {
-                Ok(candidate) if candidate.local.is_some() || candidate.global.is_some() => {
-                    failed = false;
-                    let deleted = candidate
-                        .local
-                        .as_ref()
-                        .or(candidate.global.as_ref())
-                        .is_some_and(|e| e.deleted);
-                    info = candidate;
-                    if deleted {
-                        return (info, false);
+            if attempt > 0 {
+                if pending.is_empty() || !*answered {
+                    break;
+                }
+                thread::sleep(Duration::from_millis(50 * u64::from(attempt)));
+            }
+            pending.retain(|&index| {
+                if !*answered {
+                    return false;
+                }
+                let (info, failed) = &mut results[index];
+                match self.client.file_info(folder_id, names[index]) {
+                    Ok(candidate) if candidate.local.is_some() || candidate.global.is_some() => {
+                        *failed = false;
+                        let deleted = candidate
+                            .local
+                            .as_ref()
+                            .or(candidate.global.as_ref())
+                            .is_some_and(|e| e.deleted);
+                        *info = candidate;
+                        !deleted
+                    }
+                    Ok(_) => true,
+                    Err(error) => {
+                        *failed = true;
+                        if error.code != Code::Http {
+                            *answered = false;
+                        }
+                        true
                     }
                 }
-                Ok(_) => {}
-                Err(_) => failed = true,
-            }
-            if attempt < 2 {
-                thread::sleep(Duration::from_millis(50 * u64::from(attempt + 1)));
-            }
+            });
         }
-        (info, failed)
+        results
     }
 
     /// Publishes the rotation (Syncshell `publishActivity`).
@@ -325,6 +381,10 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::client::tests::{client_for, peer, reply};
+    use crate::core::session::Operational;
+    use crate::core::systemd::{Binding, Target};
+    use std::sync::{Arc, Mutex};
 
     fn event(kind: &str, data: Value) -> Event {
         Event {
@@ -332,6 +392,188 @@ mod tests {
             kind: kind.into(),
             data: Some(data),
         }
+    }
+
+    /// A session against a loopback Syncthing that answers each request with
+    /// `answer(target, how often this target was asked before)`; the second
+    /// value is every request line, in order.
+    fn syncthing(
+        answer: impl Fn(&str, usize) -> String + Send + 'static,
+    ) -> (Session, Arc<Mutex<Vec<String>>>) {
+        let asked = Mutex::new(BTreeMap::<String, usize>::new());
+        let (port, heads) = peer(move |_, head| {
+            let target = head.split(' ').nth(1).unwrap_or("").to_string();
+            let mut asked = asked.lock().unwrap();
+            let count = asked.entry(target.clone()).or_default();
+            *count += 1;
+            answer(&target, *count - 1)
+        });
+        let session = Session::new(
+            client_for(port),
+            Target::default(),
+            String::new(),
+            Binding::default(),
+            String::new(),
+            Operational {
+                probe_interval: Duration::from_secs(15),
+                refresh_interval: Duration::from_secs(60),
+            },
+        );
+        (session, heads)
+    }
+
+    fn file(deleted: bool) -> String {
+        reply(
+            "200 OK",
+            "",
+            &format!(r#"{{"local":{{"type":"FILE_INFO_TYPE_FILE","deleted":{deleted}}}}}"#),
+        )
+    }
+
+    fn local_index(names: &[&str]) -> Event {
+        event(
+            "LocalIndexUpdated",
+            serde_json::json!({"folder": "f", "filenames": names}),
+        )
+    }
+
+    fn requests(heads: &Mutex<Vec<String>>) -> Vec<String> {
+        heads
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|head| head.lines().next().unwrap_or("").to_string())
+            .collect()
+    }
+
+    fn actions(session: &Session, now: Instant) -> Vec<(String, String)> {
+        session
+            .activity
+            .lock()
+            .unwrap()
+            .rotation(false, now)
+            .files
+            .into_iter()
+            .map(|f| (f.path, f.action))
+            .collect()
+    }
+
+    #[test]
+    fn a_local_index_update_waits_for_deletions_once_not_per_file() {
+        // "z-gone" is deleted by the time of its second read.
+        let (session, heads) =
+            syncthing(|target, count| file(target.ends_with("file=z-gone") && count > 0));
+        let names: Vec<String> = (0..15).map(|i| format!("k{i:02}")).collect();
+        let mut all: Vec<&str> = names.iter().map(String::as_str).collect();
+        all.push("z-gone");
+        let now = Instant::now();
+        let started = Instant::now();
+        assert!(session.process_activity_events(&[local_index(&all)], now));
+        // Each file waits 50 and 100 ms for a deletion to land: 150 ms for
+        // the whole event, where 150 ms per file came to 2.4 s.
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(2), "{took:?}");
+        let requests = requests(&heads);
+        assert_eq!(requests.len(), 15 * 3 + 2, "{requests:?}");
+        let actions = actions(&session, now);
+        assert_eq!(actions.len(), 12);
+        assert!(
+            actions.contains(&("z-gone".into(), "removing".into())),
+            "{actions:?}"
+        );
+    }
+
+    #[test]
+    fn a_lookup_without_an_answer_ends_the_lookups_of_the_batch() {
+        // Syncthing drops every lookup: the first one ends the batch, where
+        // each of the 16 + 2 files was asked three times, every request
+        // waiting for its own deadline against a Syncthing that hangs.
+        let (session, heads) = syncthing(|_, _| String::new());
+        let names: Vec<String> = (0..16).map(|i| format!("k{i:02}")).collect();
+        let first: Vec<&str> = names.iter().map(String::as_str).collect();
+        let now = Instant::now();
+        assert!(
+            session.process_activity_events(&[local_index(&first), local_index(&["x", "y"])], now)
+        );
+        assert_eq!(requests(&heads).len(), 1);
+        // A file that could not be looked up shows as syncing.
+        let actions = actions(&session, now);
+        assert_eq!(actions.len(), 12);
+        assert!(
+            actions.iter().all(|(_, action)| action == "syncing"),
+            "{actions:?}"
+        );
+
+        // A rescan without an answer ends the batch too.
+        let (session, heads) = syncthing(|target, _| {
+            if target.starts_with("/rest/db/scan") {
+                String::new()
+            } else {
+                reply(
+                    "200 OK",
+                    "",
+                    r#"{"local":{"type":"FILE_INFO_TYPE_DIRECTORY","deleted":false}}"#,
+                )
+            }
+        });
+        session.process_activity_events(&[local_index(&["photos"]), local_index(&["x"])], now);
+        let requests = requests(&heads);
+        assert_eq!(requests.len(), 4, "{requests:?}");
+        assert!(
+            requests[3].starts_with("POST /rest/db/scan?folder=f&sub=photos "),
+            "{requests:?}"
+        );
+    }
+
+    #[test]
+    fn a_file_not_in_the_index_yet_is_read_again() {
+        // An HTTP status reply is an answer: the file is read again and the
+        // other files are still looked up.
+        let (session, heads) = syncthing(|target, count| {
+            if target.ends_with("file=new") && count < 2 {
+                reply("404 Not Found", "", "")
+            } else {
+                file(true)
+            }
+        });
+        let now = Instant::now();
+        assert!(session.process_activity_events(&[local_index(&["new", "old"])], now));
+        assert_eq!(requests(&heads).len(), 3 + 1);
+        assert_eq!(
+            actions(&session, now),
+            [
+                ("new".to_string(), "removing".to_string()),
+                ("old".to_string(), "removing".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn the_cap_drops_the_oldest_record_never_the_one_just_stored() {
+        let now = Instant::now();
+        let mut a = Activities::default();
+        for index in 1..=12 {
+            assert!(a.store("f", &format!("b{index:02}"), "syncing", "", now));
+        }
+        // "a" sorts before every other key and is the newest record.
+        assert!(a.store("f", "a", "syncing", "", now));
+        let paths = |a: &mut Activities| -> Vec<String> {
+            a.rotation(false, now)
+                .files
+                .into_iter()
+                .map(|f| f.path)
+                .collect()
+        };
+        let shown = paths(&mut a);
+        assert_eq!(shown.len(), 12);
+        assert_eq!(shown[0], "a");
+        assert!(!shown.contains(&"b01".to_string()), "{shown:?}");
+        // Storing a record again makes it new: b03 goes before b02.
+        assert!(!a.store("f", "b02", "syncing", "", now));
+        assert!(a.store("f", "c", "syncing", "", now));
+        let shown = paths(&mut a);
+        assert!(shown.contains(&"b02".to_string()), "{shown:?}");
+        assert!(!shown.contains(&"b03".to_string()), "{shown:?}");
     }
 
     #[test]
