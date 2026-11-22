@@ -8,6 +8,8 @@
 - Show a failed folder chooser's message on the Add folder page, where the
   chooser opens, instead of only on the Settings page behind it. A new
   attempt, or leaving the page, clears the message.
+- Clear "Another folder operation is already running" when the running folder
+  operation succeeds, so the success notice no longer shows next to it.
 
 ## Foamy Syncthing 1.3.0
 

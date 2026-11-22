@@ -502,6 +502,8 @@ ShellRoot {
       check(busyEnds === ends + 1, "busy from the pause to the removal (" + (busyEnds - ends) + " ends)")
       check(service.folderMutationNotice === "Unlinked Documents from Syncthing. Local files were kept.",
             "unlink notice: " + service.folderMutationNotice)
+      // The refused second unlink's message does not outlive the first one.
+      check(service.folderMutationError === "", "no error next to the notice: " + service.folderMutationError)
       check(service.unlinkFolder("archive"), "unlinking a paused folder starts")
       expect(function() { return !service.folderMutationBusy && since().length >= 1 }, 10000, "the paused unlink ends", function() {
         sent(['folder.forget {"folderId":"archive"}'], "a paused folder is removed without a pause")
