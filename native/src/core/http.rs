@@ -698,9 +698,24 @@ fn read_chunked<R: BufRead>(reader: &mut R, body: &mut Vec<u8>, max: usize) -> i
         if !line.ends_with(b"\n") {
             return Err(invalid());
         }
-        let text = String::from_utf8_lossy(&line);
-        let size = text.trim().split(';').next().unwrap_or("").trim();
-        let size = usize::from_str_radix(size, 16).map_err(|_| invalid())?;
+        // As Go's net/http reads it: the line ends in CRLF and holds no other
+        // CR; blanks at its end and an extension after `;` go; the rest is 1
+        // to 16 hex digits.
+        let Some(mut text) = line
+            .strip_suffix(b"\r\n")
+            .filter(|text| !text.contains(&b'\r'))
+        else {
+            return Err(invalid());
+        };
+        while let [rest @ .., b' ' | b'\t'] = text {
+            text = rest;
+        }
+        let digits = text.split(|b| *b == b';').next().unwrap_or_default();
+        if digits.is_empty() || digits.len() > 16 || !digits.iter().all(u8::is_ascii_hexdigit) {
+            return Err(invalid());
+        }
+        let digits = std::str::from_utf8(digits).map_err(|_| invalid())?;
+        let size = usize::from_str_radix(digits, 16).map_err(|_| invalid())?;
         // Only data counts against the body cap, so long extensions on tiny
         // chunks would let a peer stream until the request deadline. Each
         // chunk pays for 16 bytes of framing plus twice its size.
@@ -944,6 +959,10 @@ mod tests {
         let (result, body) = chunked(b"3\r\nabc\r\n2;ext=1\r\nde\r\n0\r\nTrailer: x\r\n\r\n", 100);
         assert!(result.unwrap());
         assert_eq!(body, b"abcde");
+        // Blanks at the end of a size line go, as in Go.
+        let (result, body) = chunked(b"3 \t\r\nabc\r\n2;x \r\nde\r\n0\r\n\r\n", 100);
+        assert!(result.unwrap());
+        assert_eq!(body, b"abcde");
         // Too much: one byte over the cap is kept, then it stops.
         let (result, body) = chunked(b"5\r\nabcde\r\n0\r\n\r\n", 3);
         assert!(!result.unwrap());
@@ -982,6 +1001,14 @@ mod tests {
             &b"zz\r\n"[..],
             b"3\r\nab",
             b"10000000000000000\r\n",
+            // A size line is hex digits and ends in exactly CRLF, as Go's
+            // net/http reads it: no blank or sign before the digits, no blank
+            // between them and an extension, no bare LF, no other CR.
+            b" 3\r\nabc\r\n0\r\n\r\n",
+            b"3 ;x\r\nabc\r\n0\r\n\r\n",
+            b"+3\r\nabc\r\n0\r\n\r\n",
+            b"3\nabc\r\n0\r\n\r\n",
+            b"3\r\r\nabc\r\n0\r\n\r\n",
             b"3\r\nabc\r\n0\r\nno end",
             // Each chunk's data ends in exactly CRLF.
             b"3\r\nabcX0\r\n\r\n",

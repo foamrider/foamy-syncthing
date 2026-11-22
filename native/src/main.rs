@@ -42,9 +42,10 @@
 //! newest); the `LocalIndexUpdated` events of one poll wait for deletions
 //! once, not once per file, keeping of each file's lookup only whether it is
 //! a directory and whether it is deleted, and a lookup that gets no usable
-//! answer ends the lookups of its event batch. A chunked reply needs CRLF
-//! after each chunk and at most 16 KiB of size-line overhead beyond its
-//! data, as in Go's net/http, and at most 8 KiB of trailers.
+//! answer ends the lookups of its event batch. A chunked reply needs size
+//! lines of hex digits that end in CRLF, CRLF after each chunk and at most
+//! 16 KiB of size-line overhead beyond its data, as in Go's net/http, and at
+//! most 8 KiB of trailers.
 //!
 //! - Flags (Go `flag` syntax: `-x` or `--x`, `=value` or the next argument,
 //!   booleans only as `=value`; the last repetition wins): `--config`,

@@ -27,17 +27,23 @@ started four times, then retried with a backoff capped at 5 minutes, and
 right-click/open starts it now; a leftover user unit blocking the install is
 named in the popup summary, not in the bar tooltip, and Install starts
 nothing. The live scene: the real core's snapshot reaches the header, the
-devices and the service controls. The service scene: pause, resume and unlink
+devices and the service controls. The service scene: a failed installation
+check from before Syncthing was online is not shown, pause, resume and unlink
 send the right requests in order and settle on failure, a failed recheck
-keeps its message through an unlink that succeeds, a failed stop settles,
+keeps its message through an unlink that succeeds, an add that waits for a
+failed recheck still closes its page when it succeeds, a failed stop settles,
 the bar colour follows folder problems, too few devices and a Syncthing
-outage, folder changes are refused while Syncthing is down, every kind of
-broken core output stops the core once without a restart until recover(),
-which starts one core, and a core that dies ends a held folder action.
+outage, folder changes are refused while Syncthing is down and the
+refusal's message goes when it is back, every kind of broken core output
+stops the core once without a restart until recover(), which starts one
+core, and a core that dies ends a held folder action.
 Without a helper for this CPU the core and the folder chooser say so and
-recover() launches nothing. A hung installation check is stopped at its
-deadline with its child process, reported as a failure until a check
-succeeds, and the next check runs.
+recover() launches nothing. A path the folder chooser answers lands in the
+Add folder field with the caret after it: typing extends it, and a path
+wider than the field shows its end. A hung installation check is stopped
+at its deadline with its child process, reported as a failure until a check
+succeeds, and the next check runs; one still hung when the service goes is
+stopped with it.
 Requires ~/GitHub/Personal/foamy-kit (or FOAMY_KIT)."""
 
 import json
@@ -70,6 +76,12 @@ if [ -n "${FAKE_PROBE_HANG:-}" ] && [ ! -e "$FAKE_PROBE_HANG" ]; then
   sleep 1000 &
   printf '%s\\n' "$!" > "$FAKE_PROBE_HANG"
   wait
+fi
+# The first status check fails, as a script error would; the file notes it.
+if [ -n "${FAKE_PROBE_FAIL:-}" ] && [ ! -e "$FAKE_PROBE_FAIL" ]; then
+  : > "$FAKE_PROBE_FAIL"
+  echo "status check failed" >&2
+  exit 1
 fi
 if [ -n "${FAKE_PROBE_BLOCKING:-}" ]; then
   jq -cn --arg blocking "$FAKE_PROBE_BLOCKING" \\
@@ -473,6 +485,54 @@ ShellRoot {
 }
 """
 
+# The first installation check hangs and the service goes while it runs (a
+# shell reload): the check's processes go with it.
+HUNG_PROBE_TEARDOWN_SHELL = r"""
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import "harness"
+import "plugin" as Plugin
+
+ShellRoot {
+  id: shell
+  property var service: null
+  property int checks: 0
+  function check(ok, what) { checks++; if (!ok) console.log("FOAMY FAIL " + what) }
+  FileView { id: hangPid; path: HANG_PID; blockLoading: true; printErrors: false }
+  FileView { id: childStat; blockLoading: true; printErrors: false }
+  // The hung check's child, once it runs: its pid, else "".
+  function childPid() {
+    hangPid.reload()
+    var pid = hangPid.text().trim()
+    return /^[0-9]+$/.test(pid) ? pid : ""
+  }
+  // The hung check's child has ended (gone, or a zombie not yet reaped).
+  function childGone() {
+    var pid = childPid()
+    if (!pid) return false
+    childStat.path = "/proc/" + pid + "/stat"
+    childStat.reload()
+    var stat = childStat.text()
+    return stat === "" || stat.slice(stat.lastIndexOf(")") + 2).charAt(0) === "Z"
+  }
+  FoamyWait { id: wait }
+  Component.onCompleted: {
+    service = Qt.createComponent(Qt.resolvedUrl("plugin/Service.qml")).createObject(null)
+    wait.waitFor(function() { return shell.childPid() !== "" && service.packageController.refreshing }, 20000, function(ok) {
+      check(ok, "the installation check hangs in a child process")
+      service.destroy()
+      wait.waitFor(shell.childGone, 5000, function(ok) {
+        check(ok, "the hung check's child goes with the service")
+        console.log("FOAMY CHECKS " + checks)
+        console.log("FOAMY DONE")
+        Qt.quit()
+      })
+    })
+  }
+}
+"""
+
 # Folder actions, start/stop, the bar colour and protocol failures through the
 # real Service and one Panel, against the fake core's request log. The fake
 # core fails or holds some actions (SERVICE_FAILURES); the scene rewrites
@@ -522,6 +582,7 @@ ShellRoot {
     rewrite(function(state) { state.counts.folderProblems = count })
   }
   function colour(value) { return Qt.colorEqual(panel.iconColor, value) }
+  function probes() { return probeLog.text().split("\n").filter(function(l) { return l === "status" }).length }
 
   FloatingWindow {
     implicitWidth: 400; implicitHeight: 300
@@ -529,6 +590,7 @@ ShellRoot {
   }
   Component { id: barComponent; MockBar { barSize: 34 } }
   FileView { id: coreLog; path: CORE_LOG; watchChanges: true; printErrors: false; onFileChanged: reload() }
+  FileView { id: probeLog; path: PROBE_LOG; watchChanges: true; printErrors: false; onFileChanged: reload() }
   FileView { id: snapshotFile; path: SNAPSHOT; blockLoading: true; blockWrites: true; printErrors: false }
   Connections {
     target: shell.service
@@ -541,12 +603,18 @@ ShellRoot {
     panel = Qt.createComponent(Qt.resolvedUrl("plugin/Panel.qml")).createObject(host, {
       bar: barComponent.createObject(shell, { moduleName: "foamy.syncthing" }), moduleName: "foamy.syncthing", width: 40, height: 34,
       settings: { minimumConnectedDevices: 0 } })
+    // The installation check that runs at start, before Syncthing is
+    // online, fails (probe_fail).
     wait.waitFor(function() {
       return service.online && service.settingsReady && service.folderRows.length === 5
         && service.scannedFolderKey === service.folderKey && !service.conflictScan.running && service.conflictInput === ""
+        && shell.probes() >= 1 && !service.packageController.refreshing
     }, 20000, function(ok) {
       check(ok, "the service comes online with five folders")
       check(colour(panel.bar.foreground) && !service.tooFewDevices, "a healthy bar uses the bar colour")
+      check(service.packageController.packageError === "status check failed",
+            "the first installation check failed: " + service.packageController.packageError)
+      check(service.packageError === "", "the failed check says nothing while Syncthing is online: " + service.packageError)
       pause()
     })
   }
@@ -648,7 +716,45 @@ ShellRoot {
     expect(function() { return !service.folderMutationBusy && !service.refreshing && since().length >= 3 }, 10000, "the unlink and the recheck end", function() {
       sent(['folder.pause {"folderId":"docs"}', "folder.recheck-errors {}", 'folder.forget {"folderId":"docs"}'], "the recheck goes between pause and removal")
       check(service.folderMutationError === "Cannot recheck", "the failed recheck's message stays: " + service.folderMutationError)
-      tooFewDevices()
+      addDuringRecheck()
+    })
+  }
+
+  // The first item under `item` with this objectName.
+  function find(item, name) {
+    if (!item) return null
+    if (item.objectName === name) return item
+    for (var i = 0; i < item.children.length; i++) {
+      var found = find(item.children[i], name)
+      if (found) return found
+    }
+    return null
+  }
+
+  // A recheck (a right-click on the bar) still running when Add folder is
+  // pressed fails first, as the core answers in order; the add then
+  // succeeds and its page closes.
+  function addDuringRecheck() {
+    panel.openSettings()
+    expect(function() { return panel.opened && panel.editingSettings && panel.view !== null && !service.refreshing }, 10000, "Settings open", function() {
+      var view = panel.view
+      view.openAdd("")
+      view.setAddPath("/home/me/Music")
+      expect(function() { return service.folderIdSuggestion !== "" && !service.folderPreparationBusy && !service.refreshing }, 10000, "a folder ID is suggested", function() {
+        check(service.refresh(true), "a recheck starts")
+        shell.find(view, "submitButton").clicked()
+        check(service.folderMutationBusy && service.folderMutationAction === "add", "the add starts while the recheck runs")
+        expect(function() { return !service.folderMutationBusy && !service.refreshing && since().length >= 3 }, 10000, "the recheck and the add end", function() {
+          sent(["folder.suggest-id {}", "folder.recheck-errors {}",
+                'folder.add-existing {"folderId":"abcde-fghij","path":"/home/me/Music","createDirectory":false,"label":"Music","deviceIds":[],"pendingDeviceId":""}'],
+               "the recheck is answered before the add")
+          check(service.folderMutationError === "Cannot recheck", "the recheck's message: " + service.folderMutationError)
+          check(service.folderMutationNotice === "Local only — this folder will not sync with other devices.", "the add's notice: " + service.folderMutationNotice)
+          check(!view.addOpen, "the Add folder page closes after the add succeeds")
+          panel.close()
+          expect(function() { return !panel.opened && !service.refreshing }, 10000, "the popup closes", tooFewDevices)
+        })
+      })
     })
   }
 
@@ -714,13 +820,19 @@ ShellRoot {
     })
   }
 
-  // Syncthing down is urgent, ahead of the too-few-devices warning.
-  function offline() {
+  // The next refresh publishes Syncthing down or up.
+  function reachable(online) {
     rewrite(function(state) {
-      state.connection = { online: false, phase: "error", error: { code: "connection", message: "could not connect to Syncthing" } }
+      state.connection = online ? { online: true, phase: "online", fresh: true }
+        : { online: false, phase: "error", error: { code: "connection", message: "could not connect to Syncthing" } }
     })
     check(service.refresh(), "a refresh starts")
-    expect(function() { return service.phase === "error" && colour(panel.bar.urgent) }, 10000, "Syncthing down makes the bar urgent", function() {
+  }
+
+  // Syncthing down is urgent, ahead of the too-few-devices warning.
+  function offline() {
+    reachable(false)
+    expect(function() { return service.phase === "error" && colour(panel.bar.urgent) && !service.refreshing }, 10000, "Syncthing down makes the bar urgent", function() {
       check(panel.barIcon.codePointAt(0) === 0xf09e0, "notify glyph while down: " + panel.barIcon.codePointAt(0))
       // Folder changes are refused before a request while Syncthing is down.
       check(!service.unlinkFolder("docs") && service.folderMutationError === "Syncthing must be online to unlink a folder",
@@ -728,9 +840,24 @@ ShellRoot {
       check(!service.setFolderPaused("docs", true) && service.folderMutationError === "Syncthing must be online to manage folders",
             "pause is refused offline: " + service.folderMutationError)
       check(actions().length === mark, "no other action: " + JSON.stringify(since()))
-      console.log("FOAMY CHECKS " + checks)
-      console.log("FOAMY DONE")
-      Qt.quit()
+      // A refusal's message goes when Syncthing is back.
+      reachable(true)
+      expect(function() { return service.online && !service.refreshing }, 10000, "Syncthing is back", function() {
+        check(service.folderMutationError === "", "the refused pause's message goes with the outage: " + service.folderMutationError)
+        reachable(false)
+        expect(function() { return !service.online && !service.refreshing }, 10000, "Syncthing goes down again", function() {
+          check(!service.unlinkFolder("docs") && service.folderMutationError === "Syncthing must be online to unlink a folder",
+                "unlink is refused offline again: " + service.folderMutationError)
+          reachable(true)
+          expect(function() { return service.online && !service.refreshing }, 10000, "Syncthing is back again", function() {
+            check(service.folderMutationError === "", "the refused unlink's message goes with the outage: " + service.folderMutationError)
+            check(actions().length === mark, "no other action: " + JSON.stringify(since()))
+            console.log("FOAMY CHECKS " + checks)
+            console.log("FOAMY DONE")
+            Qt.quit()
+          })
+        })
+      })
     })
   }
 }
@@ -831,6 +958,81 @@ ShellRoot {
           console.log("FOAMY CHECKS " + checks)
           console.log("FOAMY DONE")
           Qt.quit()
+        })
+      })
+    })
+  }
+}
+"""
+
+# The folder chooser answers a path (FAKE_PICKER_PATH) for the Add folder
+# page, in a window so keys reach the field: the caret goes after the path,
+# so typing extends it, and a path wider than the field shows its end.
+CHOOSER_SHELL = r"""
+import QtQuick
+import QtTest
+import Quickshell
+import "harness"
+import "plugin" as Plugin
+
+ShellRoot {
+  id: shell
+  property var service: null
+  property var panel: null
+  property int checks: 0
+  readonly property string chosen: Quickshell.env("FAKE_PICKER_PATH")
+  function check(ok, what) { checks++; if (!ok) console.log("FOAMY FAIL " + what) }
+  // The first item under `item` with this objectName.
+  function find(item, name) {
+    if (!item) return null
+    if (item.objectName === name) return item
+    for (var i = 0; i < item.children.length; i++) {
+      var found = find(item.children[i], name)
+      if (found) return found
+    }
+    return null
+  }
+  FloatingWindow {
+    implicitWidth: 1920; implicitHeight: 1080
+    // The popup draws into this screen's overlay, so it has a window.
+    ScreenSim { id: sim }
+    Item {
+      id: host
+      x: 1500; width: 40; height: 34
+      TestEvent { id: keys }
+    }
+  }
+  Component { id: barComponent; MockBar { barSize: 34 } }
+  FoamyWait { id: wait }
+  Component.onCompleted: {
+    service = Qt.createComponent(Qt.resolvedUrl("plugin/Service.qml")).createObject(null)
+    panel = Qt.createComponent(Qt.resolvedUrl("plugin/Panel.qml")).createObject(host, {
+      bar: barComponent.createObject(shell, { moduleName: "foamy.syncthing" }), moduleName: "foamy.syncthing", width: 40, height: 34 })
+    wait.waitFor(function() { return service.online }, 20000, function(ok) {
+      check(ok, "the service comes online")
+      panel.openSettings()
+      wait.waitFor(function() { return panel.opened && panel.editingSettings && panel.view !== null }, 10000, function(ok) {
+        check(ok, "Settings open")
+        panel.view.openAdd("")
+        var field = shell.find(panel.view, "pathField")
+        // Laid out and focused, as when the chooser's button on it is pressed.
+        wait.waitFor(function() { return field && field.width > 0 && field.inputActiveFocus }, 10000, function(ok) {
+          check(ok, "the Add folder page shows its path field")
+          panel.browseFolder()
+          wait.waitFor(function() {
+            return panel.opened && !panel.returningFromBrowser && field.text === shell.chosen && field.inputActiveFocus
+          }, 15000, function(ok) {
+            check(ok, "the chosen path fills the field, which has the keys: " + JSON.stringify(field.text))
+            check(field.contentWidth > field.width, "the path is wider than the field")
+            var end = field.editorItem.positionToRectangle(field.text.length).x
+            check(end >= field.contentX && end <= field.contentX + field.width,
+                  "the end of the path is in view: it is at " + end + ", the view from " + field.contentX + " to " + (field.contentX + field.width))
+            keys.keyClick(Qt.Key_X, Qt.NoModifier, -1)
+            check(field.text === shell.chosen + "x", "typing extends the chosen path: " + JSON.stringify(field.text))
+            console.log("FOAMY CHECKS " + checks)
+            console.log("FOAMY DONE")
+            Qt.quit()
+          })
         })
       })
     })
@@ -1062,12 +1264,22 @@ def hung_probe_survivor(pid_file):
 
 
 def run(
-    host, shell, crash=False, blocked=False, snapshot=None, env=None, missing_helper=False, name="", probe_hang=False
+    host,
+    shell,
+    crash=False,
+    blocked=False,
+    snapshot=None,
+    env=None,
+    missing_helper=False,
+    name="",
+    probe_hang=False,
+    probe_fail=False,
 ):
     """snapshot(work): the fake core's state (default: write_snapshot's); env:
     added to the shell's environment; missing_helper: no helper for this CPU;
     probe_hang: the first installation check hangs, and its child process
-    must be gone when the run ends."""
+    must be gone when the run ends; probe_fail: the first installation check
+    fails."""
     work = Path(tempfile.mkdtemp(prefix=f"foamy-syncthing-runtime-{host}-"))
     bus = None
     try:
@@ -1102,6 +1314,8 @@ def run(
             runner.env["FAKE_CORE_EXIT"] = "1"
         if probe_hang:
             runner.env["FAKE_PROBE_HANG"] = str(work / "probe-hang.pid")
+        if probe_fail:
+            runner.env["FAKE_PROBE_FAIL"] = str(work / "probe-failed")
         if blocked:
             runner.env["FAKE_PROBE_BLOCKING"] = str(Path(runner.env["HOME"]) / ".config/systemd/user/syncthing.service")
         runner.env.update(env or {})
@@ -1208,11 +1422,21 @@ if not run(
     snapshot=service_snapshot,
     env={"FAKE_CORE_FAIL": json.dumps(SERVICE_FAILURES)},
     name="service",
+    probe_fail=True,
 ):
     status = 1
 if not run("4.5", MISSING_SHELL, missing_helper=True, name="missing helper"):
     status = 1
+if not run(
+    "4.5",
+    CHOOSER_SHELL,
+    env={"FAKE_PICKER_PATH": "/home/me/" + "A folder with a long name/" * 4 + "Music"},
+    name="chooser path",
+):
+    status = 1
 if not run("4.5", HUNG_PROBE_SHELL, probe_hang=True, name="hung probe"):
+    status = 1
+if not run("4.5", HUNG_PROBE_TEARDOWN_SHELL, probe_hang=True, name="hung probe teardown"):
     status = 1
 if not run_live("4.5"):
     status = 1

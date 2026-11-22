@@ -80,7 +80,9 @@ QtObject {
   readonly property string installationBlocker: installationState === "incomplete" ? packageController.blockingPath : ""
   readonly property bool canInstall: !online && packageController.canInstall
   readonly property string packageStatus: packageController.packageStatus
-  readonly property string packageError: packageController.packageError
+  // Like installationState: the installation matters only while Syncthing
+  // is offline, so a check that failed before it came online says nothing.
+  readonly property string packageError: online ? "" : packageController.packageError
   readonly property bool serviceAvailable: lifecyclePresentation.available
   readonly property bool serviceActive: lifecycle.active === true
   property bool serviceActionRunning: false
@@ -463,10 +465,17 @@ QtObject {
     }
   }
 
-  onOnlineChanged: if (online)
+  onOnlineChanged: {
+    if (!online)
+      return
+    // A folder change refused because Syncthing was offline: its message
+    // is stale now that Syncthing is back.
+    if (folderMutationError === root.tr("Syncthing must be online to manage folders") || folderMutationError === root.tr("Syncthing must be online to unlink a folder"))
+      folderMutationError = ""
     Qt.callLater(function () {
       root.scanConflicts(true)
     })
+  }
   onFolderKeyChanged: Qt.callLater(scanConflicts)
   onWidgetSettingsChanged: {
     settingsReady = true

@@ -48,6 +48,9 @@ Column {
   }
   function setPath(path) {
     pathField.text = path
+    // New text puts the caret at its start; after the chosen directory,
+    // typing extends the path and a long one shows its end.
+    pathField.cursorPosition = pathField.text.length
     if (labelField.text === "")
       labelField.text = PanelModel.pathLabel(path)
     Qt.callLater(focusPath)
@@ -126,6 +129,11 @@ Column {
       }
     }
     function onFolderMutationErrorChanged() {
+      // The add's own failure comes after the operation stopped. A message
+      // from another caller while the add runs (a recheck that failed
+      // first) leaves it waiting for its own result.
+      if (root.busy)
+        return
       if (root.service.folderMutationError !== "")
         root.submitted = false
     }
@@ -195,6 +203,7 @@ Column {
       spacing: FoamyStyle.gap
       Field {
         id: pathField
+        objectName: "pathField"
         Layout.fillWidth: true
         Layout.minimumWidth: 0
         placeholderText: "~/Documents"

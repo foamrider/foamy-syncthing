@@ -13,12 +13,17 @@ fail with the value as its error and no new snapshot, or, with the value
 "hold", get no result at all.
 
 `conflicts` and `pick-folder` run the real helper at FAKE_CORE_HELPER (same
-process: exec); FAKE_PICKER_BUS is then pick-folder's session bus."""
+process: exec); FAKE_PICKER_BUS is then pick-folder's session bus. With
+FAKE_PICKER_PATH, `pick-folder` answers that path as the chosen directory
+instead (no bus, no portal)."""
 
 import json
 import os
 import sys
 
+if sys.argv[1:2] == ["pick-folder"] and os.environ.get("FAKE_PICKER_PATH"):
+    print(json.dumps({"ok": True, "path": os.environ["FAKE_PICKER_PATH"]}))
+    sys.exit(0)
 if sys.argv[1:2] == ["conflicts"] or sys.argv[1:2] == ["pick-folder"]:
     if sys.argv[1:2] == ["pick-folder"] and os.environ.get("FAKE_PICKER_BUS"):
         os.environ["DBUS_SESSION_BUS_ADDRESS"] = os.environ["FAKE_PICKER_BUS"]

@@ -11,9 +11,11 @@
 - Show the newest file activity during a large sync: past 12 records the
   oldest one goes, not the one whose key sorts first, which could be the file
   that had just started.
-- Refuse a chunked Syncthing reply whose chunk data does not end in CRLF,
-  whose chunk size lines carry more than 16 KiB beyond what their data
-  justifies, or whose trailers pass 8 KiB, as a connection failure.
+- Refuse a chunked Syncthing reply whose chunk size line is not hex digits
+  ending in CRLF (a blank or a sign before the digits, a bare LF), whose
+  chunk data does not end in CRLF, whose chunk size lines carry more than
+  16 KiB beyond what their data justifies, or whose trailers pass 8 KiB, as a
+  connection failure.
 - Start the native core once when the popup opens or the bar is
   right-clicked after the core stopped on a protocol error. It was started
   twice, and the first core was stopped right after it came up.
@@ -28,6 +30,76 @@
   started, and report it as failed until a check succeeds. A check that hung
   kept every later check from running, and the next check erased a failed
   check's message before the popup showed it.
+- Put the caret after the path the folder chooser fills in on the Add folder
+  page, so typing extends the path and a long path shows its end. The caret
+  was at the start: a typed key went in front of the path.
+- Clear a refused folder change's "Syncthing must be online …" message when
+  Syncthing is back. It stayed until the next folder operation or a
+  right-click.
+- Show a failed installation check only while Syncthing is offline. When
+  the last check before Syncthing came online had failed, its message stayed
+  in the popup, in red, while Syncthing was up to date.
+- Close the Add folder page when the add succeeds, also when a recheck that
+  started just before it (a right-click on the bar while the page is open)
+  failed. The page stayed open with the recheck's message, as if the add had
+  failed.
+- End a hung installation check, with the programs it started, when the
+  plugin's service goes during it (a shell reload, the plugin turned off).
+  Only its `timeout` was stopped, so the check ran on without a deadline.
+- Sync foamy-kit 0.13.1: a click beside an Add folder field ends its edit,
+  long tooltips wrap and are cut with "…", and a row opened at the end of
+  the list scrolls fully into view.
+
+## Foamy Syncthing 1.4.0
+
+- Show this computer's Syncthing version at the end of the popup header
+  ("1 / 2 devices online · v2.0.10") and a connected device's version on its
+  row ("3 shared folders · v2.0.9"). The core reads the version once per
+  connection and per Syncthing restart and keeps it only when it is at most
+  40 printable ASCII characters; a failed read leaves it out instead of
+  failing the whole refresh.
+- Count only the other devices in the header, as the Devices tab does. It
+  counted this computer too.
+- Leave out header lines that the tabs and rows already show: the folder
+  count under "Up to date", the count of paused folders, "Waiting for the
+  local service", and a header line that repeated the title while Syncthing
+  was unreachable.
+- "Installation needs cleanup" names the file in the way: a leftover
+  `~/.local/bin/syncthing` or user `syncthing.service`.
+- Mark conflicts in folders that Syncthing keeps as `~/…`: the conflict scan
+  now expands the path first, as the folder rows do.
+- Allow one install at a time with a lock in `$XDG_RUNTIME_DIR`, which ends
+  with its process, instead of a pid file that another run could delete.
+  Without `XDG_RUNTIME_DIR` the install script fails with a message instead
+  of using `/tmp`.
+- Remove the `serviceState` setting ("Intended Syncthing autostart state"),
+  which did nothing. A saved value is ignored.
+- Read the core's `--credential-file`, which the panel does not use,
+  through one descriptor: a file swapped in after the check is never read,
+  and a file over 4 KiB is refused without reading all of it.
+- Sync foamy-kit 0.9.0. `THIRD_PARTY_NOTICES.md` also lists the crates of
+  the Rust standard library that the helper links.
+
+## Foamy Syncthing 1.3.2
+
+- A setting saved through `omarchy bar set`, when the in-place save is not
+  available, always ends: a save that can't start or runs past 20 seconds is
+  stopped with the programs it started and reported, and later saves no
+  longer wait for it forever.
+- Ship `THIRD_PARTY_NOTICES.md`: every crate linked into the helper, per
+  architecture, with its license and notice texts, and the Rust standard
+  library's, musl's and LLVM's.
+- Sync foamy-kit 0.8.0.
+
+## Foamy Syncthing 1.3.1
+
+- GitHub rebuilds both helper binaries for every push, compares them byte
+  for byte with `bin/` and attests them, so `gh attestation verify` checks
+  the committed files. The README says how to verify them yourself, and how
+  to build and run your own.
+- Rebuild the helper on foamy-helper 0.1.1: a child process that it killed
+  after an error is now reaped.
+- Sync foamy-kit 0.7.0.
 
 ## Foamy Syncthing 1.3.0
 
