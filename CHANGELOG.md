@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Start the native core once when the popup opens or the bar is
+  right-clicked after the core stopped on a protocol error. It was started
+  twice, and the first core was stopped right after it came up.
+
 ## Foamy Syncthing 1.3.0
 
 - **Choose an existing directory** asks the desktop's folder chooser through

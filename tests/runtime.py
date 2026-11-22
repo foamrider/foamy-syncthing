@@ -31,7 +31,8 @@ send the right requests in order and settle on failure, a failed stop
 settles, the bar colour follows folder problems, too few devices and a
 Syncthing outage, folder changes are refused while Syncthing is down, every
 kind of broken core output stops the core once without a restart until
-recover(), and a core that dies ends a held folder action. Without a helper
+recover(), which starts one core, and a core that dies ends a held folder
+action. Without a helper
 for this CPU the core and the folder chooser say so and recover() launches
 nothing.
 Requires ~/GitHub/Personal/foamy-kit (or FOAMY_KIT)."""
@@ -533,12 +534,10 @@ ShellRoot {
 
   readonly property var badLines: ['not json', '{"v":99,"type":"snapshot"}', '{"v":2,"type":"snapshot","revision":1,"state":{}}',
     '{"v":2,"type":"result","id":"999999","ok":true}', '{"v":2,"type":"fatal","code":"x","message":"boom"}', '{"v":2,"type":"bogus"}']
-  // Online with no restart under way. recover() after a protocol failure
-  // launches the core twice today (the first one is stopped right after its
-  // hello), so wait until no restart is pending.
+  // Online with no restart under way.
   function settled() { return service.online && service.core.desiredRunning && !service.core.restartTimer.running }
   // Each bad line stops the core once: the pending request fails once, nothing
-  // restarts by itself, and recover() starts it again.
+  // restarts by itself, and recover() starts it again, exactly once.
   function protocol(index, generation) {
     if (index >= badLines.length) {
       coreExit(generation)
@@ -548,6 +547,8 @@ ShellRoot {
     expect(function() { return settled() && service.core.generation > generation }, 10000, "the core runs before " + line, function() {
       var calls = 0, late = 0, error = null
       var running = service.core.generation
+      if (index > 0)
+        check(running === generation + 1, "recover() starts one core before " + line + " (" + (running - generation) + " starts)")
       service.core.action("fake.hold", {}, function(ok, data, failure) { calls++; error = failure })
       service.core.action("fake.emit", { line: line }, null)
       expect(function() {
@@ -568,6 +569,7 @@ ShellRoot {
   function coreExit(generation) {
     expect(function() { return settled() && service.core.generation > generation }, 10000, "recover() starts the core again", function() {
       var running = service.core.generation
+      check(running === generation + 1, "recover() starts one core (" + (running - generation) + " starts)")
       check(service.setFolderPaused("hold-me", true) && service.folderMutationBusy, "a held pause is busy")
       service.core.action("fake.exit", {}, null)
       expect(function() { return !service.folderMutationBusy && service.folderMutationError !== "" }, 10000, "the held pause fails with the core", function() {
