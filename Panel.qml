@@ -141,6 +141,7 @@ Panel {
   function browseFolder() {
     if (folderPicker.running)
       return
+    pickerError = ""
     returningFromBrowser = true
     root.close()
     folderPicker.running = true
@@ -226,9 +227,12 @@ Panel {
         opened: root.opened
         editingSettings: root.editingSettings
         saving: prefs.saving
-        settingsError: root.pickerError || (prefs.error ? FoamyI18n.t(prefs.error) : "")
-        retryable: root.pickerError === "" && prefs.canRetry
+        settingsError: prefs.error ? FoamyI18n.t(prefs.error) : ""
+        retryable: prefs.canRetry
+        pickerError: root.pickerError
         browsing: folderPicker.running || root.returningFromBrowser
+        // A chooser error belongs to the Add folder page it came from.
+        onAddOpenChanged: root.pickerError = ""
         onCloseRequestedByView: root.close()
         onSettingsRequested: root.openSettings()
         onSettingsClosed: root.closeSettings()

@@ -13,6 +13,8 @@ Column {
 
   property QtObject service: null
   property bool browsing: false
+  // Why the folder chooser could not give a path (the Panel owns it).
+  property string browseError: ""
   property var selectedDeviceIds: []
   property string pendingFolderValue: ""
   property bool idEdited: false
@@ -206,6 +208,15 @@ Column {
         foreground: FoamyPalette.secondaryText
         onClicked: root.browseRequested()
       }
+    }
+    // Under the path it failed to fill.
+    Hint {
+      objectName: "browseError"
+      visible: text !== ""
+      width: parent.width
+      text: root.browseError
+      color: Commons.Color.urgent
+      Accessible.role: Accessible.AlertMessage
     }
     Label {
       width: parent.width

@@ -27,6 +27,8 @@ PanelKeyCatcher {
   property bool saving: false
   property string settingsError: ""
   property bool retryable: false
+  // The folder chooser's error, shown on the Add folder page it opens from.
+  property string pickerError: ""
   // The folder chooser is open (the popup closes meanwhile; keep the form).
   property bool browsing: false
 
@@ -781,6 +783,7 @@ PanelKeyCatcher {
       width: parent.width
       service: root.service
       browsing: root.browsing
+      browseError: root.pickerError
       onBrowseRequested: root.browseRequested()
       onAdded: root.closeAdd()
     }

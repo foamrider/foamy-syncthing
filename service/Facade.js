@@ -85,7 +85,7 @@ function lifecyclePresentation(lifecycle) {
 // True when the core truncated a list to its panel limits.
 function truncated(truncation) {
   var state = truncation || ({})
-  var keys = ["devices", "folders", "folderDevices",
+  var keys = ["devices", "folders", "folderDevices", "folderErrors",
     "pendingFolders", "pendingOffers", "pendingDevices", "nearbyDevices"]
   for (var i = 0; i < keys.length; i++) {
     if (Number(state[keys[i]] || 0) > 0) return true
