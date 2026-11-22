@@ -19,7 +19,13 @@ QtObject {
   property bool refreshing: false
   property bool packageActionRunning: false
   property string packageStatus: ""
-  property string packageError: ""
+  // A failed check stays until a check succeeds: a check asked for while one
+  // runs starts right after it, so clearing the failure when a check starts
+  // would erase it before the popup shows it. An install error goes when the
+  // next check starts; Install clears both.
+  readonly property string packageError: _installError || _checkError
+  property string _checkError: ""
+  property string _installError: ""
   property bool _operationSeen: false
   property bool _statusRefreshPending: false
   property string _statusOutput: ""
@@ -35,7 +41,7 @@ QtObject {
       return
     }
     refreshing = true
-    packageError = ""
+    _installError = ""
     _statusOutput = ""
     _statusErrorOutput = ""
     statusProcess.running = true
@@ -46,12 +52,12 @@ QtObject {
     try {
       data = JSON.parse(String(text || ""))
     } catch (error) {
-      packageError = FoamyI18n.t("Could not read Syncthing installation status")
+      _checkError = FoamyI18n.t("Could not read Syncthing installation status")
       return
     }
     var nextState = String(data.state || "")
     if (["existing", "incomplete", "missing"].indexOf(nextState) < 0) {
-      packageError = FoamyI18n.t("Syncthing installation status is invalid")
+      _checkError = FoamyI18n.t("Syncthing installation status is invalid")
       return
     }
     state = nextState
@@ -78,7 +84,8 @@ QtObject {
     if (!canInstall)
       return
     packageActionRunning = true
-    packageError = ""
+    _checkError = ""
+    _installError = ""
     packageStatus = FoamyI18n.t("Complete installation in the Omarchy terminal")
     operationPollTimer.ticks = 0
     _operationSeen = false
@@ -105,7 +112,7 @@ QtObject {
         stop()
         root.packageActionRunning = false
         root.packageStatus = ""
-        root.packageError = FoamyI18n.t("The installation terminal did not start")
+        root._installError = FoamyI18n.t("The installation terminal did not start")
       }
     }
   }
@@ -135,10 +142,11 @@ QtObject {
     onExited: function (exitCode) {
       var rerun = root._statusRefreshPending
       root.refreshing = false
-      if (exitCode === 0)
+      if (exitCode === 0) {
+        root._checkError = ""
         root.applyStatus(root._statusOutput)
-      else {
-        root.packageError = String(root._statusErrorOutput || FoamyI18n.t("Could not check Syncthing installation")).trim()
+      } else {
+        root._checkError = String(root._statusErrorOutput || FoamyI18n.t("Could not check Syncthing installation")).trim()
       }
       root._statusRefreshPending = false
       if (rerun)

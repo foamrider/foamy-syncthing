@@ -36,7 +36,8 @@ recover(), which starts one core, and a core that dies ends a held folder
 action. Without a helper
 for this CPU the core and the folder chooser say so and recover() launches
 nothing. A hung installation check is stopped at its deadline with its
-child process, reported as a failure, and the next check runs.
+child process, reported as a failure until a check succeeds, and the next
+check runs.
 Requires ~/GitHub/Personal/foamy-kit (or FOAMY_KIT)."""
 
 import json
@@ -405,7 +406,8 @@ ShellRoot {
 """
 
 # The first installation check hangs: it is stopped at its deadline and
-# reported as a failure, and the next check runs.
+# reported as a failure, which stays while the next check runs and goes when
+# that check succeeds.
 HUNG_PROBE_SHELL = r"""
 import QtQuick
 import Quickshell
@@ -418,6 +420,8 @@ ShellRoot {
   property var service: null
   property int checks: 0
   property var errors: []
+  // The failure went while a check ran: the popup never showed it.
+  property bool erasedWhileChecking: false
   function check(ok, what) { checks++; if (!ok) console.log("FOAMY FAIL " + what) }
   function probes() { return probeLog.text().split("\n").filter(function(l) { return l === "status" }).length }
   FileView { id: probeLog; path: PROBE_LOG; watchChanges: true; printErrors: false; onFileChanged: reload() }
@@ -435,7 +439,13 @@ ShellRoot {
   }
   Connections {
     target: shell.service ? shell.service.packageController : null
-    function onPackageErrorChanged() { if (shell.service.packageController.packageError) shell.errors = shell.errors.concat([shell.service.packageController.packageError]) }
+    function onPackageErrorChanged() {
+      var controller = shell.service.packageController
+      if (controller.packageError)
+        shell.errors = shell.errors.concat([controller.packageError])
+      else if (shell.errors.length > 0 && controller.refreshing)
+        shell.erasedWhileChecking = true
+    }
   }
   FoamyWait { id: wait }
   Component.onCompleted: {
@@ -449,6 +459,8 @@ ShellRoot {
         check(ok, "a later installation check runs (" + shell.probes() + " checks, state " + controller.state + ")")
         check(shell.errors.length >= 1 && shell.errors[0] === "Could not check Syncthing installation",
               "the stopped check is reported as a failure: " + JSON.stringify(shell.errors))
+        check(!shell.erasedWhileChecking, "the failure stays while the next check runs")
+        check(controller.packageError === "", "a check that succeeds clears the failure: " + controller.packageError)
         wait.waitFor(shell.childGone, 5000, function(ok) {
           check(ok, "the hung check's child process is stopped with it")
           console.log("FOAMY CHECKS " + checks)
