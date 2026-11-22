@@ -123,14 +123,13 @@ are one static Rust program with three subcommands:
   over stdin/stdout, and for the same Syncthing replies it writes the same
   bytes, except where the port fixes the Go core (listed in the crate
   documentation, `native/src/main.rs`). It reads Syncthing's API key from
-  Syncthing's own `config.xml` and
-  keeps it to itself: the key never reaches QML, process arguments, the
-  environment, logs, snapshots or errors, and it is sent only to the
-  selected Syncthing (never on the unauthenticated health check, never
-  across a redirect to another address). It runs the REST and event-stream
-  calls (loopback or a `unix://` GUI socket, with the GUI certificate
-  `https-cert.pem` pinned when TLS is on), the folder actions, and `systemctl --user start|stop` for
-  `syncthing.service` only.
+  Syncthing's own `config.xml` and keeps it to itself: the key never reaches
+  QML, process arguments, the environment, logs, snapshots or errors, and it
+  is sent only to the selected Syncthing (never on the unauthenticated health
+  check, never across a redirect to another address). It runs the REST and
+  event-stream calls (loopback or a `unix://` GUI socket, with the GUI
+  certificate `https-cert.pem` pinned when TLS is on), the folder actions, and
+  `systemctl --user start|stop` for `syncthing.service` only.
 - `conflicts` is the conflict scan (see [Resource use](#resource-use)).
 - `pick-folder` opens the folder chooser for **Choose an existing directory**:
   one `org.freedesktop.portal.FileChooser` request on the session bus (no

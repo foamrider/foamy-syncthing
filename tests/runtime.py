@@ -35,9 +35,9 @@ outage, folder changes are refused while Syncthing is down, every kind of
 broken core output stops the core once without a restart until recover(),
 which starts one core, and a core that dies ends a held folder action.
 Without a helper for this CPU the core and the folder chooser say so and
-recover() launches nothing. A hung installation check is stopped at its deadline with its
-child process, reported as a failure until a check succeeds, and the next
-check runs.
+recover() launches nothing. A hung installation check is stopped at its
+deadline with its child process, reported as a failure until a check
+succeeds, and the next check runs.
 Requires ~/GitHub/Personal/foamy-kit (or FOAMY_KIT)."""
 
 import json
