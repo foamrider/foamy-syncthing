@@ -48,6 +48,9 @@ Column {
   }
   function setPath(path) {
     pathField.text = path
+    // New text puts the caret at its start; after the chosen directory,
+    // typing extends the path and a long one shows its end.
+    pathField.cursorPosition = pathField.text.length
     if (labelField.text === "")
       labelField.text = PanelModel.pathLabel(path)
     Qt.callLater(focusPath)
@@ -195,6 +198,7 @@ Column {
       spacing: FoamyStyle.gap
       Field {
         id: pathField
+        objectName: "pathField"
         Layout.fillWidth: true
         Layout.minimumWidth: 0
         placeholderText: "~/Documents"

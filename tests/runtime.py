@@ -35,8 +35,10 @@ outage, folder changes are refused while Syncthing is down, every kind of
 broken core output stops the core once without a restart until recover(),
 which starts one core, and a core that dies ends a held folder action.
 Without a helper for this CPU the core and the folder chooser say so and
-recover() launches nothing. A hung installation check is stopped at its
-deadline with its child process, reported as a failure until a check
+recover() launches nothing. A path the folder chooser answers lands in the
+Add folder field with the caret after it: typing extends it, and a path
+wider than the field shows its end. A hung installation check is stopped
+at its deadline with its child process, reported as a failure until a check
 succeeds, and the next check runs.
 Requires ~/GitHub/Personal/foamy-kit (or FOAMY_KIT)."""
 
@@ -838,6 +840,81 @@ ShellRoot {
 }
 """
 
+# The folder chooser answers a path (FAKE_PICKER_PATH) for the Add folder
+# page, in a window so keys reach the field: the caret goes after the path,
+# so typing extends it, and a path wider than the field shows its end.
+CHOOSER_SHELL = r"""
+import QtQuick
+import QtTest
+import Quickshell
+import "harness"
+import "plugin" as Plugin
+
+ShellRoot {
+  id: shell
+  property var service: null
+  property var panel: null
+  property int checks: 0
+  readonly property string chosen: Quickshell.env("FAKE_PICKER_PATH")
+  function check(ok, what) { checks++; if (!ok) console.log("FOAMY FAIL " + what) }
+  // The first item under `item` with this objectName.
+  function find(item, name) {
+    if (!item) return null
+    if (item.objectName === name) return item
+    for (var i = 0; i < item.children.length; i++) {
+      var found = find(item.children[i], name)
+      if (found) return found
+    }
+    return null
+  }
+  FloatingWindow {
+    implicitWidth: 1920; implicitHeight: 1080
+    // The popup draws into this screen's overlay, so it has a window.
+    ScreenSim { id: sim }
+    Item {
+      id: host
+      x: 1500; width: 40; height: 34
+      TestEvent { id: keys }
+    }
+  }
+  Component { id: barComponent; MockBar { barSize: 34 } }
+  FoamyWait { id: wait }
+  Component.onCompleted: {
+    service = Qt.createComponent(Qt.resolvedUrl("plugin/Service.qml")).createObject(null)
+    panel = Qt.createComponent(Qt.resolvedUrl("plugin/Panel.qml")).createObject(host, {
+      bar: barComponent.createObject(shell, { moduleName: "foamy.syncthing" }), moduleName: "foamy.syncthing", width: 40, height: 34 })
+    wait.waitFor(function() { return service.online }, 20000, function(ok) {
+      check(ok, "the service comes online")
+      panel.openSettings()
+      wait.waitFor(function() { return panel.opened && panel.editingSettings && panel.view !== null }, 10000, function(ok) {
+        check(ok, "Settings open")
+        panel.view.openAdd("")
+        var field = shell.find(panel.view, "pathField")
+        // Laid out and focused, as when the chooser's button on it is pressed.
+        wait.waitFor(function() { return field && field.width > 0 && field.inputActiveFocus }, 10000, function(ok) {
+          check(ok, "the Add folder page shows its path field")
+          panel.browseFolder()
+          wait.waitFor(function() {
+            return panel.opened && !panel.returningFromBrowser && field.text === shell.chosen && field.inputActiveFocus
+          }, 15000, function(ok) {
+            check(ok, "the chosen path fills the field, which has the keys: " + JSON.stringify(field.text))
+            check(field.contentWidth > field.width, "the path is wider than the field")
+            var end = field.editorItem.positionToRectangle(field.text.length).x
+            check(end >= field.contentX && end <= field.contentX + field.width,
+                  "the end of the path is in view: it is at " + end + ", the view from " + field.contentX + " to " + (field.contentX + field.width))
+            keys.keyClick(Qt.Key_X, Qt.NoModifier, -1)
+            check(field.text === shell.chosen + "x", "typing extends the chosen path: " + JSON.stringify(field.text))
+            console.log("FOAMY CHECKS " + checks)
+            console.log("FOAMY DONE")
+            Qt.quit()
+          })
+        })
+      })
+    })
+  }
+}
+"""
+
 # The real core against tests/fake_syncthing.py: the header's version and
 # device line, and each peer's version, end to end (Syncthing → helper →
 # Service → view). The fake reports v2.0.10 for this device and v2.0.9 for
@@ -1211,6 +1288,13 @@ if not run(
 ):
     status = 1
 if not run("4.5", MISSING_SHELL, missing_helper=True, name="missing helper"):
+    status = 1
+if not run(
+    "4.5",
+    CHOOSER_SHELL,
+    env={"FAKE_PICKER_PATH": "/home/me/" + "A folder with a long name/" * 4 + "Music"},
+    name="chooser path",
+):
     status = 1
 if not run("4.5", HUNG_PROBE_SHELL, probe_hang=True, name="hung probe"):
     status = 1

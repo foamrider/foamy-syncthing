@@ -30,6 +30,9 @@
   started, and report it as failed until a check succeeds. A check that hung
   kept every later check from running, and the next check erased a failed
   check's message before the popup showed it.
+- Put the caret after the path the folder chooser fills in on the Add folder
+  page, so typing extends the path and a long path shows its end. The caret
+  was at the start: a typed key went in front of the path.
 
 ## Foamy Syncthing 1.3.0
 
