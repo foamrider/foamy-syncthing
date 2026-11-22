@@ -1,7 +1,8 @@
-// foamy-kit 0.9.0 4832a4672f7b84bd6caf8ebf70823a2077c78329e576c4b18962d41e36f4b195 — do not edit; change foamy-kit and run sync
+// foamy-kit 0.13.1 07a2ae876a0d1b1bb82759de3c85b02da14f688d7be38ff44f19d28ccf7782d4 — do not edit; change foamy-kit and run sync
 import QtQuick
 import qs.Commons as Commons
 import qs.Ui
+import "FoamyText.js" as FoamyText
 
 // A form button that reads as a button: a filled or bordered surface with a
 // label and an optional icon. For actions in forms and settings ("Verify",
@@ -124,8 +125,24 @@ Rectangle {
   }
 
   PanelToolTip {
+    id: tip
     visible: mouse.containsMouse && root.tooltipText !== ""
-    text: root.tooltipText
+    // The host's tooltip is as wide as its text and wraps only under a cap,
+    // so a long label or path would cover the whole popup. Capped through
+    // implicitWidth, which the tooltip centers itself by (as the host does).
+    implicitWidth: Math.min(implicitContentWidth + leftPadding + rightPadding, Commons.Style.space(320))
+    // The caller's text may be app text with no length bound (a path, an
+    // error's detail): 3 lines of 200 characters keep an ordinary path whole
+    // and the wrapped tooltip a few lines high, with a visible "…" beyond.
+    text: FoamyText.cap(root.tooltipText, 3, 200)
     fontFamily: root.fontFamily
+
+    // The host's text wraps at word boundaries only, so a name typed
+    // without spaces would run past the capped width.
+    Binding {
+      target: tip.contentItem
+      property: "wrapMode"
+      value: Text.Wrap
+    }
   }
 }
