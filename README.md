@@ -94,7 +94,7 @@ Settings save in place (`bar.shell.updateEntryInline`, else `omarchy bar set`).
   Syncthing 2.1.7 it used 0.2 s CPU and 2.2 MB RSS (2.9 MB with TLS); the
   Go core it replaced used 0.5 to 0.6 s and 14.5 to 17.4 MB.
 - The installation check (`scripts/syncthing-install.sh status`) runs only
-  while Syncthing is unreachable.
+  while Syncthing is unreachable, with a 10-second deadline.
 - The conflict scan walks the configured folders when the folder set
   changes, when Syncthing comes back online, and every 5 minutes, not on
   every sync event. It skips Syncthing's `.stversions` and `.stfolder`

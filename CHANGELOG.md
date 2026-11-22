@@ -12,6 +12,9 @@
   operation succeeds, so the success notice no longer shows next to it.
 - Show the panel-limits warning when the core leaves out folder errors over
   its limit, as it already did for the other cut lists.
+- Stop the installation check after 10 seconds, with the programs it
+  started, and report it as failed. A check that hung kept every later
+  check from running.
 
 ## Foamy Syncthing 1.3.0
 

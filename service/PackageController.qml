@@ -117,7 +117,10 @@ QtObject {
   }
 
   property Process statusProcess: Process {
-    command: ["bash", root.helperPath, "status"]
+    // A check takes well under a second (its flatpak lookup is bounded at
+    // 3 s). One stuck on a filesystem would hold every later check, so
+    // `timeout` ends it with all its children and it exits non-zero.
+    command: ["timeout", "--kill-after=1s", "10s", "bash", root.helperPath, "status"]
 
     stdout: StdioCollector {
       waitForEnd: true

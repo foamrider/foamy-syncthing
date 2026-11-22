@@ -35,7 +35,8 @@ kind of broken core output stops the core once without a restart until
 recover(), which starts one core, and a core that dies ends a held folder
 action. Without a helper
 for this CPU the core and the folder chooser say so and recover() launches
-nothing.
+nothing. A hung installation check is stopped at its deadline with its
+child process, reported as a failure, and the next check runs.
 Requires ~/GitHub/Personal/foamy-kit (or FOAMY_KIT)."""
 
 import json
@@ -62,6 +63,13 @@ SOURCE = Path(__file__).resolve().parents[1]
 
 PROBE_STUB = """#!/bin/bash
 printf '%s\\n' "$1" >> "$FOAMY_PROBE_LOG"
+# The first status check hangs in a child process, as a status stuck on a
+# filesystem would; the child's PID goes to the file.
+if [ -n "${FAKE_PROBE_HANG:-}" ] && [ ! -e "$FAKE_PROBE_HANG" ]; then
+  sleep 1000 &
+  printf '%s\\n' "$!" > "$FAKE_PROBE_HANG"
+  wait
+fi
 if [ -n "${FAKE_PROBE_BLOCKING:-}" ]; then
   jq -cn --arg blocking "$FAKE_PROBE_BLOCKING" \\
     '{state:"incomplete",label:"Incomplete installation: non-working",executable:"",blocking:$blocking,operationRunning:false}'
@@ -391,6 +399,63 @@ ShellRoot {
       console.log("FOAMY CHECKS " + checks)
       console.log("FOAMY DONE")
       Qt.quit()
+    })
+  }
+}
+"""
+
+# The first installation check hangs: it is stopped at its deadline and
+# reported as a failure, and the next check runs.
+HUNG_PROBE_SHELL = r"""
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import "harness"
+import "plugin" as Plugin
+
+ShellRoot {
+  id: shell
+  property var service: null
+  property int checks: 0
+  property var errors: []
+  function check(ok, what) { checks++; if (!ok) console.log("FOAMY FAIL " + what) }
+  function probes() { return probeLog.text().split("\n").filter(function(l) { return l === "status" }).length }
+  FileView { id: probeLog; path: PROBE_LOG; watchChanges: true; printErrors: false; onFileChanged: reload() }
+  FileView { id: hangPid; path: HANG_PID; blockLoading: true; printErrors: false }
+  FileView { id: childStat; blockLoading: true; printErrors: false }
+  // The hung check's child has ended (gone, or a zombie not yet reaped).
+  function childGone() {
+    hangPid.reload()
+    var pid = hangPid.text().trim()
+    if (!/^[0-9]+$/.test(pid)) return false
+    childStat.path = "/proc/" + pid + "/stat"
+    childStat.reload()
+    var stat = childStat.text()
+    return stat === "" || stat.slice(stat.lastIndexOf(")") + 2).charAt(0) === "Z"
+  }
+  Connections {
+    target: shell.service ? shell.service.packageController : null
+    function onPackageErrorChanged() { if (shell.service.packageController.packageError) shell.errors = shell.errors.concat([shell.service.packageController.packageError]) }
+  }
+  FoamyWait { id: wait }
+  Component.onCompleted: {
+    service = Qt.createComponent(Qt.resolvedUrl("plugin/Service.qml")).createObject(null)
+    var controller = service.packageController
+    wait.waitFor(function() { return shell.probes() === 1 && controller.refreshing }, 20000, function(ok) {
+      check(ok, "the first installation check runs")
+      // A check asked for while one runs waits for it.
+      controller.updateStatus()
+      wait.waitFor(function() { return shell.probes() >= 2 && !controller.refreshing && controller.state === "existing" }, 30000, function(ok) {
+        check(ok, "a later installation check runs (" + shell.probes() + " checks, state " + controller.state + ")")
+        check(shell.errors.length >= 1 && shell.errors[0] === "Could not check Syncthing installation",
+              "the stopped check is reported as a failure: " + JSON.stringify(shell.errors))
+        wait.waitFor(shell.childGone, 5000, function(ok) {
+          check(ok, "the hung check's child process is stopped with it")
+          console.log("FOAMY CHECKS " + checks)
+          console.log("FOAMY DONE")
+          Qt.quit()
+        })
+      })
     })
   }
 }
@@ -952,9 +1017,28 @@ class SilentBus:
         self.server.close()
 
 
-def run(host, shell, crash=False, blocked=False, snapshot=None, env=None, missing_helper=False, name=""):
+def hung_probe_survivor(pid_file):
+    """The hung check's child, killed here if it is still alive."""
+    try:
+        pid = int(pid_file.read_text())
+    except (OSError, ValueError):
+        return ["FOAMY FAIL the hung installation check never started its child"]
+    if not Path(f"/proc/{pid}").exists():
+        return []
+    try:
+        os.kill(pid, 9)
+    except OSError:
+        pass
+    return [f"FOAMY FAIL the hung installation check's child outlived its deadline (pid {pid})"]
+
+
+def run(
+    host, shell, crash=False, blocked=False, snapshot=None, env=None, missing_helper=False, name="", probe_hang=False
+):
     """snapshot(work): the fake core's state (default: write_snapshot's); env:
-    added to the shell's environment; missing_helper: no helper for this CPU."""
+    added to the shell's environment; missing_helper: no helper for this CPU;
+    probe_hang: the first installation check hangs, and its child process
+    must be gone when the run ends."""
     work = Path(tempfile.mkdtemp(prefix=f"foamy-syncthing-runtime-{host}-"))
     bus = None
     try:
@@ -965,6 +1049,7 @@ def run(host, shell, crash=False, blocked=False, snapshot=None, env=None, missin
             "CORE_LOG", json.dumps(str(work / "core.log"))
         )
         qml = qml.replace("PICKER_LOG", json.dumps(str(work / "picker.log")))
+        qml = qml.replace("HANG_PID", json.dumps(str(work / "probe-hang.pid")))
         qml = qml.replace("SNAPSHOT", json.dumps(str(work / "snapshot.json")))
         (work / "probe.log").touch()
         (work / "core.log").touch()
@@ -984,8 +1069,10 @@ def run(host, shell, crash=False, blocked=False, snapshot=None, env=None, missin
                 "FAKE_PICKER_BUS": bus.address,
             }
         )
-        if crash or blocked:
+        if crash or blocked or probe_hang:
             runner.env["FAKE_CORE_EXIT"] = "1"
+        if probe_hang:
+            runner.env["FAKE_PROBE_HANG"] = str(work / "probe-hang.pid")
         if blocked:
             runner.env["FAKE_PROBE_BLOCKING"] = str(Path(runner.env["HOME"]) / ".config/systemd/user/syncthing.service")
         runner.env.update(env or {})
@@ -998,6 +1085,8 @@ def run(host, shell, crash=False, blocked=False, snapshot=None, env=None, missin
         left = bus.survivors()
         if left:
             warnings.append(f"FOAMY FAIL the folder chooser's helper outlived the run (pid {left})")
+        if probe_hang:
+            warnings += hung_probe_survivor(work / "probe-hang.pid")
         # The plugin runs no Omarchy command here; the harness stubs refuse and log any.
         warnings += [f"FOAMY FAIL host command ran: {line}" for line in runner.host_commands()]
         if runner.ok and not warnings:
@@ -1093,6 +1182,8 @@ if not run(
 ):
     status = 1
 if not run("4.5", MISSING_SHELL, missing_helper=True, name="missing helper"):
+    status = 1
+if not run("4.5", HUNG_PROBE_SHELL, probe_hang=True, name="hung probe"):
     status = 1
 if not run_live("4.5"):
     status = 1
