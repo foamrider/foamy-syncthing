@@ -82,9 +82,10 @@ Porting an upstream Syncshell fix by hand:
    for parsing or bounds, a cargo unit test; run the commands above.
 4. Against a throwaway Syncthing (`syncthing generate --home <tmp>` and
    `syncthing serve --home <tmp> --no-browser --gui-address=127.0.0.1:<port>`,
-   discovery, relays and NAT off, a fake `systemctl` on `PATH`), with TLS on
-   and off, compare the snapshots and action results with the previous
-   build. Never use your own Syncthing or its configuration.
+   discovery, relays and NAT off, a fake `systemctl` and `busctl` on
+   `PATH`), with TLS on and off, compare the snapshots and action results
+   with the previous build. Never use your own Syncthing or its
+   configuration.
 5. Rebuild, then update README "Native core", the CHANGELOG and, when the
    upstream license text changes, `LICENSE-SYNCSHELL`.
 

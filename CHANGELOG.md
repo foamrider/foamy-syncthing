@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Offer start and stop for a Syncthing whose home directory has a space, and
+  only through its own `syncthing.service`: the core now reads the unit's
+  command line and environment from systemd's bus, with every argument
+  whole. Such a home got no start/stop button before, and a unit for a
+  longer directory (`/srv/Sync -archive` for a selected `/srv/Sync`) got the
+  button for another Syncthing.
 - Keep the status, the service probe and the activity rotation moving while
   files change: the `LocalIndexUpdated` events of one poll now wait up to
   150 ms in all for deletions to land, not 150 ms per file (up to 2.4 s per

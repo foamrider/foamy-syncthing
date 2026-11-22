@@ -203,8 +203,8 @@ The offscreen tests run on Omarchy 4.5, the installed `/usr/share/omarchy/shell`
 
 The tests need Python 3 (development only). `tests/test_stream.py` runs the
 real core against a fake Syncthing (`tests/fake_syncthing.py`) and a fake
-`systemctl` on a `PATH` that holds nothing else; `FOAMY_HELPER` (a JSON argv
-prefix) selects another build, e.g.
+`systemctl` and `busctl` on a `PATH` that holds nothing else; `FOAMY_HELPER`
+(a JSON argv prefix) selects another build, e.g.
 `FOAMY_HELPER='["bin/aarch64/foamy-syncthing-helper"]'` through qemu
 binfmt. The runtime test uses `tests/fake-core.py` in place of the core.
 None of them touches your Syncthing, its service or your shell

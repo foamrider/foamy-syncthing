@@ -1,6 +1,7 @@
 """Runs the native core (`stream`) as a process for the black-box tests, with
 a temporary HOME, a fake Syncthing (tests/fake_syncthing.py), and fake
-`systemctl` and `syncthing` executables on a PATH that holds nothing else.
+`systemctl`, `busctl` and `syncthing` executables on a PATH that holds
+nothing else.
 
 FOAMY_HELPER: JSON argv prefix of the helper binary; the core runs as
 `<prefix> stream <flags>`. The default is this machine's bundled helper,
@@ -54,8 +55,23 @@ with open(path) as source:
 if state.get("fail"):
     sys.exit(1)
 if args[:2] == ["--user", "show"]:
-    for key in ("LoadState", "ActiveState", "UnitFileState", "FragmentPath", "ExecStart", "Environment"):
-        print(key + "=" + state.get(key, ""))
+    # As systemd 262 prints them: only the properties asked for, ExecStart's
+    # argv joined by spaces without the unit file's quotes (so the text can't
+    # say where an argument with a space ends), and an Environment entry with
+    # a space in double quotes.
+    for arg in args[2:]:
+        if not arg.startswith("--property="):
+            continue
+        key = arg[len("--property="):]
+        value = state.get(key, "")
+        if key == "ExecStart" and value:
+            value = (
+                "{ path=" + value[0] + " ; argv[]=" + " ".join(value) + " ; ignore_errors=no ; "
+                "start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"
+            )
+        elif key in ("ExecStart", "Environment"):
+            value = " ".join('"' + entry + '"' if " " in entry else entry for entry in value)
+        print(key + "=" + value)
 elif len(args) == 3 and args[0] == "--user" and args[1] in ("start", "stop"):
     if state.get("fail_action"):
         print("Failed to " + args[1] + " unit: private-Canary-847", file=sys.stderr)
@@ -65,6 +81,31 @@ elif len(args) == 3 and args[0] == "--user" and args[1] in ("start", "stop"):
         json.dump(state, output)
 else:
     sys.exit(2)
+"""
+
+# The unit's ExecStart and Environment as systemd's bus holds them, every
+# argument whole, in busctl's `--json=short` form. Only the exact read of the
+# harness's unit is answered. "busctl": "fail" or "hang" in the unit state
+# makes it fail or never answer.
+BUSCTL = r"""#!/usr/bin/python3 -I
+import json, os, sys, time
+args = sys.argv[1:]
+with open(os.environ["FAKE_CALLS"], "a") as log:
+    log.write(json.dumps(["busctl"] + args) + "\n")
+with open(os.environ["FAKE_SYSTEMCTL_STATE"]) as source:
+    state = json.load(source)
+if state.get("busctl") == "hang":
+    time.sleep(60)
+read = ["--user", "--json=short", "get-property", "org.freedesktop.systemd1",
+        "/org/freedesktop/systemd1/unit/syncthing_2eservice", "org.freedesktop.systemd1.Service",
+        "ExecStart", "Environment"]
+if args != read or state.get("busctl") == "fail":
+    print("Failed to get property ExecStart: private-Canary-847", file=sys.stderr)
+    sys.exit(1)
+argv = state.get("ExecStart", [])
+commands = [[argv[0], argv, False, 0, 0, 0, 0, 0, 0, 0]] if argv else []
+print(json.dumps({"type": "a(sasbttttuii)", "data": commands}, separators=(",", ":")))
+print(json.dumps({"type": "as", "data": state.get("Environment", [])}, separators=(",", ":")))
 """
 
 SYNCTHING = r"""#!/usr/bin/python3 -I
@@ -143,7 +184,7 @@ class Core:
         self.calls_path = self.home / "calls.jsonl"
         self.calls_path.touch()
         self.systemctl_path = self.home / "systemctl.json"
-        for name, source in (("systemctl", SYSTEMCTL), ("syncthing", SYNCTHING)):
+        for name, source in (("systemctl", SYSTEMCTL), ("busctl", BUSCTL), ("syncthing", SYNCTHING)):
             (self.bin / name).write_text(source)
             (self.bin / name).chmod(0o755)
         self.config_dir = self.home / "state" / "syncthing"
@@ -192,14 +233,16 @@ class Core:
         )
 
     def set_systemctl(self, overrides):
+        """The fake unit's state, which `systemctl` and `busctl` show: these
+        defaults with `overrides`. ExecStart is the one command's argv and
+        Environment the entries, each a list of strings."""
         state = {
             "LoadState": "loaded",
             "ActiveState": "active",
             "UnitFileState": "enabled",
             "FragmentPath": "/usr/lib/systemd/user/syncthing.service",
-            "ExecStart": "{ path=/usr/bin/syncthing ; argv[]=/usr/bin/syncthing serve --no-browser --no-restart ; "
-            "ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }",
-            "Environment": "STNORESTART=1",
+            "ExecStart": ["/usr/bin/syncthing", "serve", "--no-browser", "--no-restart"],
+            "Environment": ["STNORESTART=1"],
         }
         state.update(overrides)
         self.systemctl_path.write_text(json.dumps(state))
