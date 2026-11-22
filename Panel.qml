@@ -122,7 +122,6 @@ Panel {
     settingsState.hide()
   }
   function save(key, value) {
-    pickerError = ""
     prefs.save(key, value)
   }
 
