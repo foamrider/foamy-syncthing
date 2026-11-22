@@ -5,6 +5,9 @@
 - Start the native core once when the popup opens or the bar is
   right-clicked after the core stopped on a protocol error. It was started
   twice, and the first core was stopped right after it came up.
+- Show a failed folder chooser's message on the Add folder page, where the
+  chooser opens, instead of only on the Settings page behind it. A new
+  attempt, or leaving the page, clears the message.
 
 ## Foamy Syncthing 1.3.0
 

@@ -21,7 +21,8 @@ survive a snapshot (keyed model); a plain p stops syncing and Ctrl+P does
 not; settings open; a folder chooser left open goes with its Panel (the real
 pick-folder helper, blocked on a session bus that never answers, is gone
 once the Panel is destroyed and nothing of it outlives the run), and one the
-bus refuses reopens the popup with its error; a crash-looping core is
+bus refuses reopens the popup with its error on the Add folder page, which a
+new attempt or leaving the page clears; a crash-looping core is
 started four times, then retried with a backoff capped at 5 minutes, and
 right-click/open starts it now; a leftover user unit blocking the install is
 named in the popup summary, not in the bar tooltip, and Install starts
@@ -249,22 +250,59 @@ ShellRoot {
     panels[1].save("refreshIntervalSec", 120)
     expect(function() { return shell.configured(120) }, 10000, "the new leader's setting reaches the core", step8)
   }
+  // The first item under `item` with this objectName.
+  function find(item, name) {
+    if (!item) return null
+    if (item.objectName === name) return item
+    for (var i = 0; i < item.children.length; i++) {
+      var found = find(item.children[i], name)
+      if (found) return found
+    }
+    return null
+  }
   function step8() {
-    // The bus refuses this second chooser's authentication.
-    panels[1].browseFolder()
-    // The bus logs "refused" after it answers, so wait for the log line too.
-    expect(function() {
-      return panels[1].opened && !panels[1].returningFromBrowser && panels[1].pickerError !== "" && pickerLog.text().indexOf("refused") >= 0
-    }, 15000, "the refused chooser ends and the popup opens again", function() {
-      check(panels[1].pickerError === "The folder chooser needs a session bus, and there is none; enter the path manually.",
-            "chooser error: " + panels[1].pickerError)
-      check(pickerLog.text().indexOf("refused") >= 0, "the chooser reached the refusing bus: " + pickerLog.text())
-      // The probe runs every 5 s while offline: a full interval online without one.
-      wait.after(Math.max(0, 6000 - (Date.now() - shell.onlineAt)), function() {
-        check(shell.probes() === shell.probesOnline, "install probe idle while online (" + shell.probesOnline + " -> " + shell.probes() + ")")
-        console.log("FOAMY CHECKS " + checks)
-        console.log("FOAMY DONE")
-        Qt.quit()
+    // The chooser opens from the Add folder page.
+    panels[1].openSettings()
+    expect(function() { return panels[1].opened && panels[1].editingSettings && panels[1].popup.bodyItem !== null }, 10000, "settings open for the chooser", function() {
+      var view = panels[1].popup.bodyItem
+      view.openAdd("")
+      check(view.addOpen, "the Add folder page opens")
+      // The bus refuses this second chooser's authentication.
+      view.browseRequested()
+      // The bus logs "refused" after it answers, so wait for the log line too.
+      expect(function() {
+        return panels[1].opened && !panels[1].returningFromBrowser && panels[1].pickerError !== "" && pickerLog.text().indexOf("refused") >= 0
+      }, 15000, "the refused chooser ends and the popup opens again", function() {
+        var message = "The folder chooser needs a session bus, and there is none; enter the path manually."
+        check(panels[1].pickerError === message, "chooser error: " + panels[1].pickerError)
+        check(pickerLog.text().indexOf("refused") >= 0, "the chooser reached the refusing bus: " + pickerLog.text())
+        // The offscreen popup has no window, so read the page state and the
+        // error line under the path rather than effective visibility.
+        var line = shell.find(view, "browseError")
+        check(view.editingSettings && view.addOpen && line && line.text === message,
+              "the Add folder page shows the chooser error: " + view.addOpen + " " + JSON.stringify(line && line.text))
+        check(view.settingsError === "", "the Settings page does not: " + view.settingsError)
+        // A new attempt starts without the old error; the bus refuses it too.
+        view.browseRequested()
+        check(panels[1].pickerError === "" && line.text === "", "a new chooser clears the old error: " + JSON.stringify(line.text))
+        expect(function() {
+          return panels[1].opened && !panels[1].returningFromBrowser && panels[1].pickerError !== ""
+        }, 15000, "the second refused chooser ends", function() {
+          check(view.addOpen && line.text === message, "the error is back: " + JSON.stringify(line.text))
+          // Back on Settings and in a new Add folder page the old error is gone.
+          view.closeAdd()
+          check(panels[1].pickerError === "", "leaving the Add folder page clears the chooser error: " + panels[1].pickerError)
+          view.openAdd("")
+          check(view.addOpen && line.text === "", "a new Add folder page starts without it: " + JSON.stringify(line.text))
+          view.closeAdd()
+          // The probe runs every 5 s while offline: a full interval online without one.
+          wait.after(Math.max(0, 6000 - (Date.now() - shell.onlineAt)), function() {
+            check(shell.probes() === shell.probesOnline, "install probe idle while online (" + shell.probesOnline + " -> " + shell.probes() + ")")
+            console.log("FOAMY CHECKS " + checks)
+            console.log("FOAMY DONE")
+            Qt.quit()
+          })
+        })
       })
     })
   }
