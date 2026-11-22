@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "../kit"
+import "../kit/FoamyPrefs.js" as Prefs
 
 QtObject {
   id: root
@@ -30,6 +31,9 @@ QtObject {
   property bool _statusRefreshPending: false
   property string _statusOutput: ""
   property string _statusErrorOutput: ""
+  // Kills the running check's process group (Prefs.killGroupCommand); []
+  // while no check runs.
+  property var _groupKill: []
 
   signal statusApplied
 
@@ -123,11 +127,26 @@ QtObject {
     onTriggered: root.packageStatus = ""
   }
 
+  // Destroyed during a check (a shell reload): Quickshell kills only
+  // `timeout`, which leads the check's process group, so the check's bash
+  // and its children would run on without a deadline. Kill the group with
+  // a detached command, as this object is going.
+  Component.onDestruction: {
+    if (_groupKill.length === 0)
+      return
+    reaper.command = _groupKill
+    reaper.startDetached()
+  }
+
+  property Process reaper: Process {}
+
   property Process statusProcess: Process {
     // A check takes well under a second (its flatpak lookup is bounded at
     // 3 s). One stuck on a filesystem would hold every later check, so
     // `timeout` ends it with all its children and it exits non-zero.
     command: ["timeout", "--kill-after=1s", "10s", "bash", root.helperPath, "status"]
+
+    onStarted: root._groupKill = Prefs.killGroupCommand(processId)
 
     stdout: StdioCollector {
       waitForEnd: true
@@ -140,6 +159,7 @@ QtObject {
     }
 
     onExited: function (exitCode) {
+      root._groupKill = []
       var rerun = root._statusRefreshPending
       root.refreshing = false
       if (exitCode === 0) {

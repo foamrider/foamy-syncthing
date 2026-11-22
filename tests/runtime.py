@@ -42,7 +42,8 @@ recover() launches nothing. A path the folder chooser answers lands in the
 Add folder field with the caret after it: typing extends it, and a path
 wider than the field shows its end. A hung installation check is stopped
 at its deadline with its child process, reported as a failure until a check
-succeeds, and the next check runs.
+succeeds, and the next check runs; one still hung when the service goes is
+stopped with it.
 Requires ~/GitHub/Personal/foamy-kit (or FOAMY_KIT)."""
 
 import json
@@ -478,6 +479,54 @@ ShellRoot {
           console.log("FOAMY DONE")
           Qt.quit()
         })
+      })
+    })
+  }
+}
+"""
+
+# The first installation check hangs and the service goes while it runs (a
+# shell reload): the check's processes go with it.
+HUNG_PROBE_TEARDOWN_SHELL = r"""
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import "harness"
+import "plugin" as Plugin
+
+ShellRoot {
+  id: shell
+  property var service: null
+  property int checks: 0
+  function check(ok, what) { checks++; if (!ok) console.log("FOAMY FAIL " + what) }
+  FileView { id: hangPid; path: HANG_PID; blockLoading: true; printErrors: false }
+  FileView { id: childStat; blockLoading: true; printErrors: false }
+  // The hung check's child, once it runs: its pid, else "".
+  function childPid() {
+    hangPid.reload()
+    var pid = hangPid.text().trim()
+    return /^[0-9]+$/.test(pid) ? pid : ""
+  }
+  // The hung check's child has ended (gone, or a zombie not yet reaped).
+  function childGone() {
+    var pid = childPid()
+    if (!pid) return false
+    childStat.path = "/proc/" + pid + "/stat"
+    childStat.reload()
+    var stat = childStat.text()
+    return stat === "" || stat.slice(stat.lastIndexOf(")") + 2).charAt(0) === "Z"
+  }
+  FoamyWait { id: wait }
+  Component.onCompleted: {
+    service = Qt.createComponent(Qt.resolvedUrl("plugin/Service.qml")).createObject(null)
+    wait.waitFor(function() { return shell.childPid() !== "" && service.packageController.refreshing }, 20000, function(ok) {
+      check(ok, "the installation check hangs in a child process")
+      service.destroy()
+      wait.waitFor(shell.childGone, 5000, function(ok) {
+        check(ok, "the hung check's child goes with the service")
+        console.log("FOAMY CHECKS " + checks)
+        console.log("FOAMY DONE")
+        Qt.quit()
       })
     })
   }
@@ -1386,6 +1435,8 @@ if not run(
 ):
     status = 1
 if not run("4.5", HUNG_PROBE_SHELL, probe_hang=True, name="hung probe"):
+    status = 1
+if not run("4.5", HUNG_PROBE_TEARDOWN_SHELL, probe_hang=True, name="hung probe teardown"):
     status = 1
 if not run_live("4.5"):
     status = 1

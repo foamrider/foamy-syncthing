@@ -43,6 +43,9 @@
   started just before it (a right-click on the bar while the page is open)
   failed. The page stayed open with the recheck's message, as if the add had
   failed.
+- End a hung installation check, with the programs it started, when the
+  plugin's service goes during it (a shell reload, the plugin turned off).
+  Only its `timeout` was stopped, so the check ran on without a deadline.
 
 ## Foamy Syncthing 1.3.0
 
