@@ -118,7 +118,8 @@ PanelKeyCatcher {
 
   // ---- cursor: tabs, rows, then the header actions ------------------------------
   readonly property int rowCount: tab === "folders" ? folderKeys.count : deviceKeys.count
-  readonly property int firstRowStop: 2
+  // Stop 0 is the tab row; ←/→ move between its tabs.
+  readonly property int firstRowStop: 1
   readonly property int toggleStop: firstRowStop + rowCount
   readonly property int webStop: toggleStop + 1
   readonly property int settingsStop: toggleStop + 2
@@ -134,10 +135,9 @@ PanelKeyCatcher {
   onMoveRequested: function (dx, dy) {
     if (dy !== 0)
       cursor.move(dy)
-    else if (cursor.index >= 0 && cursor.index < firstRowStop) {
-      setTab(dx > 0 ? "devices" : "folders")
-      cursor.hover(dx > 0 ? 1 : 0)
-    } else
+    else if (cursor.at(0))
+      tabs.moveCursor(dx)
+    else
       cursor.move(dx)
   }
   onActivateRequested: root.activate(cursor.index)
@@ -251,9 +251,7 @@ PanelKeyCatcher {
     if (index < 0)
       return
     if (index === 0)
-      setTab("folders")
-    else if (index === 1)
-      setTab("devices")
+      tabs.activateCursor()
     else if (index < toggleStop)
       toggleRow(rowKey(index - firstRowStop))
     else if (index === toggleStop)
@@ -451,6 +449,8 @@ PanelKeyCatcher {
       Layout.leftMargin: FoamyStyle.padding
       Layout.rightMargin: FoamyStyle.padding
       Layout.topMargin: visibleChildren.length > 0 ? FoamyStyle.gapLarge : 0
+      // Keeps the tab row's cursor highlight clear of the last line.
+      Layout.bottomMargin: visibleChildren.length > 0 ? FoamyStyle.gap : 0
       spacing: FoamyStyle.gapSmall
       Label {
         Layout.fillWidth: true
@@ -501,26 +501,30 @@ PanelKeyCatcher {
       }
     }
 
-    // Tabs
-    RowLayout {
+    // Tabs: the body's full width; the row insets its tabs itself.
+    FoamyTabs {
+      id: tabs
+      objectName: "overviewTabs"
       Layout.fillWidth: true
-      Layout.topMargin: FoamyStyle.gapLarge
-      Layout.leftMargin: FoamyStyle.gapLarge
-      Layout.rightMargin: FoamyStyle.gapLarge
-      spacing: FoamyStyle.gapSmall
-      TabStop {
-        view: "folders"
-        iconName: "folder"
-        stop: 0
-        label: FoamyI18n.t("Folders")
-        count: folderKeys.count
-      }
-      TabStop {
-        view: "devices"
-        iconName: "devices"
-        stop: 1
-        label: FoamyI18n.t("Devices")
-        count: deviceKeys.count
+      value: root.tab
+      hasCursor: cursor.at(0)
+      model: [
+        {
+          value: "folders",
+          text: FoamyI18n.t("Folders"),
+          iconName: "folder",
+          count: folderKeys.count
+        },
+        {
+          value: "devices",
+          text: FoamyI18n.t("Devices"),
+          iconName: "devices",
+          count: deviceKeys.count
+        }
+      ]
+      onHovered: cursor.hover(0)
+      onActivated: function (value) {
+        root.setTab(value)
       }
     }
 
@@ -809,43 +813,6 @@ PanelKeyCatcher {
   }
 
   // ---- components ----------------------------------------------------------------------
-  component TabStop: FoamyCursorSurface {
-    id: tabStop
-    required property string view
-    required property string iconName
-    required property int stop
-    required property string label
-    required property int count
-    Layout.fillWidth: true
-    implicitHeight: FoamyStyle.rowHeight
-    hasCursor: cursor.at(stop)
-    current: root.tab === view
-    onHovered: cursor.hover(stop)
-    onClicked: root.setTab(view)
-    Accessible.role: Accessible.PageTab
-    Accessible.name: label
-    Accessible.selected: current
-    Row {
-      anchors.centerIn: parent
-      spacing: FoamyStyle.gap
-      FoamyIcon {
-        anchors.verticalCenter: parent.verticalCenter
-        width: FoamyStyle.iconSize
-        height: width
-        name: tabStop.iconName
-        color: FoamyPalette.secondaryText
-      }
-      Text {
-        anchors.verticalCenter: parent.verticalCenter
-        text: tabStop.label + "  " + FoamyI18n.number(tabStop.count)
-        textFormat: Text.PlainText
-        color: FoamyPalette.text
-        font.family: FoamyStyle.fontFamily
-        font.pixelSize: FoamyStyle.font.body
-      }
-    }
-  }
-
   component OverviewRow: FoamyCursorSurface {
     id: rowItem
     required property string key

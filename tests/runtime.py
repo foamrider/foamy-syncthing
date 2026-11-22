@@ -16,7 +16,9 @@ bridge); the install probe stops for a full interval once Syncthing is
 online; snapshots with the same folders start no conflict walk and a moved
 folder starts one; .stversions is ignored and conflicts are flagged per
 folder, a "~/" folder path included, with an urgent bar and its tooltip; the
-status IPC reply; the popup body is built on open only; row delegates
+status IPC reply; the popup body is built on open only; the Folders /
+Devices tab row is one cursor stop (←/→ between the tabs, Enter opens one,
+Down goes on to the rows, a hovered tab takes the cursor); row delegates
 survive a snapshot (keyed model); a plain p stops syncing and Ctrl+P does
 not; settings open; a folder chooser left open goes with its Panel (the real
 pick-folder helper, blocked on a session bus that never answers, is gone
@@ -194,6 +196,8 @@ ShellRoot {
     check(view !== null && view.service === service, "body built on open")
     check(panels[0].popup.bodyItem === null, "other monitors stay lazy")
     check(view && view.rowCount === 2, "two folder rows")
+    if (view)
+      tabKeys(view)
     savedRow = view ? view.rowItem(0) : null
     check(savedRow !== null, "row delegate exists")
     check(view && view.listWheel && view.listWheel.target !== null, "the overview list scrolls with the kit wheel handling")
@@ -202,6 +206,37 @@ ShellRoot {
     check(service.refresh(), "a refresh starts")
     // The fake core, like the real one, sends the snapshot before the result.
     wait.waitFor(function() { return !service.refreshing }, 10000, step2, "the refresh ends")
+  }
+  // The tab row is one cursor stop: ←/→ move between Folders and Devices,
+  // Enter opens the tab under the cursor, Up and Down go between the row and
+  // the rows, and a hovered tab takes the cursor. The key catcher's signals
+  // stand in for the keys.
+  function tabKeys(view) {
+    var tabs = shell.find(view, "overviewTabs")
+    var onTab = function(i) { return !!tabs && tabs.hasCursor && tabs.cursorIndex === i }
+    var onFirstRow = function() { return !!view.rowItem(0) && view.rowItem(0).hasCursor }
+    var count = function(i) {
+      var label = shell.find(shell.find(tabs, "foamyTab" + i), "foamyTabCount")
+      return label ? label.text : ""
+    }
+    check(count(0) === "2" && count(1) === "2", "the tabs count two folders and two devices: " + count(0) + " " + count(1))
+    view.moveRequested(0, 1)
+    check(onTab(0) && view.tab === "folders", "Down lands on the tab row, on the open Folders tab")
+    view.moveRequested(0, 1)
+    check(onFirstRow() && !onTab(0), "the next Down reaches the first folder row")
+    view.moveRequested(0, -1)
+    check(onTab(0), "Up comes back to the tab row, on the open tab")
+    view.moveRequested(1, 0)
+    check(onTab(1) && view.tab === "folders", "→ moves to Devices without opening it: " + view.tab)
+    view.activateRequested()
+    check(view.tab === "devices" && view.rowCount === 2, "Enter opens Devices: " + view.tab)
+    view.moveRequested(-1, 0)
+    view.activateRequested()
+    check(onTab(0) && view.tab === "folders", "← and Enter open Folders again: " + view.tab)
+    view.moveRequested(0, 1)
+    if (tabs)
+      tabs.hovered()
+    check(onTab(0) && !onFirstRow(), "a hovered tab takes the cursor from the row")
   }
   function step2() {
     check(panels[1].popup.bodyItem.rowItem(0) === savedRow, "row delegate survives a snapshot (keyed model)")

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- Show the Folders and Devices tabs as the kit's tab row under the summary:
+  tabs as wide as their label, the open one with its label in bold and its
+  icon, count and underline in the accent, on a hairline across the popup.
+  The row is one keyboard stop: ←/→ move between the tabs, Enter opens one
+  and Down goes on to the rows. Before, each tab was a stop of its own and
+  ←/→ switched the tab at once.
 - Offer start and stop for a Syncthing whose home directory has a space, and
   only through its own `syncthing.service`: the core now reads the unit's
   command line and environment from systemd's bus, with every argument

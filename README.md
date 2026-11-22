@@ -61,9 +61,10 @@ plugin's helper isn't available for this CPU." and nothing retries.
     or accepts an incoming share.
   - The device warning and the refresh intervals.
 
-Keyboard: arrows or `hjkl` move one cursor through the tabs, rows and header
-buttons (hovering moves the same cursor). Enter activates: it expands a row
-or selects a tab. `o` opens the folder under the cursor, `r` refreshes, `w`
+Keyboard: arrows or `hjkl` move one cursor through the tab row, rows and
+header buttons (hovering moves the same cursor); on the tab row, ←/→ move
+between Folders and Devices. Enter activates: it expands a row or opens the
+tab under the cursor. `o` opens the folder under the cursor, `r` refreshes, `w`
 opens the Web UI, `p` starts or stops syncing and `s` opens Settings. Esc
 closes (or leaves Settings), and Tab or Shift+Tab moves to the next bar panel.
 In Settings and Add folder, Tab walks the controls.
