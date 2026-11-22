@@ -80,7 +80,9 @@ QtObject {
   readonly property string installationBlocker: installationState === "incomplete" ? packageController.blockingPath : ""
   readonly property bool canInstall: !online && packageController.canInstall
   readonly property string packageStatus: packageController.packageStatus
-  readonly property string packageError: packageController.packageError
+  // Like installationState: the installation matters only while Syncthing
+  // is offline, so a check that failed before it came online says nothing.
+  readonly property string packageError: online ? "" : packageController.packageError
   readonly property bool serviceAvailable: lifecyclePresentation.available
   readonly property bool serviceActive: lifecycle.active === true
   property bool serviceActionRunning: false

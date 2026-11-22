@@ -36,6 +36,9 @@
 - Clear a refused folder change's "Syncthing must be online …" message when
   Syncthing is back. It stayed until the next folder operation or a
   right-click.
+- Show a failed installation check only while Syncthing is offline. When
+  the last check before Syncthing came online had failed, its message stayed
+  in the popup, in red, while Syncthing was up to date.
 
 ## Foamy Syncthing 1.3.0
 

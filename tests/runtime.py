@@ -27,7 +27,8 @@ started four times, then retried with a backoff capped at 5 minutes, and
 right-click/open starts it now; a leftover user unit blocking the install is
 named in the popup summary, not in the bar tooltip, and Install starts
 nothing. The live scene: the real core's snapshot reaches the header, the
-devices and the service controls. The service scene: pause, resume and unlink
+devices and the service controls. The service scene: a failed installation
+check from before Syncthing was online is not shown, pause, resume and unlink
 send the right requests in order and settle on failure, a failed recheck
 keeps its message through an unlink that succeeds, a failed stop settles,
 the bar colour follows folder problems, too few devices and a Syncthing
@@ -73,6 +74,12 @@ if [ -n "${FAKE_PROBE_HANG:-}" ] && [ ! -e "$FAKE_PROBE_HANG" ]; then
   sleep 1000 &
   printf '%s\\n' "$!" > "$FAKE_PROBE_HANG"
   wait
+fi
+# The first status check fails, as a script error would; the file notes it.
+if [ -n "${FAKE_PROBE_FAIL:-}" ] && [ ! -e "$FAKE_PROBE_FAIL" ]; then
+  : > "$FAKE_PROBE_FAIL"
+  echo "status check failed" >&2
+  exit 1
 fi
 if [ -n "${FAKE_PROBE_BLOCKING:-}" ]; then
   jq -cn --arg blocking "$FAKE_PROBE_BLOCKING" \\
@@ -525,6 +532,7 @@ ShellRoot {
     rewrite(function(state) { state.counts.folderProblems = count })
   }
   function colour(value) { return Qt.colorEqual(panel.iconColor, value) }
+  function probes() { return probeLog.text().split("\n").filter(function(l) { return l === "status" }).length }
 
   FloatingWindow {
     implicitWidth: 400; implicitHeight: 300
@@ -532,6 +540,7 @@ ShellRoot {
   }
   Component { id: barComponent; MockBar { barSize: 34 } }
   FileView { id: coreLog; path: CORE_LOG; watchChanges: true; printErrors: false; onFileChanged: reload() }
+  FileView { id: probeLog; path: PROBE_LOG; watchChanges: true; printErrors: false; onFileChanged: reload() }
   FileView { id: snapshotFile; path: SNAPSHOT; blockLoading: true; blockWrites: true; printErrors: false }
   Connections {
     target: shell.service
@@ -544,12 +553,18 @@ ShellRoot {
     panel = Qt.createComponent(Qt.resolvedUrl("plugin/Panel.qml")).createObject(host, {
       bar: barComponent.createObject(shell, { moduleName: "foamy.syncthing" }), moduleName: "foamy.syncthing", width: 40, height: 34,
       settings: { minimumConnectedDevices: 0 } })
+    // The installation check that runs at start, before Syncthing is
+    // online, fails (probe_fail).
     wait.waitFor(function() {
       return service.online && service.settingsReady && service.folderRows.length === 5
         && service.scannedFolderKey === service.folderKey && !service.conflictScan.running && service.conflictInput === ""
+        && shell.probes() >= 1 && !service.packageController.refreshing
     }, 20000, function(ok) {
       check(ok, "the service comes online with five folders")
       check(colour(panel.bar.foreground) && !service.tooFewDevices, "a healthy bar uses the bar colour")
+      check(service.packageController.packageError === "status check failed",
+            "the first installation check failed: " + service.packageController.packageError)
+      check(service.packageError === "", "the failed check says nothing while Syncthing is online: " + service.packageError)
       pause()
     })
   }
@@ -1161,12 +1176,22 @@ def hung_probe_survivor(pid_file):
 
 
 def run(
-    host, shell, crash=False, blocked=False, snapshot=None, env=None, missing_helper=False, name="", probe_hang=False
+    host,
+    shell,
+    crash=False,
+    blocked=False,
+    snapshot=None,
+    env=None,
+    missing_helper=False,
+    name="",
+    probe_hang=False,
+    probe_fail=False,
 ):
     """snapshot(work): the fake core's state (default: write_snapshot's); env:
     added to the shell's environment; missing_helper: no helper for this CPU;
     probe_hang: the first installation check hangs, and its child process
-    must be gone when the run ends."""
+    must be gone when the run ends; probe_fail: the first installation check
+    fails."""
     work = Path(tempfile.mkdtemp(prefix=f"foamy-syncthing-runtime-{host}-"))
     bus = None
     try:
@@ -1201,6 +1226,8 @@ def run(
             runner.env["FAKE_CORE_EXIT"] = "1"
         if probe_hang:
             runner.env["FAKE_PROBE_HANG"] = str(work / "probe-hang.pid")
+        if probe_fail:
+            runner.env["FAKE_PROBE_FAIL"] = str(work / "probe-failed")
         if blocked:
             runner.env["FAKE_PROBE_BLOCKING"] = str(Path(runner.env["HOME"]) / ".config/systemd/user/syncthing.service")
         runner.env.update(env or {})
@@ -1307,6 +1334,7 @@ if not run(
     snapshot=service_snapshot,
     env={"FAKE_CORE_FAIL": json.dumps(SERVICE_FAILURES)},
     name="service",
+    probe_fail=True,
 ):
     status = 1
 if not run("4.5", MISSING_SHELL, missing_helper=True, name="missing helper"):
