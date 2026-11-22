@@ -39,10 +39,12 @@
 //! Both are kept only when they are at most 40 printable ASCII characters.
 //! Where the Go core is wrong, the port differs: over 12 activity records the
 //! oldest goes (Go drops the one whose key sorts first, which can be the
-//! newest); `LocalIndexUpdated` waits for deletions once per event, not per
-//! file, and a lookup that gets no usable answer ends the lookups of its
-//! event batch; a unit's `--home`/`--config` directory may hold spaces; a
-//! chunked reply needs CRLF after each chunk and at most 8 KiB of trailers.
+//! newest); the `LocalIndexUpdated` events of one poll wait for deletions
+//! once, not once per file, and a lookup that gets no usable answer ends the
+//! lookups of its event batch; a unit's `--home`/`--config` directory may
+//! hold spaces. A chunked reply needs CRLF after each chunk and at most
+//! 16 KiB of size-line overhead beyond its data, as in Go's net/http, and at
+//! most 8 KiB of trailers.
 //!
 //! - Flags (Go `flag` syntax: `-x` or `--x`, `=value` or the next argument,
 //!   booleans only as `=value`; the last repetition wins): `--config`,

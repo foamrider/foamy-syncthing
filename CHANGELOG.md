@@ -3,17 +3,19 @@
 ## Unreleased
 
 - Keep the status, the service probe and the activity rotation moving while
-  files change: one `LocalIndexUpdated` event now waits up to 150 ms in all
-  for deletions to land, not 150 ms per file (up to 2.4 s), and a file lookup
-  that gets no answer from Syncthing ends the lookups of its batch instead of
-  each of up to 48 more waiting for its own 15 s deadline.
+  files change: the `LocalIndexUpdated` events of one poll now wait up to
+  150 ms in all for deletions to land, not 150 ms per file (up to 2.4 s per
+  event), and a file lookup that gets no answer from Syncthing ends the
+  lookups of its batch instead of each of up to 48 more waiting for its own
+  15 s deadline.
 - Show the newest file activity during a large sync: past 12 records the
   oldest one goes, not the one whose key sorts first, which could be the file
   that had just started.
 - Offer Start and Stop for a Syncthing user service whose `--home`,
   `--config` or `STHOMEDIR` directory contains a space.
-- Refuse a chunked Syncthing reply whose chunk data does not end in CRLF, or
-  whose trailers pass 8 KiB, as a connection failure.
+- Refuse a chunked Syncthing reply whose chunk data does not end in CRLF,
+  whose chunk size lines carry more than 16 KiB beyond what their data
+  justifies, or whose trailers pass 8 KiB, as a connection failure.
 - Start the native core once when the popup opens or the bar is
   right-clicked after the core stopped on a protocol error. It was started
   twice, and the first core was stopped right after it came up.

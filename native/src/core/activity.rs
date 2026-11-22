@@ -72,6 +72,14 @@ struct LocalIndex {
     filenames: Vec<String>,
 }
 
+/// The files of an update that are looked up.
+fn local_index_files(data: &LocalIndex) -> impl Iterator<Item = &str> {
+    data.filenames
+        .iter()
+        .take(MAX_LOCAL_INDEX_FILES)
+        .map(String::as_str)
+}
+
 #[derive(Deserialize, Default)]
 struct Item {
     #[serde(default, deserialize_with = "nullable")]
@@ -255,11 +263,31 @@ impl Session {
         let mut activities = self.activity.lock().unwrap_or_else(|e| e.into_inner());
         let mut changed = false;
         let mut answered = true;
-        for event in events {
+        // The files of every `LocalIndexUpdated` event are looked up first, in
+        // one set of rounds, so a poll of many events waits 150 ms in all for
+        // deletions to land, not 150 ms per event.
+        let updates: Vec<Option<LocalIndex>> = events
+            .iter()
+            .map(|event| {
+                (event.kind == "LocalIndexUpdated")
+                    .then(|| data::<LocalIndex>(event))
+                    .flatten()
+                    .filter(|data| !data.folder.is_empty())
+            })
+            .collect();
+        let lookups: Vec<(&str, &str)> = updates
+            .iter()
+            .flatten()
+            .flat_map(|data| local_index_files(data).map(move |name| (data.folder.as_str(), name)))
+            .collect();
+        let mut infos = self.current_file_infos(&lookups, &mut answered).into_iter();
+        for (event, update) in events.iter().zip(&updates) {
             changed = match event.kind.as_str() {
                 "RemoteDownloadProgress" => activities.remote_progress(event, now),
                 "DownloadProgress" => activities.download_progress(event, now),
-                "LocalIndexUpdated" => self.local_index(&mut activities, event, now, &mut answered),
+                "LocalIndexUpdated" => update.as_ref().is_some_and(|data| {
+                    self.local_index(&mut activities, data, &mut infos, now, &mut answered)
+                }),
                 "ItemStarted" => activities.item_started(event, now),
                 "ItemFinished" => activities.item_finished(event),
                 "DeviceDisconnected" => activities.device_disconnected(event),
@@ -269,30 +297,19 @@ impl Session {
         changed
     }
 
-    /// `answered` turns false once a request of this batch got no usable
-    /// answer; no further lookup or rescan is sent for the batch then.
+    /// Applies one update with its files' lookups, taken from `infos` in the
+    /// order of `local_index_files`. `answered` turns false once a request of
+    /// this batch got no usable answer; no further rescan is sent then.
     fn local_index(
         &self,
         activities: &mut Activities,
-        event: &Event,
+        data: &LocalIndex,
+        infos: &mut impl Iterator<Item = (FileInfo, bool)>,
         now: Instant,
         answered: &mut bool,
     ) -> bool {
-        let Some(data) = data::<LocalIndex>(event) else {
-            return false;
-        };
-        if data.folder.is_empty() {
-            return false;
-        }
-        let names: Vec<&str> = data
-            .filenames
-            .iter()
-            .take(MAX_LOCAL_INDEX_FILES)
-            .map(String::as_str)
-            .collect();
-        let infos = self.current_file_infos(&data.folder, &names, answered);
         let mut changed = false;
-        for (name, (info, failed)) in names.into_iter().zip(infos) {
+        for (name, (info, failed)) in local_index_files(data).zip(infos) {
             let entry: Option<FileEntry> = info.local.or(info.global);
             let Some(entry) = entry.filter(|_| !failed) else {
                 changed = activities.store(&data.folder, name, "syncing", "", now) || changed;
@@ -313,23 +330,23 @@ impl Session {
         changed
     }
 
-    /// Up to three reads of each file 50 and 100 ms apart, settling a file
-    /// early on a deletion; per file, the bool is "the latest read that was
-    /// not empty failed". The files are read in rounds, so one event waits
-    /// 150 ms at most, not 150 ms per file. Only an HTTP status reply (a file
-    /// not in the index yet) is worth another read: any other failure (no
-    /// answer, a refused key, a reply that can't be read) would come back the
-    /// same, and a request without an answer waits for its own 15 s deadline.
-    /// The lookups of the batch end there; files not read yet have no entry.
+    /// Up to three reads of each `(folder, file)` 50 and 100 ms apart,
+    /// settling a file early on a deletion; per file, the bool is "the latest
+    /// read that was not empty failed". The files are read in rounds, so the
+    /// batch waits 150 ms at most, not 150 ms per file. Only an HTTP status
+    /// reply (a file not in the index yet) is worth another read: any other
+    /// failure (no answer, a refused key, a reply that can't be read) would
+    /// come back the same, and a request without an answer waits for its own
+    /// 15 s deadline. The lookups of the batch end there; files not read yet
+    /// have no entry.
     fn current_file_infos(
         &self,
-        folder_id: &str,
-        names: &[&str],
+        files: &[(&str, &str)],
         answered: &mut bool,
     ) -> Vec<(FileInfo, bool)> {
         let mut results: Vec<(FileInfo, bool)> =
-            names.iter().map(|_| (FileInfo::default(), false)).collect();
-        let mut pending: Vec<usize> = (0..names.len()).collect();
+            files.iter().map(|_| (FileInfo::default(), false)).collect();
+        let mut pending: Vec<usize> = (0..files.len()).collect();
         for attempt in 0..3u32 {
             if attempt > 0 {
                 if pending.is_empty() || !*answered {
@@ -342,7 +359,8 @@ impl Session {
                     return false;
                 }
                 let (info, failed) = &mut results[index];
-                match self.client.file_info(folder_id, names[index]) {
+                let (folder_id, name) = files[index];
+                match self.client.file_info(folder_id, name) {
                     Ok(candidate) if candidate.local.is_some() || candidate.global.is_some() => {
                         *failed = false;
                         let deleted = candidate
@@ -484,6 +502,21 @@ mod tests {
     }
 
     #[test]
+    fn a_batch_of_local_index_updates_waits_for_deletions_once() {
+        let (session, heads) = syncthing(|_, _| file(false));
+        let names: Vec<String> = (0..20).map(|i| format!("k{i:02}")).collect();
+        let events: Vec<Event> = names.iter().map(|name| local_index(&[name])).collect();
+        let now = Instant::now();
+        let started = Instant::now();
+        assert!(session.process_activity_events(&events, now));
+        // The batch waits 150 ms in all, where 150 ms per event came to 3 s.
+        let took = started.elapsed();
+        assert!(took < Duration::from_secs(2), "{took:?}");
+        assert_eq!(requests(&heads).len(), 20 * 3);
+        assert_eq!(actions(&session, now).len(), 12);
+    }
+
+    #[test]
     fn a_lookup_without_an_answer_ends_the_lookups_of_the_batch() {
         // Syncthing drops every lookup: the first one ends the batch, where
         // each of the 16 + 2 files was asked three times, every request
@@ -504,7 +537,8 @@ mod tests {
             "{actions:?}"
         );
 
-        // A rescan without an answer ends the batch too.
+        // A rescan without an answer ends the rescans of the batch too. The
+        // lookups of the whole batch come first.
         let (session, heads) = syncthing(|target, _| {
             if target.starts_with("/rest/db/scan") {
                 String::new()
@@ -518,9 +552,9 @@ mod tests {
         });
         session.process_activity_events(&[local_index(&["photos"]), local_index(&["x"])], now);
         let requests = requests(&heads);
-        assert_eq!(requests.len(), 4, "{requests:?}");
+        assert_eq!(requests.len(), 2 * 3 + 1, "{requests:?}");
         assert!(
-            requests[3].starts_with("POST /rest/db/scan?folder=f&sub=photos "),
+            requests[6].starts_with("POST /rest/db/scan?folder=f&sub=photos "),
             "{requests:?}"
         );
     }
