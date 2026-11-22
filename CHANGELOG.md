@@ -11,9 +11,11 @@
 - Show the newest file activity during a large sync: past 12 records the
   oldest one goes, not the one whose key sorts first, which could be the file
   that had just started.
-- Refuse a chunked Syncthing reply whose chunk data does not end in CRLF,
-  whose chunk size lines carry more than 16 KiB beyond what their data
-  justifies, or whose trailers pass 8 KiB, as a connection failure.
+- Refuse a chunked Syncthing reply whose chunk size line is not hex digits
+  ending in CRLF (a blank or a sign before the digits, a bare LF), whose
+  chunk data does not end in CRLF, whose chunk size lines carry more than
+  16 KiB beyond what their data justifies, or whose trailers pass 8 KiB, as a
+  connection failure.
 - Start the native core once when the popup opens or the bar is
   right-clicked after the core stopped on a protocol error. It was started
   twice, and the first core was stopped right after it came up.
