@@ -11,8 +11,6 @@
 - Show the newest file activity during a large sync: past 12 records the
   oldest one goes, not the one whose key sorts first, which could be the file
   that had just started.
-- Offer Start and Stop for a Syncthing user service whose `--home`,
-  `--config` or `STHOMEDIR` directory contains a space.
 - Refuse a chunked Syncthing reply whose chunk data does not end in CRLF,
   whose chunk size lines carry more than 16 KiB beyond what their data
   justifies, or whose trailers pass 8 KiB, as a connection failure.

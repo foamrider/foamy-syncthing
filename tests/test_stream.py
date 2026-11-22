@@ -665,52 +665,42 @@ class LifecycleTests(CoreTest):
         core.request("shutdown", "4")
         core.finish()
 
-    def test_a_unit_whose_home_has_a_space_is_controlled(self):
+    def test_a_unit_for_a_longer_directory_with_spaces_is_external(self):
         # `systemctl show` prints ExecStart's argv joined by spaces, without
-        # the unit file's quotes, and quotes an Environment entry with a space.
+        # the unit file's quotes, so the text does not say where a directory
+        # with a space ends. A unit whose directory only begins with the
+        # selected one runs another Syncthing: no controls for it.
         core = self.core(start=False)
         home = core.home / "My Sync"
         home.mkdir()
         core.config_path.rename(home / "config.xml")
         core.env["STHOMEDIR"] = str(home)
-        core.set_systemctl(
-            {
-                "ExecStart": "{ path=/usr/bin/syncthing ; argv[]=/usr/bin/syncthing serve --home "
-                + str(home)
-                + " --no-browser ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; "
-                "code=(null) ; status=0/0 }"
-            }
-        )
+        core.set_systemctl({"Environment": f'"STHOMEDIR={home} -archive" STNORESTART=1'})
         core.start()
-        lifecycle = core.ready()["state"]["lifecycle"]
-        self.assertTrue(lifecycle["targetMatch"])
-        self.assertEqual(controls(lifecycle), ("managed", True, False))
-        core.set_systemctl({"Environment": f'"STHOMEDIR={home}" STNORESTART=1'})
-        core.request("refresh", "1")
-        lifecycle = core.latest_state()["lifecycle"]
-        self.assertTrue(lifecycle["targetMatch"])
-        self.assertEqual(controls(lifecycle), ("managed", True, False))
-        # A unit for another directory whose name only starts with this one's
-        # runs another Syncthing: this one is external, with no controls.
-        for request_id, (exec_home, environment) in enumerate(
-            [
-                (f"{home} Other", "STNORESTART=1"),
-                (None, f'"STHOMEDIR={home} Other" STNORESTART=1'),
-            ],
-            start=2,
-        ):
-            exec_start = (
-                "{ path=/usr/bin/syncthing ; argv[]=/usr/bin/syncthing serve"
-                + (f" --home {exec_home}" if exec_home else "")
-                + " --no-browser ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; "
-                "code=(null) ; status=0/0 }"
-            )
-            core.set_systemctl({"ExecStart": exec_start, "Environment": environment})
-            core.request("refresh", str(request_id))
+        self.assertEqual(controls(core.ready()["state"]["lifecycle"]), ("external", False, False))
+        rows = [
+            overrides
+            for suffix in [" -archive", " Other"]
+            for overrides in [
+                {
+                    "ExecStart": "{ path=/usr/bin/syncthing ; argv[]=/usr/bin/syncthing serve --home "
+                    + f"{home}{suffix} --no-browser ; ignore_errors=no ; start_time=[n/a] ; "
+                    "stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"
+                },
+                {"Environment": f'"STHOMEDIR={home}{suffix}" STNORESTART=1'},
+            ]
+        ]
+        for request_id, overrides in enumerate(rows):
+            core.set_systemctl(overrides)
+            core.request("refresh", f"refresh {request_id}")
             lifecycle = core.latest_state()["lifecycle"]
-            self.assertFalse(lifecycle["targetMatch"], exec_start + " " + environment)
-            self.assertEqual(controls(lifecycle), ("external", False, False))
-        core.request("shutdown", "4")
+            self.assertFalse(lifecycle["targetMatch"], overrides)
+            self.assertEqual(controls(lifecycle), ("external", False, False), overrides)
+            self.assertEqual(
+                core.action("lifecycle.stop", f"stop {request_id}")["error"]["code"], "lifecycle_forbidden", overrides
+            )
+        self.assertFalse([c for c in core.calls() if c[0] == "systemctl" and c != SHOW])
+        core.request("shutdown", "1")
         core.finish()
 
     def test_a_healthy_instance_with_an_inactive_unit_is_external(self):

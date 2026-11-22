@@ -18,8 +18,6 @@ use super::types::{Lifecycle, bounded};
 const MAX_SHOW_OUTPUT: usize = 64 << 10;
 const SHOW_TIMEOUT: Duration = Duration::from_secs(3);
 const ACTION_TIMEOUT: Duration = Duration::from_secs(10);
-/// Linux `PATH_MAX`.
-const MAX_PATH_BYTES: usize = 4096;
 
 /// Host authority for one exact unit.
 #[derive(Clone, Debug, Default)]
@@ -160,10 +158,9 @@ fn target_matches(
         return false;
     }
     let get = |key: &str| properties.get(key).map(String::as_str).unwrap_or("");
-    // The `;` ends an ExecStart value, so it never runs into Environment.
-    let invocation = format!("{} ; {}", get("ExecStart"), get("Environment"));
-    if let Some(matched) = invocation_names(&invocation, &selected) {
-        return matched;
+    let invocation = format!("{} {}", get("ExecStart"), get("Environment"));
+    if let Some(configured) = invocation_config_path(&invocation) {
+        return clean(&configured) == selected;
     }
     if !binding.config_path.is_empty() {
         return false;
@@ -171,38 +168,17 @@ fn target_matches(
     target.automatic
 }
 
-/// Whether the config directory an invocation names (`--config`, `--home`,
-/// `-C`, `-H`, with a space, `=` or nothing; `STCONFDIR=`/`STHOMEDIR=`) holds
-/// `selected`; `None` when it names none. The first option decides.
-/// `systemctl show` joins ExecStart's argv with spaces and no quoting, and
-/// quotes an Environment entry that holds a space, so a directory with a
-/// space spans several words. The value runs to the closing quote when it is
-/// quoted; else an Environment value is one word, and an option's value ends
-/// before `;` (the end of argv), a quote, an option (`-`) or the end. The
-/// whole value must be the selected directory: a unit for `/a/b c` never
-/// controls `/a/b`. A directory word after a space that starts with `-` ends
-/// the value early, so such a unit matches nothing.
-fn invocation_names(invocation: &str, selected: &str) -> Option<bool> {
+/// The config directory an invocation names (`--config`, `--home`, `-C`,
+/// `-H`, with a space, `=` or nothing; `STCONFDIR=`/`STHOMEDIR=`), as
+/// `<dir>/config.xml`.
+fn invocation_config_path(invocation: &str) -> Option<String> {
     let replaced = invocation.replace([';', '"'], " ");
-    // Byte spans of the words, so a value that spans words keeps its spacing.
-    let mut words: Vec<(usize, usize)> = Vec::new();
-    let mut start = None;
-    for (index, c) in replaced.char_indices().chain([(replaced.len(), ' ')]) {
-        match (start, c.is_whitespace()) {
-            (None, false) => start = Some(index),
-            (Some(from), true) => {
-                words.push((from, index));
-                start = None;
-            }
-            _ => {}
+    let fields: Vec<&str> = replaced.split_whitespace().collect();
+    for (index, field) in fields.iter().enumerate() {
+        if matches!(*field, "--config" | "--home" | "-C" | "-H") && index + 1 < fields.len() {
+            return Some(join(&[fields[index + 1], "config.xml"]));
         }
-    }
-    let (value, first) = words.iter().enumerate().find_map(|(index, &(from, to))| {
-        let field = &replaced[from..to];
-        if matches!(field, "--config" | "--home" | "-C" | "-H") && index + 1 < words.len() {
-            return Some((words[index + 1].0, index + 1));
-        }
-        [
+        for prefix in [
             "--config=",
             "--home=",
             "-C=",
@@ -211,29 +187,13 @@ fn invocation_names(invocation: &str, selected: &str) -> Option<bool> {
             "-H",
             "STCONFDIR=",
             "STHOMEDIR=",
-        ]
-        .into_iter()
-        .find(|prefix| field.starts_with(prefix))
-        .map(|prefix| (from + prefix.len(), index))
-    })?;
-    // `replaced` has the same byte offsets as `invocation`. Before `value`
-    // in its word is the option's prefix, if any.
-    let opened = words[first].0;
-    let quoted = invocation[..opened].ends_with('"');
-    let environment = replaced[opened..value].starts_with("ST");
-    let ends_before = |to: usize| match invocation[to..].chars().find(|c| !c.is_whitespace()) {
-        None => true,
-        Some(next) if quoted => next == '"',
-        Some(next) => environment || matches!(next, ';' | '"' | '-'),
-    };
-    // No directory is longer than PATH_MAX, which bounds the work on a long
-    // invocation.
-    let end = words[first..]
-        .iter()
-        .map(|&(_, to)| to)
-        .take_while(|&to| to - value <= MAX_PATH_BYTES)
-        .find(|&to| ends_before(to));
-    Some(end.is_some_and(|to| clean(&join(&[&replaced[value..to], "config.xml"])) == selected))
+        ] {
+            if let Some(rest) = field.strip_prefix(prefix) {
+                return Some(join(&[rest, "config.xml"]));
+            }
+        }
+    }
+    None
 }
 
 #[cfg(test)]
@@ -256,73 +216,27 @@ mod tests {
         }
     }
 
-    /// `systemctl show`'s ExecStart for a unit that runs `syncthing serve
-    /// --home "<home>" --no-browser`: argv joined by spaces, unquoted.
-    fn exec_start(home: &str) -> String {
-        format!(
-            "{{ path=/usr/bin/syncthing ; argv[]=/usr/bin/syncthing serve --home {home} \
-             --no-browser ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; \
-             code=(null) ; status=0/0 }}"
-        )
-    }
-
     #[test]
     fn invocations_name_their_config_directory() {
-        let names = |invocation: &str, directory: &str| {
-            invocation_names(invocation, &join(&[directory, "config.xml"]))
-        };
-        let long = format!("/{}", "a".repeat(MAX_PATH_BYTES));
-        for (invocation, directory) in [
-            (
-                "{ argv[]=/usr/bin/syncthing serve --home /d ; }".to_string(),
-                "/d",
-            ),
-            ("syncthing --config=/d/".into(), "/d"),
-            ("syncthing -C/d".into(), "/d"),
-            ("syncthing -H=/d".into(), "/d"),
-            ("\"syncthing\" \"-H\" \"/d\"".into(), "/d"),
-            ("/usr/bin/syncthing serve STHOMEDIR=/e".into(), "/e"),
-            ("syncthing --config=".into(), ""),
-            // A directory with spaces spans words, with its own spacing.
-            (exec_start("/home/me/My Sync"), "/home/me/My Sync"),
-            (exec_start("/home/me/My  Sync/"), "/home/me/My  Sync"),
-            ("syncthing serve --home=/m/A B C".into(), "/m/A B C"),
-            (
-                "\"STHOMEDIR=/home/me/My Sync\" STNORESTART=1".into(),
-                "/home/me/My Sync",
-            ),
-            ("STHOMEDIR=/d STNORESTART=1".into(), "/d"),
-            ("syncthing --home /d;".into(), "/d"),
-        ] {
-            assert_eq!(names(&invocation, directory), Some(true), "{invocation}");
-        }
-        for (invocation, directory) in [
-            (
-                "{ argv[]=/usr/bin/syncthing serve --home /d ; }".to_string(),
-                "/e",
-            ),
-            ("syncthing --config=".into(), "/d"),
-            (exec_start("/home/me/My Sync"), "/home/me/My Sync/x"),
-            (exec_start("/home/me/My Sync"), "/home/me/My  Sync"),
-            // The whole value is compared, not a part of it before a space.
-            (exec_start("/home/me/My Sync Other"), "/home/me/My Sync"),
-            (exec_start("/home/me/My Sync"), "/home/me/My"),
-            ("syncthing serve --home=/m/A B C".into(), "/m/A B"),
-            (
-                "\"STHOMEDIR=/home/me/My Sync Other\" STNORESTART=1".into(),
-                "/home/me/My Sync",
-            ),
-            ("STHOMEDIR=/d STNORESTART=1".into(), "/d STNORESTART=1"),
-            // The first option decides.
-            ("syncthing --home /d STHOMEDIR=/e".into(), "/e"),
-            // Nothing longer than PATH_MAX is compared.
-            (format!("syncthing --home {long}"), long.as_str()),
-        ] {
-            assert_eq!(names(&invocation, directory), Some(false), "{invocation}");
-        }
-        for invocation in ["syncthing --home", "syncthing serve --no-browser"] {
-            assert_eq!(names(invocation, "/d"), None, "{invocation}");
-        }
+        let path = |s: &str| invocation_config_path(s);
+        assert_eq!(
+            path("{ argv[]=/usr/bin/syncthing serve --home /d ; }"),
+            Some("/d/config.xml".into())
+        );
+        assert_eq!(path("syncthing --config=/d/"), Some("/d/config.xml".into()));
+        assert_eq!(path("syncthing -C/d"), Some("/d/config.xml".into()));
+        assert_eq!(path("syncthing -H=/d"), Some("/d/config.xml".into()));
+        assert_eq!(
+            path("\"syncthing\" \"-H\" \"/d\""),
+            Some("/d/config.xml".into())
+        );
+        assert_eq!(
+            path("/usr/bin/syncthing serve STHOMEDIR=/e"),
+            Some("/e/config.xml".into())
+        );
+        assert_eq!(path("syncthing --config="), Some("config.xml".into()));
+        assert_eq!(path("syncthing --home"), None);
+        assert_eq!(path("syncthing serve --no-browser"), None);
     }
 
     #[test]
@@ -385,42 +299,5 @@ mod tests {
             &target,
             &properties("syncthing --home=/s")
         ));
-        // A home with a space, as `systemctl show` prints the unit.
-        let spaced = Target {
-            config_path: "/home/me/My Sync/config.xml".into(),
-            ..target.clone()
-        };
-        assert!(target_matches(
-            &binding,
-            &spaced,
-            &properties(&exec_start("/home/me/My Sync"))
-        ));
-        let environment = BTreeMap::from([
-            (
-                "ExecStart".to_string(),
-                exec_start("").replace("--home ", ""),
-            ),
-            (
-                "Environment".to_string(),
-                "\"STHOMEDIR=/home/me/My Sync\" STNORESTART=1".to_string(),
-            ),
-        ]);
-        assert!(target_matches(&binding, &spaced, &environment));
-        assert!(!target_matches(
-            &binding,
-            &spaced,
-            &properties(&exec_start("/home/me/My"))
-        ));
-        assert!(!target_matches(
-            &binding,
-            &spaced,
-            &properties(&exec_start("/home/me/My Sync Other"))
-        ));
-        // An ExecStart value ends where Environment begins.
-        let with_environment = BTreeMap::from([
-            ("ExecStart".to_string(), "syncthing -C/s".to_string()),
-            ("Environment".to_string(), "STNORESTART=1".to_string()),
-        ]);
-        assert!(target_matches(&binding, &target, &with_environment));
     }
 }
