@@ -30,7 +30,8 @@ nothing. The live scene: the real core's snapshot reaches the header, the
 devices and the service controls. The service scene: a failed installation
 check from before Syncthing was online is not shown, pause, resume and unlink
 send the right requests in order and settle on failure, a failed recheck
-keeps its message through an unlink that succeeds, a failed stop settles,
+keeps its message through an unlink that succeeds, an add that waits for a
+failed recheck still closes its page when it succeeds, a failed stop settles,
 the bar colour follows folder problems, too few devices and a Syncthing
 outage, folder changes are refused while Syncthing is down and the
 refusal's message goes when it is back, every kind of broken core output
@@ -666,7 +667,45 @@ ShellRoot {
     expect(function() { return !service.folderMutationBusy && !service.refreshing && since().length >= 3 }, 10000, "the unlink and the recheck end", function() {
       sent(['folder.pause {"folderId":"docs"}', "folder.recheck-errors {}", 'folder.forget {"folderId":"docs"}'], "the recheck goes between pause and removal")
       check(service.folderMutationError === "Cannot recheck", "the failed recheck's message stays: " + service.folderMutationError)
-      tooFewDevices()
+      addDuringRecheck()
+    })
+  }
+
+  // The first item under `item` with this objectName.
+  function find(item, name) {
+    if (!item) return null
+    if (item.objectName === name) return item
+    for (var i = 0; i < item.children.length; i++) {
+      var found = find(item.children[i], name)
+      if (found) return found
+    }
+    return null
+  }
+
+  // A recheck (a right-click on the bar) still running when Add folder is
+  // pressed fails first, as the core answers in order; the add then
+  // succeeds and its page closes.
+  function addDuringRecheck() {
+    panel.openSettings()
+    expect(function() { return panel.opened && panel.editingSettings && panel.view !== null && !service.refreshing }, 10000, "Settings open", function() {
+      var view = panel.view
+      view.openAdd("")
+      view.setAddPath("/home/me/Music")
+      expect(function() { return service.folderIdSuggestion !== "" && !service.folderPreparationBusy && !service.refreshing }, 10000, "a folder ID is suggested", function() {
+        check(service.refresh(true), "a recheck starts")
+        shell.find(view, "submitButton").clicked()
+        check(service.folderMutationBusy && service.folderMutationAction === "add", "the add starts while the recheck runs")
+        expect(function() { return !service.folderMutationBusy && !service.refreshing && since().length >= 3 }, 10000, "the recheck and the add end", function() {
+          sent(["folder.suggest-id {}", "folder.recheck-errors {}",
+                'folder.add-existing {"folderId":"abcde-fghij","path":"/home/me/Music","createDirectory":false,"label":"Music","deviceIds":[],"pendingDeviceId":""}'],
+               "the recheck is answered before the add")
+          check(service.folderMutationError === "Cannot recheck", "the recheck's message: " + service.folderMutationError)
+          check(service.folderMutationNotice === "Local only — this folder will not sync with other devices.", "the add's notice: " + service.folderMutationNotice)
+          check(!view.addOpen, "the Add folder page closes after the add succeeds")
+          panel.close()
+          expect(function() { return !panel.opened && !service.refreshing }, 10000, "the popup closes", tooFewDevices)
+        })
+      })
     })
   }
 

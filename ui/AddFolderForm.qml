@@ -129,6 +129,11 @@ Column {
       }
     }
     function onFolderMutationErrorChanged() {
+      // The add's own failure comes after the operation stopped. A message
+      // from another caller while the add runs (a recheck that failed
+      // first) leaves it waiting for its own result.
+      if (root.busy)
+        return
       if (root.service.folderMutationError !== "")
         root.submitted = false
     }

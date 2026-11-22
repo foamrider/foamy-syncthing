@@ -39,6 +39,10 @@
 - Show a failed installation check only while Syncthing is offline. When
   the last check before Syncthing came online had failed, its message stayed
   in the popup, in red, while Syncthing was up to date.
+- Close the Add folder page when the add succeeds, also when a recheck that
+  started just before it (a right-click on the bar while the page is open)
+  failed. The page stayed open with the recheck's message, as if the add had
+  failed.
 
 ## Foamy Syncthing 1.3.0
 
