@@ -31,9 +31,10 @@ devices and the service controls. The service scene: pause, resume and unlink
 send the right requests in order and settle on failure, a failed recheck
 keeps its message through an unlink that succeeds, a failed stop settles,
 the bar colour follows folder problems, too few devices and a Syncthing
-outage, folder changes are refused while Syncthing is down, every kind of
-broken core output stops the core once without a restart until recover(),
-which starts one core, and a core that dies ends a held folder action.
+outage, folder changes are refused while Syncthing is down and the
+refusal's message goes when it is back, every kind of broken core output
+stops the core once without a restart until recover(), which starts one
+core, and a core that dies ends a held folder action.
 Without a helper for this CPU the core and the folder chooser say so and
 recover() launches nothing. A path the folder chooser answers lands in the
 Add folder field with the caret after it: typing extends it, and a path
@@ -716,13 +717,19 @@ ShellRoot {
     })
   }
 
-  // Syncthing down is urgent, ahead of the too-few-devices warning.
-  function offline() {
+  // The next refresh publishes Syncthing down or up.
+  function reachable(online) {
     rewrite(function(state) {
-      state.connection = { online: false, phase: "error", error: { code: "connection", message: "could not connect to Syncthing" } }
+      state.connection = online ? { online: true, phase: "online", fresh: true }
+        : { online: false, phase: "error", error: { code: "connection", message: "could not connect to Syncthing" } }
     })
     check(service.refresh(), "a refresh starts")
-    expect(function() { return service.phase === "error" && colour(panel.bar.urgent) }, 10000, "Syncthing down makes the bar urgent", function() {
+  }
+
+  // Syncthing down is urgent, ahead of the too-few-devices warning.
+  function offline() {
+    reachable(false)
+    expect(function() { return service.phase === "error" && colour(panel.bar.urgent) && !service.refreshing }, 10000, "Syncthing down makes the bar urgent", function() {
       check(panel.barIcon.codePointAt(0) === 0xf09e0, "notify glyph while down: " + panel.barIcon.codePointAt(0))
       // Folder changes are refused before a request while Syncthing is down.
       check(!service.unlinkFolder("docs") && service.folderMutationError === "Syncthing must be online to unlink a folder",
@@ -730,9 +737,24 @@ ShellRoot {
       check(!service.setFolderPaused("docs", true) && service.folderMutationError === "Syncthing must be online to manage folders",
             "pause is refused offline: " + service.folderMutationError)
       check(actions().length === mark, "no other action: " + JSON.stringify(since()))
-      console.log("FOAMY CHECKS " + checks)
-      console.log("FOAMY DONE")
-      Qt.quit()
+      // A refusal's message goes when Syncthing is back.
+      reachable(true)
+      expect(function() { return service.online && !service.refreshing }, 10000, "Syncthing is back", function() {
+        check(service.folderMutationError === "", "the refused pause's message goes with the outage: " + service.folderMutationError)
+        reachable(false)
+        expect(function() { return !service.online && !service.refreshing }, 10000, "Syncthing goes down again", function() {
+          check(!service.unlinkFolder("docs") && service.folderMutationError === "Syncthing must be online to unlink a folder",
+                "unlink is refused offline again: " + service.folderMutationError)
+          reachable(true)
+          expect(function() { return service.online && !service.refreshing }, 10000, "Syncthing is back again", function() {
+            check(service.folderMutationError === "", "the refused unlink's message goes with the outage: " + service.folderMutationError)
+            check(actions().length === mark, "no other action: " + JSON.stringify(since()))
+            console.log("FOAMY CHECKS " + checks)
+            console.log("FOAMY DONE")
+            Qt.quit()
+          })
+        })
+      })
     })
   }
 }

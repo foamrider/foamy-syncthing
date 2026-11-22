@@ -33,6 +33,9 @@
 - Put the caret after the path the folder chooser fills in on the Add folder
   page, so typing extends the path and a long path shows its end. The caret
   was at the start: a typed key went in front of the path.
+- Clear a refused folder change's "Syncthing must be online …" message when
+  Syncthing is back. It stayed until the next folder operation or a
+  right-click.
 
 ## Foamy Syncthing 1.3.0
 

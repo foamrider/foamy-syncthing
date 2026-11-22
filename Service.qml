@@ -463,10 +463,17 @@ QtObject {
     }
   }
 
-  onOnlineChanged: if (online)
+  onOnlineChanged: {
+    if (!online)
+      return
+    // A folder change refused because Syncthing was offline: its message
+    // is stale now that Syncthing is back.
+    if (folderMutationError === root.tr("Syncthing must be online to manage folders") || folderMutationError === root.tr("Syncthing must be online to unlink a folder"))
+      folderMutationError = ""
     Qt.callLater(function () {
       root.scanConflicts(true)
     })
+  }
   onFolderKeyChanged: Qt.callLater(scanConflicts)
   onWidgetSettingsChanged: {
     settingsReady = true
