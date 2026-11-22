@@ -690,7 +690,27 @@ class LifecycleTests(CoreTest):
         lifecycle = core.latest_state()["lifecycle"]
         self.assertTrue(lifecycle["targetMatch"])
         self.assertEqual(controls(lifecycle), ("managed", True, False))
-        core.request("shutdown", "2")
+        # A unit for another directory whose name only starts with this one's
+        # runs another Syncthing: this one is external, with no controls.
+        for request_id, (exec_home, environment) in enumerate(
+            [
+                (f"{home} Other", "STNORESTART=1"),
+                (None, f'"STHOMEDIR={home} Other" STNORESTART=1'),
+            ],
+            start=2,
+        ):
+            exec_start = (
+                "{ path=/usr/bin/syncthing ; argv[]=/usr/bin/syncthing serve"
+                + (f" --home {exec_home}" if exec_home else "")
+                + " --no-browser ; ignore_errors=no ; start_time=[n/a] ; stop_time=[n/a] ; pid=0 ; "
+                "code=(null) ; status=0/0 }"
+            )
+            core.set_systemctl({"ExecStart": exec_start, "Environment": environment})
+            core.request("refresh", str(request_id))
+            lifecycle = core.latest_state()["lifecycle"]
+            self.assertFalse(lifecycle["targetMatch"], exec_start + " " + environment)
+            self.assertEqual(controls(lifecycle), ("external", False, False))
+        core.request("shutdown", "4")
         core.finish()
 
     def test_a_healthy_instance_with_an_inactive_unit_is_external(self):

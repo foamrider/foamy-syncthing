@@ -175,8 +175,12 @@ fn target_matches(
 /// `selected`; `None` when it names none. The first option decides.
 /// `systemctl show` joins ExecStart's argv with spaces and no quoting, and
 /// quotes an Environment entry that holds a space, so a directory with a
-/// space spans several words: the value matches when it, alone or with the
-/// words after it, is the selected directory.
+/// space spans several words. The value runs to the closing quote when it is
+/// quoted; else an Environment value is one word, and an option's value ends
+/// before `;` (the end of argv), a quote, an option (`-`) or the end. The
+/// whole value must be the selected directory: a unit for `/a/b c` never
+/// controls `/a/b`. A directory word after a space that starts with `-` ends
+/// the value early, so such a unit matches nothing.
 fn invocation_names(invocation: &str, selected: &str) -> Option<bool> {
     let replaced = invocation.replace([';', '"'], " ");
     // Byte spans of the words, so a value that spans words keeps its spacing.
@@ -211,14 +215,24 @@ fn invocation_names(invocation: &str, selected: &str) -> Option<bool> {
         .find(|prefix| field.starts_with(prefix))
         .map(|prefix| (from + prefix.len(), index))
     })?;
+    // `replaced` has the same byte offsets as `invocation`. Before `value`
+    // in its word is the option's prefix, if any.
+    let opened = words[first].0;
+    let quoted = invocation[..opened].ends_with('"');
+    let environment = replaced[opened..value].starts_with("ST");
+    let ends_before = |to: usize| match invocation[to..].chars().find(|c| !c.is_whitespace()) {
+        None => true,
+        Some(next) if quoted => next == '"',
+        Some(next) => environment || matches!(next, ';' | '"' | '-'),
+    };
     // No directory is longer than PATH_MAX, which bounds the work on a long
     // invocation.
-    Some(
-        words[first..]
-            .iter()
-            .take_while(|&&(_, to)| to - value <= MAX_PATH_BYTES)
-            .any(|&(_, to)| clean(&join(&[&replaced[value..to], "config.xml"])) == selected),
-    )
+    let end = words[first..]
+        .iter()
+        .map(|&(_, to)| to)
+        .take_while(|&to| to - value <= MAX_PATH_BYTES)
+        .find(|&to| ends_before(to));
+    Some(end.is_some_and(|to| clean(&join(&[&replaced[value..to], "config.xml"])) == selected))
 }
 
 #[cfg(test)]
@@ -276,6 +290,8 @@ mod tests {
                 "\"STHOMEDIR=/home/me/My Sync\" STNORESTART=1".into(),
                 "/home/me/My Sync",
             ),
+            ("STHOMEDIR=/d STNORESTART=1".into(), "/d"),
+            ("syncthing --home /d;".into(), "/d"),
         ] {
             assert_eq!(names(&invocation, directory), Some(true), "{invocation}");
         }
@@ -287,6 +303,15 @@ mod tests {
             ("syncthing --config=".into(), "/d"),
             (exec_start("/home/me/My Sync"), "/home/me/My Sync/x"),
             (exec_start("/home/me/My Sync"), "/home/me/My  Sync"),
+            // The whole value is compared, not a part of it before a space.
+            (exec_start("/home/me/My Sync Other"), "/home/me/My Sync"),
+            (exec_start("/home/me/My Sync"), "/home/me/My"),
+            ("syncthing serve --home=/m/A B C".into(), "/m/A B"),
+            (
+                "\"STHOMEDIR=/home/me/My Sync Other\" STNORESTART=1".into(),
+                "/home/me/My Sync",
+            ),
+            ("STHOMEDIR=/d STNORESTART=1".into(), "/d STNORESTART=1"),
             // The first option decides.
             ("syncthing --home /d STHOMEDIR=/e".into(), "/e"),
             // Nothing longer than PATH_MAX is compared.
@@ -384,6 +409,11 @@ mod tests {
             &binding,
             &spaced,
             &properties(&exec_start("/home/me/My"))
+        ));
+        assert!(!target_matches(
+            &binding,
+            &spaced,
+            &properties(&exec_start("/home/me/My Sync Other"))
         ));
     }
 }
