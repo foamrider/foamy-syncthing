@@ -207,8 +207,10 @@ QtObject {
 
   function finishFolderAction(contractAction, folderId, notice) {
     clearFolderAction()
-    // An operation refused while this one ran left its message; it is stale now.
-    folderMutationError = ""
+    // An operation refused while this one ran left its message; it is stale
+    // now. Any other message (a failed recheck) still holds.
+    if (folderMutationError === root.tr("Another folder operation is already running"))
+      folderMutationError = ""
     publishFolderNotice(notice)
   }
 

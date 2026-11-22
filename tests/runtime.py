@@ -28,14 +28,14 @@ right-click/open starts it now; a leftover user unit blocking the install is
 named in the popup summary, not in the bar tooltip, and Install starts
 nothing. The live scene: the real core's snapshot reaches the header, the
 devices and the service controls. The service scene: pause, resume and unlink
-send the right requests in order and settle on failure, a failed stop
-settles, the bar colour follows folder problems, too few devices and a
-Syncthing outage, folder changes are refused while Syncthing is down, every
-kind of broken core output stops the core once without a restart until
-recover(), which starts one core, and a core that dies ends a held folder
-action. Without a helper
-for this CPU the core and the folder chooser say so and recover() launches
-nothing. A hung installation check is stopped at its deadline with its
+send the right requests in order and settle on failure, a failed recheck
+keeps its message through an unlink that succeeds, a failed stop settles,
+the bar colour follows folder problems, too few devices and a Syncthing
+outage, folder changes are refused while Syncthing is down, every kind of
+broken core output stops the core once without a restart until recover(),
+which starts one core, and a core that dies ends a held folder action.
+Without a helper for this CPU the core and the folder chooser say so and
+recover() launches nothing. A hung installation check is stopped at its deadline with its
 child process, reported as a failure until a check succeeds, and the next
 check runs.
 Requires ~/GitHub/Personal/foamy-kit (or FOAMY_KIT)."""
@@ -636,15 +636,31 @@ ShellRoot {
     problems(1)
     check(service.refresh(), "a refresh starts")
     expect(function() { return colour(panel.bar.urgent) && !service.refreshing }, 10000, "a counted folder problem makes the bar urgent", function() {
-      // Two connected with this computer: three is too few.
-      panel.save("minimumConnectedDevices", 3)
-      expect(function() { return service.tooFewDevices }, 10000, "the saved minimum reaches the service", function() {
-        check(colour(panel.bar.urgent), "a folder problem stays urgent with too few devices")
-        problems(0)
-        check(service.refresh(), "a refresh starts")
-        expect(function() { return colour(Kit.FoamyPalette.warning) && !service.refreshing }, 10000, "too few devices is a warning", function() {
-          protocol(0, -1)
-        })
+      recheckDuringUnlink()
+    })
+  }
+
+  // A recheck that fails while an unlink runs keeps its message after the
+  // unlink succeeds: the core answers it between the pause and the removal.
+  function recheckDuringUnlink() {
+    check(service.unlinkFolder("docs"), "an unlink starts before a recheck")
+    check(service.refresh(true), "a recheck starts while the unlink runs")
+    expect(function() { return !service.folderMutationBusy && !service.refreshing && since().length >= 3 }, 10000, "the unlink and the recheck end", function() {
+      sent(['folder.pause {"folderId":"docs"}', "folder.recheck-errors {}", 'folder.forget {"folderId":"docs"}'], "the recheck goes between pause and removal")
+      check(service.folderMutationError === "Cannot recheck", "the failed recheck's message stays: " + service.folderMutationError)
+      tooFewDevices()
+    })
+  }
+
+  function tooFewDevices() {
+    // Two connected with this computer: three is too few.
+    panel.save("minimumConnectedDevices", 3)
+    expect(function() { return service.tooFewDevices }, 10000, "the saved minimum reaches the service", function() {
+      check(colour(panel.bar.urgent), "a folder problem stays urgent with too few devices")
+      problems(0)
+      check(service.refresh(), "a refresh starts")
+      expect(function() { return colour(Kit.FoamyPalette.warning) && !service.refreshing }, 10000, "too few devices is a warning", function() {
+        protocol(0, -1)
       })
     })
   }
@@ -724,6 +740,7 @@ SERVICE_FAILURES = {
     "folder.pause fail-pause": {"code": "offline", "message": "Cannot pause"},
     "folder.forget fail-forget": {"code": "folder_changed", "message": "Cannot remove"},
     "folder.pause hold-me": "hold",
+    "folder.recheck-errors": {"code": "offline", "message": "Cannot recheck"},
     "lifecycle.stop": {"code": "lifecycle_failed", "message": "authorized user-service action failed"},
 }
 
