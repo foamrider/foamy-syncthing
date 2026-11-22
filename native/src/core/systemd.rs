@@ -160,7 +160,8 @@ fn target_matches(
         return false;
     }
     let get = |key: &str| properties.get(key).map(String::as_str).unwrap_or("");
-    let invocation = format!("{} {}", get("ExecStart"), get("Environment"));
+    // The `;` ends an ExecStart value, so it never runs into Environment.
+    let invocation = format!("{} ; {}", get("ExecStart"), get("Environment"));
     if let Some(matched) = invocation_names(&invocation, &selected) {
         return matched;
     }
@@ -415,5 +416,11 @@ mod tests {
             &spaced,
             &properties(&exec_start("/home/me/My Sync Other"))
         ));
+        // An ExecStart value ends where Environment begins.
+        let with_environment = BTreeMap::from([
+            ("ExecStart".to_string(), "syncthing -C/s".to_string()),
+            ("Environment".to_string(), "STNORESTART=1".to_string()),
+        ]);
+        assert!(target_matches(&binding, &target, &with_environment));
     }
 }
