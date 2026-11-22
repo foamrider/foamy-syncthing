@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use serde::Deserialize;
 use serde_json::Value;
 
-use super::client::{Code, Event, FileEntry, FileInfo};
+use super::client::{Code, Event, FileEntry};
 use super::gocompat::base;
 use super::session::Session;
 use super::types::{
@@ -102,6 +102,24 @@ fn is_directory(kind: &Value) -> bool {
         Value::String(text) => text.to_lowercase().contains("directory"),
         Value::Number(number) => number.as_f64() == Some(1.0),
         _ => false,
+    }
+}
+
+/// What an event batch keeps of one file's lookup. A reply's `type` can be
+/// any JSON value of up to a whole reply; only its meaning is kept, so the
+/// batch holds two flags per file whatever the replies' size.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Lookup {
+    directory: bool,
+    deleted: bool,
+}
+
+impl From<&FileEntry> for Lookup {
+    fn from(entry: &FileEntry) -> Self {
+        Self {
+            directory: is_directory(&entry.kind),
+            deleted: entry.deleted,
+        }
     }
 }
 
@@ -304,18 +322,17 @@ impl Session {
         &self,
         activities: &mut Activities,
         data: &LocalIndex,
-        infos: &mut impl Iterator<Item = (FileInfo, bool)>,
+        infos: &mut impl Iterator<Item = (Option<Lookup>, bool)>,
         now: Instant,
         answered: &mut bool,
     ) -> bool {
         let mut changed = false;
-        for (name, (info, failed)) in local_index_files(data).zip(infos) {
-            let entry: Option<FileEntry> = info.local.or(info.global);
-            let Some(entry) = entry.filter(|_| !failed) else {
+        for (name, (lookup, failed)) in local_index_files(data).zip(infos) {
+            let Some(entry) = lookup.filter(|_| !failed) else {
                 changed = activities.store(&data.folder, name, "syncing", "", now) || changed;
                 continue;
             };
-            if is_directory(&entry.kind) && !entry.deleted {
+            if entry.directory && !entry.deleted {
                 if *answered
                     && let Err(error) = self.client.rescan_subdirectory(&data.folder, name)
                     && error.code != Code::Http
@@ -338,14 +355,15 @@ impl Session {
     /// failure (no answer, a refused key, a reply that can't be read) would
     /// come back the same, and a request without an answer waits for its own
     /// 15 s deadline. The lookups of the batch end there; files not read yet
-    /// have no entry.
+    /// have no entry. Of each reply only a `Lookup` is kept (the `local`
+    /// entry, else the `global` one), and the reply is dropped once it is
+    /// read.
     fn current_file_infos(
         &self,
         files: &[(&str, &str)],
         answered: &mut bool,
-    ) -> Vec<(FileInfo, bool)> {
-        let mut results: Vec<(FileInfo, bool)> =
-            files.iter().map(|_| (FileInfo::default(), false)).collect();
+    ) -> Vec<(Option<Lookup>, bool)> {
+        let mut results: Vec<(Option<Lookup>, bool)> = vec![(None, false); files.len()];
         let mut pending: Vec<usize> = (0..files.len()).collect();
         for attempt in 0..3u32 {
             if attempt > 0 {
@@ -358,20 +376,17 @@ impl Session {
                 if !*answered {
                     return false;
                 }
-                let (info, failed) = &mut results[index];
+                let (lookup, failed) = &mut results[index];
                 let (folder_id, name) = files[index];
                 match self.client.file_info(folder_id, name) {
-                    Ok(candidate) if candidate.local.is_some() || candidate.global.is_some() => {
-                        *failed = false;
-                        let deleted = candidate
-                            .local
-                            .as_ref()
-                            .or(candidate.global.as_ref())
-                            .is_some_and(|e| e.deleted);
-                        *info = candidate;
-                        !deleted
-                    }
-                    Ok(_) => true,
+                    Ok(candidate) => match candidate.local.as_ref().or(candidate.global.as_ref()) {
+                        Some(entry) => {
+                            *failed = false;
+                            *lookup = Some(Lookup::from(entry));
+                            !entry.deleted
+                        }
+                        None => true,
+                    },
                     Err(error) => {
                         *failed = true;
                         if error.code != Code::Http {
@@ -557,6 +572,32 @@ mod tests {
             requests[6].starts_with("POST /rest/db/scan?folder=f&sub=photos "),
             "{requests:?}"
         );
+    }
+
+    #[test]
+    fn the_batch_keeps_two_flags_of_each_lookup_not_the_reply() {
+        // A large `type` value is read for its meaning only.
+        let padding = "x".repeat(64 << 10);
+        let (session, _) = syncthing(move |target, _| {
+            let kind = if target.ends_with("file=photos") {
+                Value::from(format!("{padding}_DIRECTORY"))
+            } else {
+                Value::from(vec![padding.clone()])
+            };
+            let body = serde_json::json!({"global": {"type": kind, "deleted": false}});
+            reply("200 OK", "", &body.to_string())
+        });
+        let mut answered = true;
+        let kept = session.current_file_infos(&[("f", "photos"), ("f", "notes")], &mut answered);
+        let lookup = |directory| Lookup {
+            directory,
+            deleted: false,
+        };
+        assert_eq!(
+            kept,
+            [(Some(lookup(true)), false), (Some(lookup(false)), false)]
+        );
+        assert!(answered);
     }
 
     #[test]
