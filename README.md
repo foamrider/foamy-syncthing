@@ -121,7 +121,9 @@ are one static Rust program with three subcommands:
   `7318f1404e765f274df3d079e35d0ad32b5c1701` (v0.1.9), which this plugin
   bundled as a Go binary before. It speaks the same JSON-lines protocol (v2)
   over stdin/stdout, and for the same Syncthing replies it writes the same
-  bytes. It reads Syncthing's API key from Syncthing's own `config.xml` and
+  bytes, except where the port fixes the Go core (listed in the crate
+  documentation, `native/src/main.rs`). It reads Syncthing's API key from
+  Syncthing's own `config.xml` and
   keeps it to itself: the key never reaches QML, process arguments, the
   environment, logs, snapshots or errors, and it is sent only to the
   selected Syncthing (never on the unauthenticated health check, never
