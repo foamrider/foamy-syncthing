@@ -1347,7 +1347,8 @@ def run(
 
 def run_live(host):
     """LIVE_SHELL with the real core, a fake Syncthing in the shell's HOME and
-    fake systemctl/syncthing first on PATH (no real service is ever asked)."""
+    fake systemctl/busctl/syncthing first on PATH (no real service is ever
+    asked)."""
     work = Path(tempfile.mkdtemp(prefix=f"foamy-syncthing-live-{host}-"))
     syncthing = None
     try:
@@ -1357,7 +1358,11 @@ def run_live(host):
             LIVE_SHELL,
             plugin=plugin,
             prefix=f"foamy-syncthing-live-{host}-",
-            fakebin={"systemctl": core_harness.SYSTEMCTL, "syncthing": core_harness.SYNCTHING},
+            fakebin={
+                "systemctl": core_harness.SYSTEMCTL,
+                "busctl": core_harness.BUSCTL,
+                "syncthing": core_harness.SYNCTHING,
+            },
         )
         home = Path(runner.env["HOME"])
         syncthing = fake_syncthing.FakeSyncthing(home)
@@ -1378,7 +1383,7 @@ def run_live(host):
                     "ActiveState": "active",
                     "UnitFileState": "enabled",
                     "FragmentPath": "/usr/lib/systemd/user/syncthing.service",
-                    "ExecStart": "{ path=/usr/bin/syncthing ; argv[]=/usr/bin/syncthing serve --no-browser ; }",
+                    "ExecStart": ["/usr/bin/syncthing", "serve", "--no-browser"],
                 }
             )
         )
