@@ -61,12 +61,13 @@ QtObject {
   }
 
   // A user-driven retry (popup opened, right-click refresh): start a stopped
-  // or failed core now, including after a protocol failure.
+  // or failed core now, including after a protocol failure. Only restart()
+  // starts it: setting desiredRunning here would start a core through the
+  // running binding, which restart()'s timer then stops for a second one.
   function retry() {
     if (!executableReady || coreProcess.running || starting)
       return false
     incompatible = false
-    desiredRunning = true
     return restart()
   }
 

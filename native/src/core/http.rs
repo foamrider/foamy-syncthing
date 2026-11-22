@@ -37,6 +37,11 @@ const MAX_IDLE: usize = 2;
 /// races a server closing an idle connection.
 const FRESH_FOR_MUTATIONS: Duration = Duration::from_secs(2);
 const MAX_HEADER_BYTES: usize = 1 << 20;
+/// All trailer lines of a chunked body together.
+const MAX_TRAILER_BYTES: usize = 8 << 10;
+/// Chunk size lines beyond what their data justifies, counted as Go's
+/// net/http counts them.
+const MAX_CHUNK_OVERHEAD: usize = 16 << 10;
 /// Name lookups in flight at once. A lookup the dial stopped waiting for
 /// runs on until the resolver gives up (musl: at most 60 s); past this many,
 /// a dial times out without starting another.
@@ -686,6 +691,7 @@ fn read_head(reader: &mut BufReader<Stream>) -> Result<Head, (Failure, bool)> {
 /// true when the terminating chunk and trailers were read.
 fn read_chunked<R: BufRead>(reader: &mut R, body: &mut Vec<u8>, max: usize) -> io::Result<bool> {
     let invalid = || io::Error::new(io::ErrorKind::UnexpectedEof, "bad chunk");
+    let mut overhead = 0usize;
     loop {
         let mut line = Vec::new();
         (&mut *reader).take(1024).read_until(b'\n', &mut line)?;
@@ -695,17 +701,30 @@ fn read_chunked<R: BufRead>(reader: &mut R, body: &mut Vec<u8>, max: usize) -> i
         let text = String::from_utf8_lossy(&line);
         let size = text.trim().split(';').next().unwrap_or("").trim();
         let size = usize::from_str_radix(size, 16).map_err(|_| invalid())?;
+        // Only data counts against the body cap, so long extensions on tiny
+        // chunks would let a peer stream until the request deadline. Each
+        // chunk pays for 16 bytes of framing plus twice its size.
+        overhead =
+            (overhead + line.len()).saturating_sub(size.saturating_mul(2).saturating_add(16));
+        if overhead > MAX_CHUNK_OVERHEAD {
+            return Err(invalid());
+        }
         if size == 0 {
-            // Trailers until an empty line.
+            // Trailers until an empty line, all of them within one bound (Go
+            // refuses a trailer longer than its 4 KiB read buffer).
+            let mut left = MAX_TRAILER_BYTES;
             loop {
                 let mut trailer = Vec::new();
-                (&mut *reader).take(8192).read_until(b'\n', &mut trailer)?;
+                let read = (&mut *reader)
+                    .take(left as u64)
+                    .read_until(b'\n', &mut trailer)?;
                 if !trailer.ends_with(b"\n") {
                     return Err(invalid());
                 }
                 if trailer == b"\r\n" || trailer == b"\n" {
                     return Ok(true);
                 }
+                left -= read;
             }
         }
         // Over the cap: keep one byte more than allowed and stop (no
@@ -721,9 +740,9 @@ fn read_chunked<R: BufRead>(reader: &mut R, body: &mut Vec<u8>, max: usize) -> i
             return Err(invalid());
         }
         let mut end = [0u8; 2];
-        reader.read_exact(&mut end[..1])?;
-        if end[0] == b'\r' {
-            reader.read_exact(&mut end[1..])?;
+        reader.read_exact(&mut end)?;
+        if &end != b"\r\n" {
+            return Err(invalid());
         }
     }
 }
@@ -933,16 +952,50 @@ mod tests {
         let (result, body) = chunked(b"ffffffffffffffff\r\nab", 3);
         assert!(!result.unwrap());
         assert_eq!(body, b"ab");
+        // Trailers up to 8 KiB in all are read and dropped.
+        let mut trailers = b"1\r\na\r\n0\r\n".to_vec();
+        trailers.extend_from_slice(format!("X: {}\r\n\r\n", "y".repeat(8180)).as_bytes());
+        let (result, body) = chunked(&trailers, 100);
+        assert!(result.unwrap());
+        assert_eq!(body, b"a");
+        // Many small chunks decode; each size line may carry an extension.
+        let mut small = format!("1;{}\r\na\r\n", "x".repeat(1000)).into_bytes();
+        small.extend(b"1\r\na\r\n".repeat(20000));
+        small.extend_from_slice(b"0\r\n\r\n");
+        let (result, body) = chunked(&small, 1 << 20);
+        assert!(result.unwrap());
+        assert_eq!(body.len(), 20001);
+        // Long extensions on small chunks count together: a peer can't send
+        // about 1000 bytes of framing per data byte until the request deadline.
+        let mut extended = format!("1;{}\r\na\r\n", "x".repeat(1000))
+            .repeat(20)
+            .into_bytes();
+        extended.extend_from_slice(b"0\r\n\r\n");
+        // Many short trailer lines count together: a peer can't stream them
+        // until the request deadline.
+        let mut endless = b"0\r\n".to_vec();
+        endless.extend(b"X: y\r\n".repeat(2000));
+        endless.extend_from_slice(b"\r\n");
+        let mut long = b"0\r\n".to_vec();
+        long.extend_from_slice(format!("X: {}\r\n\r\n", "y".repeat(8200)).as_bytes());
         for bad in [
             &b"zz\r\n"[..],
             b"3\r\nab",
             b"10000000000000000\r\n",
             b"3\r\nabc\r\n0\r\nno end",
+            // Each chunk's data ends in exactly CRLF.
+            b"3\r\nabcX0\r\n\r\n",
+            b"3\r\nabc\rX0\r\n\r\n",
+            b"3\r\nabc\n0\r\n\r\n",
+            b"3\r\nabc",
+            &endless,
+            &long,
+            &extended,
         ] {
             assert!(
                 chunked(bad, 100).0.is_err(),
                 "{}",
-                String::from_utf8_lossy(bad)
+                String::from_utf8_lossy(&bad[..bad.len().min(64)])
             );
         }
     }

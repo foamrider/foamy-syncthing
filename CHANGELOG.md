@@ -1,5 +1,34 @@
 # Changelog
 
+## Unreleased
+
+- Keep the status, the service probe and the activity rotation moving while
+  files change: the `LocalIndexUpdated` events of one poll now wait up to
+  150 ms in all for deletions to land, not 150 ms per file (up to 2.4 s per
+  event), and a file lookup that gets no answer from Syncthing ends the
+  lookups of its batch instead of each of up to 48 more waiting for its own
+  15 s deadline.
+- Show the newest file activity during a large sync: past 12 records the
+  oldest one goes, not the one whose key sorts first, which could be the file
+  that had just started.
+- Refuse a chunked Syncthing reply whose chunk data does not end in CRLF,
+  whose chunk size lines carry more than 16 KiB beyond what their data
+  justifies, or whose trailers pass 8 KiB, as a connection failure.
+- Start the native core once when the popup opens or the bar is
+  right-clicked after the core stopped on a protocol error. It was started
+  twice, and the first core was stopped right after it came up.
+- Show a failed folder chooser's message on the Add folder page, where the
+  chooser opens, instead of only on the Settings page behind it. A new
+  attempt, or leaving the page, clears the message.
+- Clear "Another folder operation is already running" when the running folder
+  operation succeeds, so the success notice no longer shows next to it.
+- Show the panel-limits warning when the core leaves out folder errors over
+  its limit, as it already did for the other cut lists.
+- Stop the installation check after 10 seconds, with the programs it
+  started, and report it as failed until a check succeeds. A check that hung
+  kept every later check from running, and the next check erased a failed
+  check's message before the popup showed it.
+
 ## Foamy Syncthing 1.3.0
 
 - **Choose an existing directory** asks the desktop's folder chooser through

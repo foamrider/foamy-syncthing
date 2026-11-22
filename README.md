@@ -94,7 +94,7 @@ Settings save in place (`bar.shell.updateEntryInline`, else `omarchy bar set`).
   Syncthing 2.1.7 it used 0.2 s CPU and 2.2 MB RSS (2.9 MB with TLS); the
   Go core it replaced used 0.5 to 0.6 s and 14.5 to 17.4 MB.
 - The installation check (`scripts/syncthing-install.sh status`) runs only
-  while Syncthing is unreachable.
+  while Syncthing is unreachable, with a 10-second deadline.
 - The conflict scan walks the configured folders when the folder set
   changes, when Syncthing comes back online, and every 5 minutes, not on
   every sync event. It skips Syncthing's `.stversions` and `.stfolder`
@@ -121,14 +121,15 @@ are one static Rust program with three subcommands:
   `7318f1404e765f274df3d079e35d0ad32b5c1701` (v0.1.9), which this plugin
   bundled as a Go binary before. It speaks the same JSON-lines protocol (v2)
   over stdin/stdout, and for the same Syncthing replies it writes the same
-  bytes. It reads Syncthing's API key from Syncthing's own `config.xml` and
-  keeps it to itself: the key never reaches QML, process arguments, the
-  environment, logs, snapshots or errors, and it is sent only to the
-  selected Syncthing (never on the unauthenticated health check, never
-  across a redirect to another address). It runs the REST and event-stream
-  calls (loopback or a `unix://` GUI socket, with the GUI certificate
-  `https-cert.pem` pinned when TLS is on), the folder actions, and `systemctl --user start|stop` for
-  `syncthing.service` only.
+  bytes, except where the port fixes the Go core (listed in the crate
+  documentation, `native/src/main.rs`). It reads Syncthing's API key from
+  Syncthing's own `config.xml` and keeps it to itself: the key never reaches
+  QML, process arguments, the environment, logs, snapshots or errors, and it
+  is sent only to the selected Syncthing (never on the unauthenticated health
+  check, never across a redirect to another address). It runs the REST and
+  event-stream calls (loopback or a `unix://` GUI socket, with the GUI
+  certificate `https-cert.pem` pinned when TLS is on), the folder actions, and
+  `systemctl --user start|stop` for `syncthing.service` only.
 - `conflicts` is the conflict scan (see [Resource use](#resource-use)).
 - `pick-folder` opens the folder chooser for **Choose an existing directory**:
   one `org.freedesktop.portal.FileChooser` request on the session bus (no

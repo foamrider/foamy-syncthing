@@ -21,19 +21,23 @@ survive a snapshot (keyed model); a plain p stops syncing and Ctrl+P does
 not; settings open; a folder chooser left open goes with its Panel (the real
 pick-folder helper, blocked on a session bus that never answers, is gone
 once the Panel is destroyed and nothing of it outlives the run), and one the
-bus refuses reopens the popup with its error; a crash-looping core is
+bus refuses reopens the popup with its error on the Add folder page, which a
+new attempt or leaving the page clears; a crash-looping core is
 started four times, then retried with a backoff capped at 5 minutes, and
 right-click/open starts it now; a leftover user unit blocking the install is
 named in the popup summary, not in the bar tooltip, and Install starts
 nothing. The live scene: the real core's snapshot reaches the header, the
 devices and the service controls. The service scene: pause, resume and unlink
-send the right requests in order and settle on failure, a failed stop
-settles, the bar colour follows folder problems, too few devices and a
-Syncthing outage, folder changes are refused while Syncthing is down, every
-kind of broken core output stops the core once without a restart until
-recover(), and a core that dies ends a held folder action. Without a helper
-for this CPU the core and the folder chooser say so and recover() launches
-nothing.
+send the right requests in order and settle on failure, a failed recheck
+keeps its message through an unlink that succeeds, a failed stop settles,
+the bar colour follows folder problems, too few devices and a Syncthing
+outage, folder changes are refused while Syncthing is down, every kind of
+broken core output stops the core once without a restart until recover(),
+which starts one core, and a core that dies ends a held folder action.
+Without a helper for this CPU the core and the folder chooser say so and
+recover() launches nothing. A hung installation check is stopped at its
+deadline with its child process, reported as a failure until a check
+succeeds, and the next check runs.
 Requires ~/GitHub/Personal/foamy-kit (or FOAMY_KIT)."""
 
 import json
@@ -60,6 +64,13 @@ SOURCE = Path(__file__).resolve().parents[1]
 
 PROBE_STUB = """#!/bin/bash
 printf '%s\\n' "$1" >> "$FOAMY_PROBE_LOG"
+# The first status check hangs in a child process, as a status stuck on a
+# filesystem would; the child's PID goes to the file.
+if [ -n "${FAKE_PROBE_HANG:-}" ] && [ ! -e "$FAKE_PROBE_HANG" ]; then
+  sleep 1000 &
+  printf '%s\\n' "$!" > "$FAKE_PROBE_HANG"
+  wait
+fi
 if [ -n "${FAKE_PROBE_BLOCKING:-}" ]; then
   jq -cn --arg blocking "$FAKE_PROBE_BLOCKING" \\
     '{state:"incomplete",label:"Incomplete installation: non-working",executable:"",blocking:$blocking,operationRunning:false}'
@@ -248,22 +259,59 @@ ShellRoot {
     panels[1].save("refreshIntervalSec", 120)
     expect(function() { return shell.configured(120) }, 10000, "the new leader's setting reaches the core", step8)
   }
+  // The first item under `item` with this objectName.
+  function find(item, name) {
+    if (!item) return null
+    if (item.objectName === name) return item
+    for (var i = 0; i < item.children.length; i++) {
+      var found = find(item.children[i], name)
+      if (found) return found
+    }
+    return null
+  }
   function step8() {
-    // The bus refuses this second chooser's authentication.
-    panels[1].browseFolder()
-    // The bus logs "refused" after it answers, so wait for the log line too.
-    expect(function() {
-      return panels[1].opened && !panels[1].returningFromBrowser && panels[1].pickerError !== "" && pickerLog.text().indexOf("refused") >= 0
-    }, 15000, "the refused chooser ends and the popup opens again", function() {
-      check(panels[1].pickerError === "The folder chooser needs a session bus, and there is none; enter the path manually.",
-            "chooser error: " + panels[1].pickerError)
-      check(pickerLog.text().indexOf("refused") >= 0, "the chooser reached the refusing bus: " + pickerLog.text())
-      // The probe runs every 5 s while offline: a full interval online without one.
-      wait.after(Math.max(0, 6000 - (Date.now() - shell.onlineAt)), function() {
-        check(shell.probes() === shell.probesOnline, "install probe idle while online (" + shell.probesOnline + " -> " + shell.probes() + ")")
-        console.log("FOAMY CHECKS " + checks)
-        console.log("FOAMY DONE")
-        Qt.quit()
+    // The chooser opens from the Add folder page.
+    panels[1].openSettings()
+    expect(function() { return panels[1].opened && panels[1].editingSettings && panels[1].popup.bodyItem !== null }, 10000, "settings open for the chooser", function() {
+      var view = panels[1].popup.bodyItem
+      view.openAdd("")
+      check(view.addOpen, "the Add folder page opens")
+      // The bus refuses this second chooser's authentication.
+      view.browseRequested()
+      // The bus logs "refused" after it answers, so wait for the log line too.
+      expect(function() {
+        return panels[1].opened && !panels[1].returningFromBrowser && panels[1].pickerError !== "" && pickerLog.text().indexOf("refused") >= 0
+      }, 15000, "the refused chooser ends and the popup opens again", function() {
+        var message = "The folder chooser needs a session bus, and there is none; enter the path manually."
+        check(panels[1].pickerError === message, "chooser error: " + panels[1].pickerError)
+        check(pickerLog.text().indexOf("refused") >= 0, "the chooser reached the refusing bus: " + pickerLog.text())
+        // The offscreen popup has no window, so read the page state and the
+        // error line under the path rather than effective visibility.
+        var line = shell.find(view, "browseError")
+        check(view.editingSettings && view.addOpen && line && line.text === message,
+              "the Add folder page shows the chooser error: " + view.addOpen + " " + JSON.stringify(line && line.text))
+        check(view.settingsError === "", "the Settings page does not: " + view.settingsError)
+        // A new attempt starts without the old error; the bus refuses it too.
+        view.browseRequested()
+        check(panels[1].pickerError === "" && line.text === "", "a new chooser clears the old error: " + JSON.stringify(line.text))
+        expect(function() {
+          return panels[1].opened && !panels[1].returningFromBrowser && panels[1].pickerError !== ""
+        }, 15000, "the second refused chooser ends", function() {
+          check(view.addOpen && line.text === message, "the error is back: " + JSON.stringify(line.text))
+          // Back on Settings and in a new Add folder page the old error is gone.
+          view.closeAdd()
+          check(panels[1].pickerError === "", "leaving the Add folder page clears the chooser error: " + panels[1].pickerError)
+          view.openAdd("")
+          check(view.addOpen && line.text === "", "a new Add folder page starts without it: " + JSON.stringify(line.text))
+          view.closeAdd()
+          // The probe runs every 5 s while offline: a full interval online without one.
+          wait.after(Math.max(0, 6000 - (Date.now() - shell.onlineAt)), function() {
+            check(shell.probes() === shell.probesOnline, "install probe idle while online (" + shell.probesOnline + " -> " + shell.probes() + ")")
+            console.log("FOAMY CHECKS " + checks)
+            console.log("FOAMY DONE")
+            Qt.quit()
+          })
+        })
       })
     })
   }
@@ -352,6 +400,74 @@ ShellRoot {
       console.log("FOAMY CHECKS " + checks)
       console.log("FOAMY DONE")
       Qt.quit()
+    })
+  }
+}
+"""
+
+# The first installation check hangs: it is stopped at its deadline and
+# reported as a failure, which stays while the next check runs and goes when
+# that check succeeds.
+HUNG_PROBE_SHELL = r"""
+import QtQuick
+import Quickshell
+import Quickshell.Io
+import "harness"
+import "plugin" as Plugin
+
+ShellRoot {
+  id: shell
+  property var service: null
+  property int checks: 0
+  property var errors: []
+  // The failure went while a check ran: the popup never showed it.
+  property bool erasedWhileChecking: false
+  function check(ok, what) { checks++; if (!ok) console.log("FOAMY FAIL " + what) }
+  function probes() { return probeLog.text().split("\n").filter(function(l) { return l === "status" }).length }
+  FileView { id: probeLog; path: PROBE_LOG; watchChanges: true; printErrors: false; onFileChanged: reload() }
+  FileView { id: hangPid; path: HANG_PID; blockLoading: true; printErrors: false }
+  FileView { id: childStat; blockLoading: true; printErrors: false }
+  // The hung check's child has ended (gone, or a zombie not yet reaped).
+  function childGone() {
+    hangPid.reload()
+    var pid = hangPid.text().trim()
+    if (!/^[0-9]+$/.test(pid)) return false
+    childStat.path = "/proc/" + pid + "/stat"
+    childStat.reload()
+    var stat = childStat.text()
+    return stat === "" || stat.slice(stat.lastIndexOf(")") + 2).charAt(0) === "Z"
+  }
+  Connections {
+    target: shell.service ? shell.service.packageController : null
+    function onPackageErrorChanged() {
+      var controller = shell.service.packageController
+      if (controller.packageError)
+        shell.errors = shell.errors.concat([controller.packageError])
+      else if (shell.errors.length > 0 && controller.refreshing)
+        shell.erasedWhileChecking = true
+    }
+  }
+  FoamyWait { id: wait }
+  Component.onCompleted: {
+    service = Qt.createComponent(Qt.resolvedUrl("plugin/Service.qml")).createObject(null)
+    var controller = service.packageController
+    wait.waitFor(function() { return shell.probes() === 1 && controller.refreshing }, 20000, function(ok) {
+      check(ok, "the first installation check runs")
+      // A check asked for while one runs waits for it.
+      controller.updateStatus()
+      wait.waitFor(function() { return shell.probes() >= 2 && !controller.refreshing && controller.state === "existing" }, 30000, function(ok) {
+        check(ok, "a later installation check runs (" + shell.probes() + " checks, state " + controller.state + ")")
+        check(shell.errors.length >= 1 && shell.errors[0] === "Could not check Syncthing installation",
+              "the stopped check is reported as a failure: " + JSON.stringify(shell.errors))
+        check(!shell.erasedWhileChecking, "the failure stays while the next check runs")
+        check(controller.packageError === "", "a check that succeeds clears the failure: " + controller.packageError)
+        wait.waitFor(shell.childGone, 5000, function(ok) {
+          check(ok, "the hung check's child process is stopped with it")
+          console.log("FOAMY CHECKS " + checks)
+          console.log("FOAMY DONE")
+          Qt.quit()
+        })
+      })
     })
   }
 }
@@ -463,6 +579,8 @@ ShellRoot {
       check(busyEnds === ends + 1, "busy from the pause to the removal (" + (busyEnds - ends) + " ends)")
       check(service.folderMutationNotice === "Unlinked Documents from Syncthing. Local files were kept.",
             "unlink notice: " + service.folderMutationNotice)
+      // The refused second unlink's message does not outlive the first one.
+      check(service.folderMutationError === "", "no error next to the notice: " + service.folderMutationError)
       check(service.unlinkFolder("archive"), "unlinking a paused folder starts")
       expect(function() { return !service.folderMutationBusy && since().length >= 1 }, 10000, "the paused unlink ends", function() {
         sent(['folder.forget {"folderId":"archive"}'], "a paused folder is removed without a pause")
@@ -518,27 +636,41 @@ ShellRoot {
     problems(1)
     check(service.refresh(), "a refresh starts")
     expect(function() { return colour(panel.bar.urgent) && !service.refreshing }, 10000, "a counted folder problem makes the bar urgent", function() {
-      // Two connected with this computer: three is too few.
-      panel.save("minimumConnectedDevices", 3)
-      expect(function() { return service.tooFewDevices }, 10000, "the saved minimum reaches the service", function() {
-        check(colour(panel.bar.urgent), "a folder problem stays urgent with too few devices")
-        problems(0)
-        check(service.refresh(), "a refresh starts")
-        expect(function() { return colour(Kit.FoamyPalette.warning) && !service.refreshing }, 10000, "too few devices is a warning", function() {
-          protocol(0, -1)
-        })
+      recheckDuringUnlink()
+    })
+  }
+
+  // A recheck that fails while an unlink runs keeps its message after the
+  // unlink succeeds: the core answers it between the pause and the removal.
+  function recheckDuringUnlink() {
+    check(service.unlinkFolder("docs"), "an unlink starts before a recheck")
+    check(service.refresh(true), "a recheck starts while the unlink runs")
+    expect(function() { return !service.folderMutationBusy && !service.refreshing && since().length >= 3 }, 10000, "the unlink and the recheck end", function() {
+      sent(['folder.pause {"folderId":"docs"}', "folder.recheck-errors {}", 'folder.forget {"folderId":"docs"}'], "the recheck goes between pause and removal")
+      check(service.folderMutationError === "Cannot recheck", "the failed recheck's message stays: " + service.folderMutationError)
+      tooFewDevices()
+    })
+  }
+
+  function tooFewDevices() {
+    // Two connected with this computer: three is too few.
+    panel.save("minimumConnectedDevices", 3)
+    expect(function() { return service.tooFewDevices }, 10000, "the saved minimum reaches the service", function() {
+      check(colour(panel.bar.urgent), "a folder problem stays urgent with too few devices")
+      problems(0)
+      check(service.refresh(), "a refresh starts")
+      expect(function() { return colour(Kit.FoamyPalette.warning) && !service.refreshing }, 10000, "too few devices is a warning", function() {
+        protocol(0, -1)
       })
     })
   }
 
   readonly property var badLines: ['not json', '{"v":99,"type":"snapshot"}', '{"v":2,"type":"snapshot","revision":1,"state":{}}',
     '{"v":2,"type":"result","id":"999999","ok":true}', '{"v":2,"type":"fatal","code":"x","message":"boom"}', '{"v":2,"type":"bogus"}']
-  // Online with no restart under way. recover() after a protocol failure
-  // launches the core twice today (the first one is stopped right after its
-  // hello), so wait until no restart is pending.
+  // Online with no restart under way.
   function settled() { return service.online && service.core.desiredRunning && !service.core.restartTimer.running }
   // Each bad line stops the core once: the pending request fails once, nothing
-  // restarts by itself, and recover() starts it again.
+  // restarts by itself, and recover() starts it again, exactly once.
   function protocol(index, generation) {
     if (index >= badLines.length) {
       coreExit(generation)
@@ -548,6 +680,8 @@ ShellRoot {
     expect(function() { return settled() && service.core.generation > generation }, 10000, "the core runs before " + line, function() {
       var calls = 0, late = 0, error = null
       var running = service.core.generation
+      if (index > 0)
+        check(running === generation + 1, "recover() starts one core before " + line + " (" + (running - generation) + " starts)")
       service.core.action("fake.hold", {}, function(ok, data, failure) { calls++; error = failure })
       service.core.action("fake.emit", { line: line }, null)
       expect(function() {
@@ -568,6 +702,7 @@ ShellRoot {
   function coreExit(generation) {
     expect(function() { return settled() && service.core.generation > generation }, 10000, "recover() starts the core again", function() {
       var running = service.core.generation
+      check(running === generation + 1, "recover() starts one core (" + (running - generation) + " starts)")
       check(service.setFolderPaused("hold-me", true) && service.folderMutationBusy, "a held pause is busy")
       service.core.action("fake.exit", {}, null)
       expect(function() { return !service.folderMutationBusy && service.folderMutationError !== "" }, 10000, "the held pause fails with the core", function() {
@@ -605,6 +740,7 @@ SERVICE_FAILURES = {
     "folder.pause fail-pause": {"code": "offline", "message": "Cannot pause"},
     "folder.forget fail-forget": {"code": "folder_changed", "message": "Cannot remove"},
     "folder.pause hold-me": "hold",
+    "folder.recheck-errors": {"code": "offline", "message": "Cannot recheck"},
     "lifecycle.stop": {"code": "lifecycle_failed", "message": "authorized user-service action failed"},
 }
 
@@ -910,9 +1046,28 @@ class SilentBus:
         self.server.close()
 
 
-def run(host, shell, crash=False, blocked=False, snapshot=None, env=None, missing_helper=False, name=""):
+def hung_probe_survivor(pid_file):
+    """The hung check's child, killed here if it is still alive."""
+    try:
+        pid = int(pid_file.read_text())
+    except (OSError, ValueError):
+        return ["FOAMY FAIL the hung installation check never started its child"]
+    if not Path(f"/proc/{pid}").exists():
+        return []
+    try:
+        os.kill(pid, 9)
+    except OSError:
+        pass
+    return [f"FOAMY FAIL the hung installation check's child outlived its deadline (pid {pid})"]
+
+
+def run(
+    host, shell, crash=False, blocked=False, snapshot=None, env=None, missing_helper=False, name="", probe_hang=False
+):
     """snapshot(work): the fake core's state (default: write_snapshot's); env:
-    added to the shell's environment; missing_helper: no helper for this CPU."""
+    added to the shell's environment; missing_helper: no helper for this CPU;
+    probe_hang: the first installation check hangs, and its child process
+    must be gone when the run ends."""
     work = Path(tempfile.mkdtemp(prefix=f"foamy-syncthing-runtime-{host}-"))
     bus = None
     try:
@@ -923,6 +1078,7 @@ def run(host, shell, crash=False, blocked=False, snapshot=None, env=None, missin
             "CORE_LOG", json.dumps(str(work / "core.log"))
         )
         qml = qml.replace("PICKER_LOG", json.dumps(str(work / "picker.log")))
+        qml = qml.replace("HANG_PID", json.dumps(str(work / "probe-hang.pid")))
         qml = qml.replace("SNAPSHOT", json.dumps(str(work / "snapshot.json")))
         (work / "probe.log").touch()
         (work / "core.log").touch()
@@ -942,8 +1098,10 @@ def run(host, shell, crash=False, blocked=False, snapshot=None, env=None, missin
                 "FAKE_PICKER_BUS": bus.address,
             }
         )
-        if crash or blocked:
+        if crash or blocked or probe_hang:
             runner.env["FAKE_CORE_EXIT"] = "1"
+        if probe_hang:
+            runner.env["FAKE_PROBE_HANG"] = str(work / "probe-hang.pid")
         if blocked:
             runner.env["FAKE_PROBE_BLOCKING"] = str(Path(runner.env["HOME"]) / ".config/systemd/user/syncthing.service")
         runner.env.update(env or {})
@@ -956,6 +1114,8 @@ def run(host, shell, crash=False, blocked=False, snapshot=None, env=None, missin
         left = bus.survivors()
         if left:
             warnings.append(f"FOAMY FAIL the folder chooser's helper outlived the run (pid {left})")
+        if probe_hang:
+            warnings += hung_probe_survivor(work / "probe-hang.pid")
         # The plugin runs no Omarchy command here; the harness stubs refuse and log any.
         warnings += [f"FOAMY FAIL host command ran: {line}" for line in runner.host_commands()]
         if runner.ok and not warnings:
@@ -1051,6 +1211,8 @@ if not run(
 ):
     status = 1
 if not run("4.5", MISSING_SHELL, missing_helper=True, name="missing helper"):
+    status = 1
+if not run("4.5", HUNG_PROBE_SHELL, probe_hang=True, name="hung probe"):
     status = 1
 if not run_live("4.5"):
     status = 1
