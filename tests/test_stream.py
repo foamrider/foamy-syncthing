@@ -754,6 +754,28 @@ class LifecycleTests(CoreTest):
         core.request("shutdown", "1")
         core.finish()
 
+    def test_a_unit_that_wraps_syncthing_is_external(self):
+        # Only syncthing's own argv says which configuration it runs. A
+        # wrapper (a shell, env) holds the command in a string the core does
+        # not parse, so its unit gets no controls, even when that string
+        # names the selected directory. syncthing without options runs the
+        # default configuration and keeps its controls.
+        core, _ = self.folder_core()
+        core.ready()
+        home = str(core.config_dir)
+        self.assert_unit_controls(
+            core,
+            [
+                ({"ExecStart": ["/bin/sh", "-c", "exec syncthing serve --home /srv/other"]}, EXTERNAL),
+                ({"ExecStart": ["/usr/bin/syncthing", "serve"]}, MANAGED),
+                ({"ExecStart": ["/bin/sh", "-c", f"exec syncthing serve --home {home}"]}, EXTERNAL),
+                ({"ExecStart": ["/usr/bin/syncthing", "serve", "--home", home]}, MANAGED),
+                ({"ExecStart": ["/usr/bin/env", f"STHOMEDIR={home}", "/usr/bin/syncthing", "serve"]}, EXTERNAL),
+            ],
+        )
+        core.request("shutdown", "1")
+        core.finish()
+
     def test_a_hung_or_overlong_unit_read_gives_no_controls(self):
         # The bus read has the bounds of `systemctl show`: 3 s and 64 KiB.
         core, _ = self.folder_core()

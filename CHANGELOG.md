@@ -13,7 +13,9 @@
   command line and environment from systemd's bus, with every argument
   whole. Such a home got no start/stop button before, and a unit for a
   longer directory (`/srv/Sync -archive` for a selected `/srv/Sync`) got the
-  button for another Syncthing.
+  button for another Syncthing. A unit that starts Syncthing through a
+  shell, `env` or a script gets no button: its command string doesn't say
+  safely which Syncthing it runs.
 - Keep the status, the service probe and the activity rotation moving while
   files change: the `LocalIndexUpdated` events of one poll now wait up to
   150 ms in all for deletions to land, not 150 ms per file (up to 2.4 s per

@@ -50,7 +50,9 @@
 //! `systemctl show`'s text, which joins argv with spaces, on whitespace): a
 //! `--home`, `--config`, `STHOMEDIR` or `STCONFDIR` directory with a space
 //! matches its unit, and a unit for `/srv/Sync -archive` doesn't match a
-//! selected `/srv/Sync`.
+//! selected `/srv/Sync`. Only a unit whose `ExecStart` runs syncthing itself
+//! can match: one that runs it through a shell, env or a script gets no
+//! controls, since the core does not parse that command string.
 //!
 //! - Flags (Go `flag` syntax: `-x` or `--x`, `=value` or the next argument,
 //!   booleans only as `=value`; the last repetition wins): `--config`,

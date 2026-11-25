@@ -10,7 +10,9 @@
 //! The unit's argv and environment come from the bus, not from `systemctl
 //! show` as in Syncshell: `systemctl show` joins argv with spaces and drops
 //! the unit file's quotes, so its text can't say where a directory with a
-//! space ends.
+//! space ends. Only a unit that runs syncthing itself can match: a wrapper
+//! (a shell, env, a script) keeps the configuration in a string or a file
+//! that the core does not parse.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -18,7 +20,7 @@ use std::time::Duration;
 use foamy_helper::child::Bounded;
 use serde::Deserialize;
 
-use super::gocompat::{clean, join};
+use super::gocompat::{base, clean, join};
 use super::types::{Lifecycle, bounded};
 
 const MAX_SHOW_OUTPUT: usize = 64 << 10;
@@ -102,9 +104,16 @@ fn show(unit: &str) -> Option<BTreeMap<String, String>> {
     Some(properties)
 }
 
-/// The unit's argument lists, each argument whole: the argv of each
-/// `ExecStart` command, then the `Environment` entries.
-fn invocation(unit: &str) -> Option<Vec<Vec<String>>> {
+/// The unit's `ExecStart` commands, each the program systemd runs and its
+/// argv, and its `Environment` entries; every argument whole.
+#[derive(Debug, Default, PartialEq)]
+struct Invocation {
+    commands: Vec<(String, Vec<String>)>,
+    environment: Vec<String>,
+}
+
+/// The unit's invocation as systemd's bus holds it.
+fn invocation(unit: &str) -> Option<Invocation> {
     let path = unit_object_path(unit);
     let output = Bounded::new("busctl")
         .args([
@@ -157,7 +166,7 @@ type ExecCommand = (String, Vec<String>, bool, u64, u64, u64, u64, u32, i32, i32
 
 /// busctl's reply: one line per property, `ExecStart` and `Environment` in
 /// that order. Any other shape is refused.
-fn parse_invocation(stdout: &[u8]) -> Option<Vec<Vec<String>>> {
+fn parse_invocation(stdout: &[u8]) -> Option<Invocation> {
     let text = std::str::from_utf8(stdout).ok()?;
     let mut lines = text.lines();
     let commands: Property<Vec<ExecCommand>> = serde_json::from_str(lines.next()?).ok()?;
@@ -168,9 +177,14 @@ fn parse_invocation(stdout: &[u8]) -> Option<Vec<Vec<String>>> {
     {
         return None;
     }
-    let mut lists: Vec<Vec<String>> = commands.data.into_iter().map(|command| command.1).collect();
-    lists.push(environment.data);
-    Some(lists)
+    Some(Invocation {
+        commands: commands
+            .data
+            .into_iter()
+            .map(|command| (command.0, command.1))
+            .collect(),
+        environment: environment.data,
+    })
 }
 
 /// Observes the unit after the API state is known.
@@ -230,7 +244,7 @@ pub fn probe(binding: &Binding, target: &Target, api_online: bool) -> Lifecycle 
 fn target_matches(
     binding: &Binding,
     target: &Target,
-    invocation: impl FnOnce() -> Option<Vec<Vec<String>>>,
+    invocation: impl FnOnce() -> Option<Invocation>,
 ) -> Option<bool> {
     if !target.local || target.config_path.is_empty() {
         return Some(false);
@@ -239,7 +253,22 @@ fn target_matches(
     if !binding.config_path.is_empty() && clean(&binding.config_path) != selected {
         return Some(false);
     }
-    if let Some(configured) = invocation_config_path(&invocation()?) {
+    let invocation = invocation()?;
+    // Only syncthing's own argv says which configuration it runs. A wrapper
+    // (`sh -c '…'`, env, a script) holds it where it isn't parsed here, so
+    // such a unit matches nothing, also when its string names this one.
+    if invocation.commands.is_empty()
+        || !invocation
+            .commands
+            .iter()
+            .all(|(program, _)| base(program) == "syncthing")
+    {
+        return Some(false);
+    }
+    let lists = invocation.commands.iter().map(|(_, argv)| argv.as_slice());
+    if let Some(configured) =
+        invocation_config_path(lists.chain([invocation.environment.as_slice()]))
+    {
         return Some(clean(&configured) == selected);
     }
     if !binding.config_path.is_empty() {
@@ -254,7 +283,7 @@ fn target_matches(
 /// one whole argument, spaces included, and each list (a command's argv, the
 /// environment) is read on its own: an option that ends a list takes no
 /// value from the next.
-fn invocation_config_path(lists: &[Vec<String>]) -> Option<String> {
+fn invocation_config_path<'a>(lists: impl IntoIterator<Item = &'a [String]>) -> Option<String> {
     for fields in lists {
         for (index, field) in fields.iter().enumerate() {
             if matches!(field.as_str(), "--config" | "--home" | "-C" | "-H")
@@ -309,9 +338,18 @@ mod tests {
             .collect()
     }
 
+    /// A unit whose one command runs `fields[0]` with argv `fields`.
+    fn command(fields: &[&str]) -> Invocation {
+        Invocation {
+            commands: vec![(fields[0].to_string(), lists(&[fields]).remove(0))],
+            environment: Vec::new(),
+        }
+    }
+
     #[test]
     fn invocations_name_their_config_directory() {
-        let path = |fields: &[&[&str]]| invocation_config_path(&lists(fields));
+        let path =
+            |fields: &[&[&str]]| invocation_config_path(lists(fields).iter().map(Vec::as_slice));
         let d = Some("/d/config.xml".to_string());
         assert_eq!(path(&[&["/usr/bin/syncthing", "serve", "--home", "/d"]]), d);
         assert_eq!(path(&[&["syncthing", "--config=/d/"]]), d);
@@ -355,13 +393,16 @@ mod tests {
         );
         assert_eq!(
             parse_invocation(reply.as_bytes()),
-            Some(lists(&[
-                &["/usr/bin/syncthing", "serve", "--home", "/srv/My Sync"],
-                &["STHOMEDIR=/srv/My Sync"]
-            ]))
+            Some(Invocation {
+                environment: lists(&[&["STHOMEDIR=/srv/My Sync"]]).remove(0),
+                ..command(&["/usr/bin/syncthing", "serve", "--home", "/srv/My Sync"])
+            })
         );
         let empty = "{\"type\":\"a(sasbttttuii)\",\"data\":[]}\n{\"type\":\"as\",\"data\":[]}\n";
-        assert_eq!(parse_invocation(empty.as_bytes()), Some(lists(&[&[]])));
+        assert_eq!(
+            parse_invocation(empty.as_bytes()),
+            Some(Invocation::default())
+        );
         for bad in [
             "",
             "{\"type\":\"a(sasbttttuii)\",\"data\":[]}\n",
@@ -399,7 +440,7 @@ mod tests {
 
     #[test]
     fn matching_needs_a_local_target_and_the_same_config() {
-        let argv = |fields: &'static [&'static str]| move || Some(lists(&[fields, &[]]));
+        let argv = |fields: &'static [&'static str]| move || Some(command(fields));
         let binding = Binding {
             authorized: true,
             unit: "syncthing.service".into(),
@@ -452,6 +493,34 @@ mod tests {
         assert_eq!(
             matches(&bound, &target, &["syncthing", "--home=/s"]),
             Some(true)
+        );
+        // A wrapper's command string is not parsed: its unit matches nothing,
+        // whichever directory the string names. syncthing itself without
+        // options runs the default configuration.
+        for wrapped in [
+            &["/bin/sh", "-c", "exec syncthing serve --home /t"][..],
+            &["/bin/sh", "-c", "exec syncthing serve --home /s"],
+            &[
+                "/usr/bin/env",
+                "STHOMEDIR=/s",
+                "/usr/bin/syncthing",
+                "serve",
+            ],
+        ] {
+            assert_eq!(
+                matches(&binding, &target, wrapped),
+                Some(false),
+                "{wrapped:?}"
+            );
+        }
+        assert_eq!(
+            matches(&binding, &target, &["/usr/bin/syncthing", "serve"]),
+            Some(true)
+        );
+        // A unit without a command runs no Syncthing.
+        assert_eq!(
+            target_matches(&binding, &target, || Some(Invocation::default())),
+            Some(false)
         );
     }
 }
