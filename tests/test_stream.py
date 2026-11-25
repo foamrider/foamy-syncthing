@@ -776,6 +776,36 @@ class LifecycleTests(CoreTest):
         core.request("shutdown", "1")
         core.finish()
 
+    def test_a_unit_with_a_variable_in_its_command_is_external(self):
+        # The bus keeps a command's arguments as written: systemd replaces
+        # $NAME and ${NAME} only when it starts the unit, and turns $$ into
+        # $ unless the command has the ":" prefix, which the bus does not
+        # show. An argument with a $ has no known value, so the unit gets no
+        # controls. The selected home's name holds a literal "$$".
+        core, home = self.home_core("Sync$$1")
+        core.start()
+        core.ready()
+        syncthing = ["/usr/bin/syncthing", "serve"]
+        self.assert_unit_controls(
+            core,
+            [
+                (
+                    {"ExecStart": ["/usr/bin/syncthing", "$ARGS"], "Environment": ["ARGS=serve --home /srv/other"]},
+                    EXTERNAL,
+                ),
+                ({"ExecStart": syncthing}, MANAGED),
+                (
+                    {"ExecStart": ["/usr/bin/syncthing", "${ARGS}"], "Environment": [f"ARGS=serve --home {home}"]},
+                    EXTERNAL,
+                ),
+                ({"ExecStart": syncthing}, MANAGED),
+                # Started without the ":" prefix, this runs <HOME>/Sync$1.
+                ({"ExecStart": syncthing + ["--home", str(home)]}, EXTERNAL),
+            ],
+        )
+        core.request("shutdown", "1")
+        core.finish()
+
     def test_a_hung_or_overlong_unit_read_gives_no_controls(self):
         # The bus read has the bounds of `systemctl show`: 3 s and 64 KiB.
         core, _ = self.folder_core()

@@ -52,7 +52,9 @@
 //! matches its unit, and a unit for `/srv/Sync -archive` doesn't match a
 //! selected `/srv/Sync`. Only a unit whose `ExecStart` runs syncthing itself
 //! can match: one that runs it through a shell, env or a script gets no
-//! controls, since the core does not parse that command string.
+//! controls, since the core does not parse that command string, and so
+//! does one with a `$` in an argument, since systemd expands `$NAME`,
+//! `${NAME}` and `$$` only when it starts the unit.
 //!
 //! - Flags (Go `flag` syntax: `-x` or `--x`, `=value` or the next argument,
 //!   booleans only as `=value`; the last repetition wins): `--config`,

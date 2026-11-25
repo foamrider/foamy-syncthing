@@ -10,9 +10,10 @@
 //! The unit's argv and environment come from the bus, not from `systemctl
 //! show` as in Syncshell: `systemctl show` joins argv with spaces and drops
 //! the unit file's quotes, so its text can't say where a directory with a
-//! space ends. Only a unit that runs syncthing itself can match: a wrapper
-//! (a shell, env, a script) keeps the configuration in a string or a file
-//! that the core does not parse.
+//! space ends. Only a unit that runs syncthing itself, with no `$` in its
+//! arguments, can match: a wrapper (a shell, env, a script) keeps the
+//! configuration in a string or a file that the core does not parse, and
+//! systemd expands `$NAME`, `${NAME}` and `$$` only when it starts the unit.
 
 use std::collections::BTreeMap;
 use std::time::Duration;
@@ -254,15 +255,17 @@ fn target_matches(
         return Some(false);
     }
     let invocation = invocation()?;
-    // Only syncthing's own argv says which configuration it runs. A wrapper
-    // (`sh -c '…'`, env, a script) holds it where it isn't parsed here, so
-    // such a unit matches nothing, also when its string names this one.
-    if invocation.commands.is_empty()
-        || !invocation
-            .commands
-            .iter()
-            .all(|(program, _)| base(program) == "syncthing")
-    {
+    // Only syncthing's own argv, as systemd passes it on, says which
+    // configuration it runs. A wrapper (`sh -c '…'`, env, a script) holds it
+    // where it isn't parsed here. systemd replaces `$NAME` and `${NAME}` only
+    // when it starts the command, and turns `$$` into `$` unless the command
+    // has the `:` prefix, which the bus doesn't show: an argument with a `$`
+    // has no known value. Such a unit matches nothing, also when its strings
+    // name this configuration.
+    let known = |(program, argv): &(String, Vec<String>)| {
+        base(program) == "syncthing" && !argv.iter().any(|argument| argument.contains('$'))
+    };
+    if invocation.commands.is_empty() || !invocation.commands.iter().all(known) {
         return Some(false);
     }
     let lists = invocation.commands.iter().map(|(_, argv)| argv.as_slice());
@@ -522,5 +525,23 @@ mod tests {
             target_matches(&binding, &target, || Some(Invocation::default())),
             Some(false)
         );
+        // An argument with a `$` is known only when systemd starts the unit:
+        // `$ARGS` and `${ARGS}` from its environment, and `$$` as `$` or, with
+        // the `:` prefix, as `$$`. Its unit matches nothing.
+        let dollars = Target {
+            config_path: "/s$$/config.xml".into(),
+            ..target.clone()
+        };
+        for variable in [
+            &["/usr/bin/syncthing", "$ARGS"][..],
+            &["/usr/bin/syncthing", "${ARGS}"],
+            &["/usr/bin/syncthing", "serve", "--home", "/s$$"],
+        ] {
+            assert_eq!(
+                matches(&binding, &dollars, variable),
+                Some(false),
+                "{variable:?}"
+            );
+        }
     }
 }
