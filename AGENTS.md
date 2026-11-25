@@ -36,10 +36,12 @@ rules a change must keep.
   endpoint (never on `/rest/noauth/health`, never across a cross-origin
   redirect). With TLS on, the GUI certificate stays pinned; `--insecure-tls`
   stays limited to an explicit HTTPS endpoint.
-- **Lifecycle**: only `systemctl --user show|start|stop <unit>` for the unit
-  the plugin authorizes on the command line (`--lifecycle-authorized`).
-  Test it with a fake `systemctl` on `PATH` (tests/core_harness.py); never
-  against the real user service.
+- **Lifecycle**: only `systemctl --user show|start|stop <unit>`, and
+  `busctl --user get-property` of that unit's `ExecStart` and `Environment`
+  (every argument whole; `systemctl show` joins argv with spaces), for the
+  unit the plugin authorizes on the command line (`--lifecycle-authorized`).
+  Test it with a fake `systemctl` and `busctl` on `PATH`
+  (tests/core_harness.py); never against the real user service.
 - Keep every bound (timeouts, output caps, list limits, string lengths) on
   purpose; no async runtime; same system tools with the same argv.
 - **Binaries come only from the plugin's build tool** (`kit/native/`), never by hand:
@@ -74,7 +76,7 @@ python3 "$FOAMY_KIT"/preview/i18n_runtime.py .
 ```
 
 `tests/test_stream.py` is the core's black-box contract (fake Syncthing,
-fake `systemctl`); `tests/test_conflicts.py` the scan's;
+fake `systemctl` and `busctl`); `tests/test_conflicts.py` the scan's;
 `tests/test_pick_folder.py` the folder chooser's (a private `dbus-daemon`,
 never the session bus); `tests/test_install_script.py` the install
 script's (fake `omarchy`, `systemctl` and `uwsm-app`).

@@ -61,9 +61,10 @@ plugin's helper isn't available for this CPU." and nothing retries.
     or accepts an incoming share.
   - The device warning and the refresh intervals.
 
-Keyboard: arrows or `hjkl` move one cursor through the tabs, rows and header
-buttons (hovering moves the same cursor). Enter activates: it expands a row
-or selects a tab. `o` opens the folder under the cursor, `r` refreshes, `w`
+Keyboard: arrows or `hjkl` move one cursor through the tab row, rows and
+header buttons (hovering moves the same cursor); on the tab row, ←/→ move
+between Folders and Devices. Enter activates: it expands a row or opens the
+tab under the cursor. `o` opens the folder under the cursor, `r` refreshes, `w`
 opens the Web UI, `p` starts or stops syncing and `s` opens Settings. Esc
 closes (or leaves Settings), and Tab or Shift+Tab moves to the next bar panel.
 In Settings and Add folder, Tab walks the controls.
@@ -203,8 +204,8 @@ The offscreen tests run on Omarchy 4.5, the installed `/usr/share/omarchy/shell`
 
 The tests need Python 3 (development only). `tests/test_stream.py` runs the
 real core against a fake Syncthing (`tests/fake_syncthing.py`) and a fake
-`systemctl` on a `PATH` that holds nothing else; `FOAMY_HELPER` (a JSON argv
-prefix) selects another build, e.g.
+`systemctl` and `busctl` on a `PATH` that holds nothing else; `FOAMY_HELPER`
+(a JSON argv prefix) selects another build, e.g.
 `FOAMY_HELPER='["bin/aarch64/foamy-syncthing-helper"]'` through qemu
 binfmt. The runtime test uses `tests/fake-core.py` in place of the core.
 None of them touches your Syncthing, its service or your shell

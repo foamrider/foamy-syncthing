@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+- Show the Folders and Devices tabs as the kit's tab row under the summary:
+  tabs as wide as their label, the open one with its label in bold and its
+  icon, count and underline in the accent, on a hairline across the popup.
+  The row is one keyboard stop: ←/→ move between the tabs, Enter opens one
+  and Down goes on to the rows. Before, each tab was a stop of its own and
+  ←/→ switched the tab at once.
+- Offer start and stop for a Syncthing whose home directory has a space, and
+  only through its own `syncthing.service`: the core now reads the unit's
+  command line and environment from systemd's bus, with every argument
+  whole. Such a home got no start/stop button before, and a unit for a
+  longer directory (`/srv/Sync -archive` for a selected `/srv/Sync`) got the
+  button for another Syncthing. A unit that starts Syncthing through a
+  shell, `env` or a script, or with a `$` variable in its command line,
+  gets no button: its command line doesn't say safely which Syncthing it
+  runs.
 - Keep the status, the service probe and the activity rotation moving while
   files change: the `LocalIndexUpdated` events of one poll now wait up to
   150 ms in all for deletions to land, not 150 ms per file (up to 2.4 s per

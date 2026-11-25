@@ -1,6 +1,6 @@
 """The native core (`stream`, protocol v2) at its process boundary: discovery,
 the snapshot, requests, folder and service actions, TLS pinning, events and
-the protocol bounds, against a fake Syncthing and a fake systemctl
+the protocol bounds, against a fake Syncthing and a fake systemctl and busctl
 (tests/core_harness.py). Nothing here reaches a real Syncthing or the user
 service."""
 
@@ -27,14 +27,30 @@ SHOW = [
     "--property=ActiveState",
     "--property=UnitFileState",
     "--property=FragmentPath",
-    "--property=ExecStart",
-    "--property=Environment",
+]
+# The unit's argv and environment, every argument whole.
+BUSCTL = [
+    "busctl",
+    "--user",
+    "--json=short",
+    "get-property",
+    "org.freedesktop.systemd1",
+    "/org/freedesktop/systemd1/unit/syncthing_2eservice",
+    "org.freedesktop.systemd1.Service",
+    "ExecStart",
+    "Environment",
 ]
 
 
 def controls(lifecycle):
     """What the panel's service buttons depend on."""
     return (lifecycle["classification"], lifecycle["canControl"], lifecycle["canStart"])
+
+
+# `controls` of a running unit for the selected Syncthing, and of one that is
+# not for it.
+MANAGED = ("managed", True, False)
+EXTERNAL = ("external", False, False)
 
 
 class CoreTest(unittest.TestCase):
@@ -618,6 +634,7 @@ class LifecycleTests(CoreTest):
         actions = [c for c in calls if c != SHOW]
         self.assertEqual(actions, [["systemctl", "--user", "stop", UNIT], ["systemctl", "--user", "start", UNIT]])
         self.assertTrue(all(c == SHOW for c in calls if c not in actions))
+        self.assertEqual({tuple(c) for c in core.calls() if c[0] == "busctl"}, {tuple(BUSCTL)})
         core.request("shutdown", "4")
         core.finish()
 
@@ -628,19 +645,25 @@ class LifecycleTests(CoreTest):
         self.assertEqual(
             result["error"], {"code": "lifecycle_failed", "message": "authorized user-service action failed"}
         )
-        core.set_systemctl({"fail": True})
+        # A unit whose argv can't be read gets no controls.
+        core.set_systemctl({"busctl": "fail"})
         core.request("refresh", "2")
         lifecycle = core.latest_state()["lifecycle"]
+        self.assertEqual(lifecycle.get("error"), "could not inspect authorized user service")
+        self.assertEqual((lifecycle["targetMatch"], controls(lifecycle)), (False, EXTERNAL))
+        self.assertEqual(core.action("lifecycle.stop", "3")["error"]["code"], "lifecycle_forbidden")
+        core.set_systemctl({"fail": True})
+        core.request("refresh", "4")
+        lifecycle = core.latest_state()["lifecycle"]
         self.assertEqual(lifecycle["error"], "could not inspect authorized user service")
+        self.assertFalse(lifecycle["available"])
         self.assertFalse(lifecycle["canControl"])
-        core.request("shutdown", "3")
+        core.request("shutdown", "5")
         core.finish()
         self.assertNotIn(b"Canary", core.raw + core.stderr)
 
     def test_a_unit_for_another_config_is_external(self):
-        core, _ = self.folder_core(
-            systemctl={"ExecStart": "{ path=/usr/bin/syncthing ; argv[]=/usr/bin/syncthing serve --home=/srv/other ; }"}
-        )
+        core, _ = self.folder_core(systemctl={"ExecStart": ["/usr/bin/syncthing", "serve", "--home=/srv/other"]})
         lifecycle = core.ready()["state"]["lifecycle"]
         self.assertEqual(
             (lifecycle["targetMatch"], lifecycle["classification"], lifecycle["canControl"]), (False, "external", False)
@@ -651,10 +674,10 @@ class LifecycleTests(CoreTest):
         )
         # The unit's environment or a -H/-C/--config option names the directory.
         for overrides, matches in [
-            ({"Environment": "STHOMEDIR=" + str(core.config_dir)}, True),
-            ({"ExecStart": "/usr/bin/syncthing serve -H /srv/x"}, False),
-            ({"ExecStart": "/usr/bin/syncthing serve -C" + str(core.config_dir)}, True),
-            ({"ExecStart": '"/usr/bin/syncthing" "--config" "/srv/x;"'}, False),
+            ({"Environment": ["STHOMEDIR=" + str(core.config_dir)]}, True),
+            ({"ExecStart": ["/usr/bin/syncthing", "serve", "-H", "/srv/x"]}, False),
+            ({"ExecStart": ["/usr/bin/syncthing", "serve", "-C" + str(core.config_dir)]}, True),
+            ({"ExecStart": ["/usr/bin/syncthing", "--config", "/srv/x"]}, False),
             ({"LoadState": "not-found"}, False),
             ({"FragmentPath": ""}, False),
         ]:
@@ -665,41 +688,142 @@ class LifecycleTests(CoreTest):
         core.request("shutdown", "4")
         core.finish()
 
-    def test_a_unit_for_a_longer_directory_with_spaces_is_external(self):
-        # `systemctl show` prints ExecStart's argv joined by spaces, without
-        # the unit file's quotes, so the text does not say where a directory
-        # with a space ends. A unit whose directory only begins with the
-        # selected one runs another Syncthing: no controls for it.
+    def home_core(self, name):
+        """A core, not started yet, whose Syncthing home is `name` in its
+        temporary HOME (found through STHOMEDIR)."""
         core = self.core(start=False)
-        home = core.home / "My Sync"
+        home = core.home / name
         home.mkdir()
         core.config_path.rename(home / "config.xml")
         core.env["STHOMEDIR"] = str(home)
-        core.set_systemctl({"Environment": f'"STHOMEDIR={home} -archive" STNORESTART=1'})
-        core.start()
-        self.assertEqual(controls(core.ready()["state"]["lifecycle"]), ("external", False, False))
-        rows = [
-            overrides
-            for suffix in [" -archive", " Other"]
-            for overrides in [
-                {
-                    "ExecStart": "{ path=/usr/bin/syncthing ; argv[]=/usr/bin/syncthing serve --home "
-                    + f"{home}{suffix} --no-browser ; ignore_errors=no ; start_time=[n/a] ; "
-                    "stop_time=[n/a] ; pid=0 ; code=(null) ; status=0/0 }"
-                },
-                {"Environment": f'"STHOMEDIR={home}{suffix}" STNORESTART=1'},
-            ]
-        ]
-        for request_id, overrides in enumerate(rows):
+        return core, home
+
+    def assert_unit_controls(self, core, rows):
+        """Each row's unit state gives its controls after a refresh; a unit
+        that is not for the selected Syncthing can't be stopped. Neighbouring
+        rows differ, so each refresh publishes a new snapshot."""
+        for request_id, (overrides, expected) in enumerate(rows):
             core.set_systemctl(overrides)
             core.request("refresh", f"refresh {request_id}")
             lifecycle = core.latest_state()["lifecycle"]
-            self.assertFalse(lifecycle["targetMatch"], overrides)
-            self.assertEqual(controls(lifecycle), ("external", False, False), overrides)
-            self.assertEqual(
-                core.action("lifecycle.stop", f"stop {request_id}")["error"]["code"], "lifecycle_forbidden", overrides
-            )
+            self.assertEqual(controls(lifecycle), expected, overrides)
+            if expected == EXTERNAL:
+                stop = core.action("lifecycle.stop", f"stop {request_id}")
+                self.assertEqual(stop["error"]["code"], "lifecycle_forbidden", overrides)
         self.assertFalse([c for c in core.calls() if c[0] == "systemctl" and c != SHOW])
+
+    def test_a_unit_for_a_home_with_a_space_is_controlled(self):
+        # The unit's argv and environment come from the bus with every
+        # argument whole, so a home with a space matches its unit, and only
+        # that home: a unit for a directory that begins with it runs another
+        # Syncthing.
+        core, home = self.home_core("My Sync")
+        core.set_systemctl({"ExecStart": ["/usr/bin/syncthing", "serve", "--home", f"{home} -archive"]})
+        core.start()
+        self.assertEqual(controls(core.ready()["state"]["lifecycle"]), EXTERNAL)
+        syncthing = ["/usr/bin/syncthing", "serve"]
+        self.assert_unit_controls(
+            core,
+            [
+                ({"ExecStart": syncthing + ["--home", str(home), "--no-browser"]}, MANAGED),
+                ({"ExecStart": syncthing + ["--home", f"{home} Other"]}, EXTERNAL),
+                ({"ExecStart": syncthing + [f"--config={home}"]}, MANAGED),
+                ({"Environment": [f"STHOMEDIR={home} -archive", "STNORESTART=1"]}, EXTERNAL),
+                ({"Environment": [f"STHOMEDIR={home}", "STNORESTART=1"]}, MANAGED),
+            ],
+        )
+        core.request("shutdown", "1")
+        core.finish()
+
+    def test_a_unit_for_a_longer_directory_is_external(self):
+        # `systemctl show` prints a unit for "<home> -archive" like one for
+        # <home> with one more option; the bus keeps them apart.
+        core, home = self.home_core("Sync")
+        core.start()
+        core.ready()
+        syncthing = ["/usr/bin/syncthing", "serve"]
+        self.assert_unit_controls(
+            core,
+            [
+                ({"ExecStart": syncthing + ["--home", f"{home} -archive", "--no-browser"]}, EXTERNAL),
+                ({"ExecStart": syncthing + ["--home", str(home), "--no-browser"]}, MANAGED),
+                ({"Environment": [f"STHOMEDIR={home} -archive", "STNORESTART=1"]}, EXTERNAL),
+                ({"ExecStart": syncthing + ["-H", str(home)]}, MANAGED),
+            ],
+        )
+        core.request("shutdown", "1")
+        core.finish()
+
+    def test_a_unit_that_wraps_syncthing_is_external(self):
+        # Only syncthing's own argv says which configuration it runs. A
+        # wrapper (a shell, env) holds the command in a string the core does
+        # not parse, so its unit gets no controls, even when that string
+        # names the selected directory. syncthing without options runs the
+        # default configuration and keeps its controls.
+        core, _ = self.folder_core()
+        core.ready()
+        home = str(core.config_dir)
+        self.assert_unit_controls(
+            core,
+            [
+                ({"ExecStart": ["/bin/sh", "-c", "exec syncthing serve --home /srv/other"]}, EXTERNAL),
+                ({"ExecStart": ["/usr/bin/syncthing", "serve"]}, MANAGED),
+                ({"ExecStart": ["/bin/sh", "-c", f"exec syncthing serve --home {home}"]}, EXTERNAL),
+                ({"ExecStart": ["/usr/bin/syncthing", "serve", "--home", home]}, MANAGED),
+                ({"ExecStart": ["/usr/bin/env", f"STHOMEDIR={home}", "/usr/bin/syncthing", "serve"]}, EXTERNAL),
+            ],
+        )
+        core.request("shutdown", "1")
+        core.finish()
+
+    def test_a_unit_with_a_variable_in_its_command_is_external(self):
+        # The bus keeps a command's arguments as written: systemd replaces
+        # $NAME and ${NAME} only when it starts the unit, and turns $$ into
+        # $ unless the command has the ":" prefix, which the bus does not
+        # show. An argument with a $ has no known value, so the unit gets no
+        # controls. The selected home's name holds a literal "$$".
+        core, home = self.home_core("Sync$$1")
+        core.start()
+        core.ready()
+        syncthing = ["/usr/bin/syncthing", "serve"]
+        self.assert_unit_controls(
+            core,
+            [
+                (
+                    {"ExecStart": ["/usr/bin/syncthing", "$ARGS"], "Environment": ["ARGS=serve --home /srv/other"]},
+                    EXTERNAL,
+                ),
+                ({"ExecStart": syncthing}, MANAGED),
+                (
+                    {"ExecStart": ["/usr/bin/syncthing", "${ARGS}"], "Environment": [f"ARGS=serve --home {home}"]},
+                    EXTERNAL,
+                ),
+                ({"ExecStart": syncthing}, MANAGED),
+                # Started without the ":" prefix, this runs <HOME>/Sync$1.
+                ({"ExecStart": syncthing + ["--home", str(home)]}, EXTERNAL),
+            ],
+        )
+        core.request("shutdown", "1")
+        core.finish()
+
+    def test_a_hung_or_overlong_unit_read_gives_no_controls(self):
+        # The bus read has the bounds of `systemctl show`: 3 s and 64 KiB.
+        core, _ = self.folder_core()
+        self.assertEqual(controls(core.ready()["state"]["lifecycle"]), MANAGED)
+        failed = (EXTERNAL, "could not inspect authorized user service")
+        core.set_systemctl({"busctl": "hang"})
+        # Well inside the 10 s that a child without a deadline of its own gets.
+        core.request("refresh", "hung", timeout=8)
+        lifecycle = core.latest_state()["lifecycle"]
+        self.assertEqual((controls(lifecycle), lifecycle.get("error")), failed)
+        core.set_systemctl({})
+        core.request("refresh", "answered")
+        self.assertEqual(controls(core.latest_state()["lifecycle"]), MANAGED)
+        # Refused even though it names the selected directory.
+        core.set_systemctl({"ExecStart": ["/usr/bin/syncthing", "--home", str(core.config_dir), "x" * (64 << 10)]})
+        core.request("refresh", "overlong")
+        lifecycle = core.latest_state()["lifecycle"]
+        self.assertEqual((controls(lifecycle), lifecycle.get("error")), failed)
         core.request("shutdown", "1")
         core.finish()
 
@@ -766,7 +890,7 @@ class LifecycleTests(CoreTest):
             },
         )
         self.assertEqual(core.action("lifecycle.start", "1")["error"]["code"], "lifecycle_forbidden")
-        self.assertFalse([c for c in core.calls() if c[0] == "systemctl"])
+        self.assertFalse([c for c in core.calls() if c[0] in ("systemctl", "busctl")])
         core.request("shutdown", "2")
         core.finish()
 

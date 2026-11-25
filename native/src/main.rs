@@ -45,7 +45,16 @@
 //! answer ends the lookups of its event batch. A chunked reply needs size
 //! lines of hex digits that end in CRLF, CRLF after each chunk and at most
 //! 16 KiB of size-line overhead beyond its data, as in Go's net/http, and at
-//! most 8 KiB of trailers.
+//! most 8 KiB of trailers. The unit's `ExecStart` argv and `Environment`
+//! come from systemd's bus with every argument whole (Go splits
+//! `systemctl show`'s text, which joins argv with spaces, on whitespace): a
+//! `--home`, `--config`, `STHOMEDIR` or `STCONFDIR` directory with a space
+//! matches its unit, and a unit for `/srv/Sync -archive` doesn't match a
+//! selected `/srv/Sync`. Only a unit whose `ExecStart` runs syncthing itself
+//! can match: one that runs it through a shell, env or a script gets no
+//! controls, since the core does not parse that command string, and so
+//! does one with a `$` in an argument, since systemd expands `$NAME`,
+//! `${NAME}` and `$$` only when it starts the unit.
 //!
 //! - Flags (Go `flag` syntax: `-x` or `--x`, `=value` or the next argument,
 //!   booleans only as `=value`; the last repetition wins): `--config`,
@@ -90,12 +99,14 @@
 //!   `folder.suggest-id`, `folder.recheck-errors`, `lifecycle.start`,
 //!   `lifecycle.stop`; every other name is `unsupported_action`.
 //! - Children: `systemctl --user show <unit> --no-pager --property=LoadState
-//!   --property=ActiveState --property=UnitFileState --property=FragmentPath
-//!   --property=ExecStart --property=Environment` (3 s) and
-//!   `systemctl --user start|stop <unit>` (10 s), only for the authorized
-//!   unit; `syncthing paths` during discovery. Each gets stdin `/dev/null`,
-//!   its own process group (killed as a group on timeout), death with this
-//!   process, and its output captured, capped at 64 KiB and never shown.
+//!   --property=ActiveState --property=UnitFileState --property=FragmentPath`
+//!   and `busctl --user --json=short get-property org.freedesktop.systemd1
+//!   <unit object path> org.freedesktop.systemd1.Service ExecStart
+//!   Environment` (3 s each) and `systemctl --user start|stop <unit>` (10 s),
+//!   only for the authorized unit; `syncthing paths` during discovery. Each
+//!   gets stdin `/dev/null`, its own process group (killed as a group on
+//!   timeout), death with this process, and its output captured, capped at
+//!   64 KiB and never shown.
 //! - Exit: 0 after `end` (`shutdown` or end of stdin); 1 after `fatal` or
 //!   when stdout fails. `RLIMIT_CORE` is 0. SIGTERM ends it at once.
 //!
