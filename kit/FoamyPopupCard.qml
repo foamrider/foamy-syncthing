@@ -1,4 +1,4 @@
-// foamy-kit 0.14.1 ad89f2664aa84b83774c81074241e0caca8cd438959df5904c9b68a25fc4acd8 — do not edit; change foamy-kit and run sync
+// foamy-kit 0.15.1 faaa5d90ab037506d776a0551201016f369cdf36feaa4f2c3590df157d71b465 — do not edit; change foamy-kit and run sync
 import QtQuick
 import qs.Commons as Commons
 import qs.Ui
@@ -40,8 +40,9 @@ PopupCard {
   borderSpec: FoamyStyle.popupBorderSpec
   padding: FoamyStyle.menuPadding
   contentWidth: fittedContentWidth(FoamyStyle.menuWidth)
-  // An open FoamyMenu may ask for room below its button (foamyMenuReserve):
-  // the card grows while it is open instead of the menu scrolling.
+  // An open FoamyMenu may ask for room below its button (foamyMenuReserve)
+  // when it fits neither below nor above it: the card grows while it is
+  // open (FoamyMenu.maxGrowHeight of menu at most; past it the menu scrolls).
   contentHeight: fittedContentHeight(Math.max(bodyImplicitHeight, bodyLoader.foamyMenuReserve), maxHeight)
 
   onOpenChanged: if (open && body)
