@@ -156,6 +156,7 @@
   "Couldn't save the setting.": "Kunne ikke lagre innstillingen.",
   "Settings can't be saved: this widget has no bar entry.": "Innstillingene kan ikke lagres: modulen har ingen oppføring i linjen.",
   "That value isn't allowed.": "Den verdien er ikke tillatt.",
+  "The saved list in shell.json isn't valid, so it wasn't replaced.": "Den lagrede listen i shell.json er ugyldig, så den ble ikke erstattet.",
   "Back": "Tilbake",
   "Saving…": "Lagrer…",
   "Retry": "Prøv igjen",

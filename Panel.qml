@@ -223,6 +223,7 @@ Panel {
       SyncthingView {
         service: root.syncthing
         settings: prefs.effectiveSettings
+        queue: prefs
         opened: root.opened
         editingSettings: root.editingSettings
         saving: prefs.saving

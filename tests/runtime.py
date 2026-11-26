@@ -42,10 +42,13 @@ core, and a core that dies ends a held folder action.
 Without a helper for this CPU the core and the folder chooser say so and
 recover() launches nothing. A path the folder chooser answers lands in the
 Add folder field with the caret after it: typing extends it, and a path
-wider than the field shows its end. A hung installation check is stopped
-at its deadline with its child process, reported as a failure until a check
-succeeds, and the next check runs; one still hung when the service goes is
-stopped with it.
+wider than the field shows its end. Closed on Settings and opened again, the
+popup closes on a real Esc, as it does on the Esc after one that left
+Settings. In Settings of a widget without a bar entry, a pick the settings
+queue refuses shows the saved value again at once, in each settings choice.
+A hung installation check is stopped at its deadline with its child
+process, reported as a failure until a check succeeds, and the next check
+runs; one still hung when the service goes is stopped with it.
 Requires ~/GitHub/Personal/foamy-kit (or FOAMY_KIT)."""
 
 import json
@@ -1075,6 +1078,116 @@ ShellRoot {
 }
 """
 
+# Settings in a window that takes keys, for a widget without a bar entry (no
+# moduleName). Closed on Settings and opened again, the popup shows the
+# overview and a real Esc closes it; after an Esc that leaves Settings, the
+# next Esc closes it too. The settings queue refuses every save, and a pick
+# in each settings choice shows the saved value again at once, beside the
+# error.
+SETTINGS_SHELL = r"""
+import QtQuick
+import QtTest
+import Quickshell
+import "harness"
+import "plugin" as Plugin
+
+ShellRoot {
+  id: shell
+  property var service: null
+  property var panel: null
+  property var bar: null
+  property int checks: 0
+  function check(ok, what) { checks++; if (!ok) console.log("FOAMY FAIL " + what) }
+  // The first item under `item` with this objectName.
+  function find(item, name) {
+    if (!item) return null
+    if (item.objectName === name) return item
+    for (var i = 0; i < item.children.length; i++) {
+      var found = find(item.children[i], name)
+      if (found) return found
+    }
+    return null
+  }
+  FloatingWindow {
+    implicitWidth: 1920; implicitHeight: 1080
+    // The popup draws into this screen's overlay, so it has a window and
+    // takes the keys sent to it.
+    ScreenSim { id: sim }
+    Item {
+      id: host
+      x: 1500; width: 40; height: 34
+      TestEvent { id: keys }
+    }
+  }
+  Component { id: barComponent; MockBar { barSize: 34 } }
+  FoamyWait { id: wait }
+  Component.onCompleted: {
+    service = Qt.createComponent(Qt.resolvedUrl("plugin/Service.qml")).createObject(null)
+    bar = barComponent.createObject(shell, { moduleName: "foamy.syncthing" })
+    panel = Qt.createComponent(Qt.resolvedUrl("plugin/Panel.qml")).createObject(host, { bar: bar, width: 40, height: 34 })
+    wait.waitFor(function() { return service.online }, 20000, function(ok) {
+      check(ok, "the service comes online")
+      settingsOpen(closedOnSettings)
+    })
+  }
+  // Opens the popup on Settings, then `next`.
+  function settingsOpen(next) {
+    panel.openSettings()
+    wait.waitFor(function() { return panel.opened && panel.editingSettings && panel.view !== null }, 10000, function(ok) {
+      check(ok, "Settings open")
+      next()
+    })
+  }
+  function closedOnSettings() {
+    panel.close()
+    wait.waitFor(function() { return !panel.opened && !panel.editingSettings }, 10000, function(ok) {
+      check(ok, "closing the popup leaves Settings")
+      panel.open()
+      wait.waitFor(function() { return panel.opened && panel.view.visible }, 10000, function(ok) {
+        check(ok, "the popup opens again")
+        keys.keyClick(Qt.Key_Escape, Qt.NoModifier, -1)
+        wait.waitFor(function() { return !panel.opened }, 5000, function(ok) {
+          check(ok, "Esc closes the popup that was closed on Settings")
+          settingsOpen(leftWithEsc)
+        })
+      })
+    })
+  }
+  function leftWithEsc() {
+    keys.keyClick(Qt.Key_Escape, Qt.NoModifier, -1)
+    wait.waitFor(function() { return !panel.editingSettings }, 5000, function(ok) {
+      check(ok && panel.opened, "Esc on Settings goes back to the overview")
+      keys.keyClick(Qt.Key_Escape, Qt.NoModifier, -1)
+      wait.waitFor(function() { return !panel.opened }, 5000, function(ok) {
+        check(ok, "the next Esc closes the popup")
+        settingsOpen(function() {
+          refusedPicks()
+          console.log("FOAMY CHECKS " + checks)
+          console.log("FOAMY DONE")
+          Qt.quit()
+        })
+      })
+    })
+  }
+  // A pick, as the dropdown's list makes it, of a value other than the saved one.
+  function refusedPicks() {
+    var picks = [["refreshDropdown", "900"], ["openRefreshDropdown", "30"], ["minimumDevicesDropdown", "3"]]
+    for (var i = 0; i < picks.length; i++) {
+      var dropdown = find(panel.view, picks[i][0])
+      var saved = dropdown ? dropdown.value : ""
+      if (dropdown)
+        dropdown.select(picks[i][1])
+      check(dropdown && saved !== picks[i][1] && dropdown.shownValue === saved,
+            picks[i][0] + ": a refused pick of " + picks[i][1] + " shows the saved value again at once (shows "
+            + (dropdown ? dropdown.shownValue : "no dropdown") + ", saved " + saved + ")")
+    }
+    check(panel.view.settingsError === "Settings can't be saved: this widget has no bar entry.",
+          "the refusal shows: " + JSON.stringify(panel.view.settingsError))
+    check(bar.saved.length === 0, "nothing is saved: " + JSON.stringify(bar.saved))
+  }
+}
+"""
+
 # The real core against tests/fake_syncthing.py: the header's version and
 # device line, and each peer's version, end to end (Syncthing → helper →
 # Service → view). The fake reports v2.0.10 for this device and v2.0.9 for
@@ -1473,6 +1586,8 @@ if not run(
     env={"FAKE_PICKER_PATH": "/home/me/" + "A folder with a long name/" * 4 + "Music"},
     name="chooser path",
 ):
+    status = 1
+if not run("4.5", SETTINGS_SHELL, name="settings"):
     status = 1
 if not run("4.5", HUNG_PROBE_SHELL, probe_hang=True, name="hung probe"):
     status = 1
