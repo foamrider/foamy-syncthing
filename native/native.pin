@@ -5,7 +5,7 @@
 crate native
 binary foamy-syncthing-helper
 toolchain 1.99.1
-kit 0.13.1
-source d3407b36c40bfe8b3a9d022da830d9bab8acd3088968c72942656fb42bd47332
-3135bd6cae0da4e12877c4a3ee069d30e1321b4081c3d91c14d3890bb797e59c  bin/aarch64/foamy-syncthing-helper
-21076e5761fcd8fb533aa43bce2ca8337c40ddec76c95834c5455026f82c4d25  bin/x86_64/foamy-syncthing-helper
+kit 0.14.0
+source 41b826cd1c04a15517a6cf66fdbc76f8d3e30420d61f1d01f51229a729c02e0f
+6511270f60abacde92a719ea8974a0983e588f9bc6732d74fa3d5e8bd8785d5d  bin/aarch64/foamy-syncthing-helper
+9ada3b7cf71e8c73878ce58c8234fd0d14a78385bcfb1a5fb4a2c8601c44fd62  bin/x86_64/foamy-syncthing-helper
