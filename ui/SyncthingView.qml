@@ -184,9 +184,6 @@ PanelKeyCatcher {
     } else {
       addOpen = false
       forgetFolderId = ""
-      Qt.callLater(function () {
-        root.forceActiveFocus()
-      })
     }
   }
 
