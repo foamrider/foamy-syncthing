@@ -22,6 +22,9 @@ PanelKeyCatcher {
 
   property QtObject service: null
   property var settings: ({})
+  // The FoamyPrefsQueue the settings save through: a choice linked to it
+  // shows the saved value again at once when the queue refuses its pick.
+  property QtObject queue: null
   property bool opened: true
   property bool editingSettings: false
   property bool saving: false
@@ -687,6 +690,8 @@ PanelKeyCatcher {
         label: FoamyI18n.t("Warn when fewer devices are connected")
         description: FoamyI18n.t("This device counts too.")
         value: String(Prefs.value(Schema.fields, root.settings, "minimumConnectedDevices"))
+        queue: root.queue
+        queueKey: "minimumConnectedDevices"
         options: {
           var current = Prefs.value(Schema.fields, root.settings, "minimumConnectedDevices")
           var rows = [
@@ -719,6 +724,8 @@ PanelKeyCatcher {
         compact: true
         label: FoamyI18n.t("Refresh every")
         value: String(Prefs.value(Schema.fields, root.settings, "refreshIntervalSec"))
+        queue: root.queue
+        queueKey: "refreshIntervalSec"
         options: [
           {
             value: "60",
@@ -747,6 +754,8 @@ PanelKeyCatcher {
         compact: true
         label: FoamyI18n.t("Refresh while the popup is open every")
         value: String(Prefs.value(Schema.fields, root.settings, "openRefreshIntervalSec"))
+        queue: root.queue
+        queueKey: "openRefreshIntervalSec"
         options: [
           {
             value: "2",
