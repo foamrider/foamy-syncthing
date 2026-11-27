@@ -1,4 +1,4 @@
-// foamy-kit 0.15.1 32aa0fb8fd9f8d3184da86ba58314f4972cbe61c43237a2c560bb05097571e01 — do not edit; change foamy-kit and run sync
+// foamy-kit 0.15.2 32aa0fb8fd9f8d3184da86ba58314f4972cbe61c43237a2c560bb05097571e01 — do not edit; change foamy-kit and run sync
 import QtQuick
 
 // One bar instance's membership in a FoamyShared scope.

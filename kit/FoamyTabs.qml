@@ -1,5 +1,5 @@
 pragma ComponentBehavior: Bound
-// foamy-kit 0.15.1 efd3333a1fe9adb4d5a2ef6c7bec6a6a2e5163bf957022c0d51e56c657732f14 — do not edit; change foamy-kit and run sync
+// foamy-kit 0.15.2 efd3333a1fe9adb4d5a2ef6c7bec6a6a2e5163bf957022c0d51e56c657732f14 — do not edit; change foamy-kit and run sync
 import QtQuick
 
 // A tab row: a full-width row of underline tabs at the top of a popup body,
