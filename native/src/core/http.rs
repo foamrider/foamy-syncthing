@@ -363,6 +363,44 @@ fn connect_unix(path: &OsStr, deadline: Instant) -> Result<UnixStream, Failure> 
     Ok(stream)
 }
 
+fn connect_tcp(addresses: &[SocketAddr], dial_deadline: Instant) -> Result<TcpStream, Failure> {
+    let first_v6 = addresses.first().is_some_and(SocketAddr::is_ipv6);
+    let mut first = addresses.iter().filter(|ip| ip.is_ipv6() == first_v6);
+    let mut other = addresses
+        .iter()
+        .filter(|ip| ip.is_ipv6() != first_v6)
+        .peekable();
+    let dual_stack = other.peek().is_some();
+    let mut last = Failure::Connection;
+    let mut count = addresses.len();
+    while count > 0 {
+        // Alternate families in DNS preference order; if one runs out, finish the other.
+        for address in [first.next(), other.next()].into_iter().flatten() {
+            let left = dial_deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(Failure::Timeout);
+            }
+            // Give each family's first route time to connect on a slow link.
+            // Then keep the original fair split among the remaining addresses.
+            let shares = if dual_stack && addresses.len() - count < 2 {
+                count.min(2)
+            } else {
+                count
+            };
+            let attempt = left / shares as u32;
+            match TcpStream::connect_timeout(address, attempt) {
+                Ok(stream) => return Ok(stream),
+                Err(error) => last = io_failure(&error),
+            }
+            count -= 1;
+        }
+    }
+    if Instant::now() >= dial_deadline {
+        return Err(Failure::Timeout);
+    }
+    Err(last)
+}
+
 impl Transport {
     pub fn new(address: Address, tls: Option<Arc<ClientConfig>>) -> Transport {
         let (host_header, name_host) = match &address {
@@ -402,25 +440,7 @@ impl Transport {
         let socket = match &self.address {
             Address::Tcp { host, port } => {
                 let addresses = resolve(host, *port, dial_deadline, system_lookup)?;
-                let mut last = Failure::Connection;
-                let mut connected = None;
-                for (index, address) in addresses.iter().enumerate() {
-                    // Like Go's dialSerial: each address gets its share of what is left.
-                    let left = dial_deadline.saturating_duration_since(Instant::now());
-                    if left.is_zero() {
-                        last = Failure::Timeout;
-                        break;
-                    }
-                    let share = left / (addresses.len() - index) as u32;
-                    match TcpStream::connect_timeout(address, share.max(Duration::from_millis(1))) {
-                        Ok(stream) => {
-                            connected = Some(stream);
-                            break;
-                        }
-                        Err(error) => last = io_failure(&error),
-                    }
-                }
-                let stream = connected.ok_or(last)?;
+                let stream = connect_tcp(&addresses, dial_deadline)?;
                 let _ = stream.set_nodelay(true);
                 Socket::Tcp(stream)
             }
@@ -825,6 +845,30 @@ mod tests {
                 "{took:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_silent_address_family_leaves_time_for_a_working_route() {
+        use std::net::TcpListener;
+
+        let silent = TcpListener::bind("[::1]:0").unwrap();
+        // One queued connection fills a zero backlog on Linux. Further connects time out.
+        rustix::net::listen(&silent, 0).unwrap();
+        let v6 = silent.local_addr().unwrap();
+        let _queued = TcpStream::connect_timeout(&v6, Duration::from_secs(1)).unwrap();
+        let serving = TcpListener::bind("127.0.0.1:0").unwrap();
+        let v4 = serving.local_addr().unwrap();
+        let mut addresses = vec![v6; 12];
+        addresses.push(v4);
+
+        let start = Instant::now();
+        let stream = connect_tcp(&addresses, start + DIAL_TIMEOUT).unwrap();
+        assert_eq!(stream.peer_addr().unwrap(), v4);
+        assert!(
+            start.elapsed() < Duration::from_millis(2400),
+            "the dead IPv6 routes used almost the whole dial budget: {:?}",
+            start.elapsed()
+        );
     }
 
     #[test]
