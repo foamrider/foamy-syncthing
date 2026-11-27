@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Show where the keys are: after an arrow key the tab, row or header
+  button with the cursor draws a 1 px accent border (foamy-kit 0.15's
+  keys' cursor). The pointer's cursor keeps its plain look.
 - Draw the popup's error lines (a failed folder action, a Syncthing error,
   a refused folder chooser, a paste or preparation error), a failed
   folder's detail and the "Needs attention" / "Out of sync" title in the

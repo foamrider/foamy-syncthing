@@ -18,7 +18,9 @@ folder starts one; .stversions is ignored and conflicts are flagged per
 folder, a "~/" folder path included, with an urgent bar and its tooltip; the
 status IPC reply; the popup body is built on open only; the Folders /
 Devices tab row is one cursor stop (←/→ between the tabs, Enter opens one,
-Down goes on to the rows, a hovered tab takes the cursor); in a dark theme
+Down goes on to the rows, a hovered tab takes the cursor); the keys' cursor
+draws an accent border on the tab, row or Web UI action it reaches, a row's
+state keeps its colour under it, and the pointer's cursor draws none; in a dark theme
 with a dim red, the hero title reads on the band and an expanded conflict
 row's state, its icon and detail read under the cursor in one red; row delegates
 survive a snapshot (keyed model); a plain p stops syncing and Ctrl+P does
@@ -207,6 +209,8 @@ ShellRoot {
     if (view)
       tabKeys(view)
     if (view)
+      keysBorder(view)
+    if (view)
       statusInk(view, function() { step1Rows(view) })
     else
       step1Rows(view)
@@ -251,6 +255,55 @@ ShellRoot {
     if (tabs)
       tabs.hovered()
     check(onTab(0) && !onFirstRow(), "a hovered tab takes the cursor from the row")
+  }
+  // Every element that draws the keys' accent border: a row, a
+  // header action or a tab.
+  function keysBorders(item, found) {
+    found = found || []
+    if (!item)
+      return found
+    var accent = Kit.FoamyPalette.accent
+    if (item.byKeys !== undefined && item.borderSpec !== undefined) {
+      if (item.hasCursor && item.borderTop > 0 && Qt.colorEqual(item.borderSpec.color, accent))
+        found.push("row " + item.key)
+    } else if (item.cursorByKeys !== undefined && item.border !== undefined) {
+      if (item.border.width > 0)
+        found.push("action " + item.iconName)
+    } else if (item.objectName === "foamyTabCursor" && item.border.width > 0) {
+      found.push("tab " + item.parent.objectName)
+    }
+    for (var i = 0; i < item.children.length; i++)
+      keysBorders(item.children[i], found)
+    return found
+  }
+  // The keys' cursor draws an accent border; the pointer's does not. tabKeys
+  // left the cursor on the tab row from a hover.
+  function keysBorder(view) {
+    var drawn = function() { return JSON.stringify(keysBorders(view)) }
+    check(drawn() === "[]", "the pointer's cursor on the tab row: no keys' border: " + drawn())
+    view.moveRequested(1, 0)
+    check(drawn() === '["tab foamyTab1"]', "→ on the tab row: the keys' border on Devices: " + drawn())
+    view.moveRequested(-1, 0)
+    var row = view.rowItem(0)
+    var state = row ? shell.find(row, "rowState") : null
+    var rest = state ? String(state.color) : ""
+    view.moveRequested(0, 1)
+    check(row && drawn() === '["row ' + row.key + '"]', "Down to the first row: the keys' border there: " + drawn())
+    // The border leaves the row's fill alone, so its status keeps its colour.
+    check(state && Qt.colorEqual(state.color, rest), "the row's state keeps its colour under the keys' border: " + rest + " " + (state && state.color))
+    // The second row, then the start/stop and Web UI actions.
+    view.moveRequested(0, 1)
+    view.moveRequested(0, 1)
+    view.moveRequested(0, 1)
+    check(drawn() === '["action globe"]', "Down to the Web UI action: the keys' border there: " + drawn())
+    var other = view.rowItem(1)
+    if (other)
+      other.hovered()
+    check(other && other.hasCursor && drawn() === "[]", "the pointer on a row: no keys' border anywhere: " + drawn())
+    // Give the cursor back to the tab row, as tabKeys left it.
+    var tabs = shell.find(view, "overviewTabs")
+    if (tabs)
+      tabs.hovered()
   }
   // This scene runs in a dark theme with a dim red: the conflict's red
   // still reads where it is drawn, the hero title on the band and the

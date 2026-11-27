@@ -142,9 +142,11 @@ PanelKeyCatcher {
   onMoveRequested: function (dx, dy) {
     if (dy !== 0)
       cursor.move(dy)
-    else if (cursor.at(0))
+    else if (cursor.at(0)) {
+      // moveCursor moves within the tab row, not through FoamyCursor.move().
+      cursor.byKeys = true
       tabs.moveCursor(dx)
-    else
+    } else
       cursor.move(dx)
   }
   onActivateRequested: root.activate(cursor.index)
@@ -388,6 +390,7 @@ PanelKeyCatcher {
           spinning: root.opened && !!root.service && root.service.serviceActionRunning
           actionEnabled: !!root.service && (root.service.canInstall || root.service.canControlService) && !root.service.serviceActionRunning && !root.service.folderMutationBusy
           hasCursor: cursor.at(root.toggleStop)
+          cursorByKeys: cursor.byKeys
           foreground: FoamyPalette.secondaryText
           onHoveredChanged: if (hovered)
             cursor.hover(root.toggleStop)
@@ -398,6 +401,7 @@ PanelKeyCatcher {
           tooltipText: FoamyI18n.t("Open the Syncthing Web UI") + " · W"
           actionEnabled: root.online
           hasCursor: cursor.at(root.webStop)
+          cursorByKeys: cursor.byKeys
           foreground: FoamyPalette.secondaryText
           onHoveredChanged: if (hovered)
             cursor.hover(root.webStop)
@@ -515,6 +519,7 @@ PanelKeyCatcher {
       Layout.fillWidth: true
       value: root.tab
       hasCursor: cursor.at(0)
+      cursorByKeys: cursor.byKeys
       model: [
         {
           value: "folders",
@@ -843,6 +848,7 @@ PanelKeyCatcher {
     width: rows.width - FoamyStyle.gapLarge * 2
     height: rowContent.implicitHeight + FoamyStyle.rowPadding * 2
     hasCursor: cursor.at(index + root.firstRowStop)
+    byKeys: cursor.byKeys
     onHovered: cursor.hover(index + root.firstRowStop)
     onClicked: root.toggleRow(key)
     Accessible.role: Accessible.ListItem
