@@ -1,4 +1,4 @@
-// foamy-kit 0.16.0 ddbe841f76b058f2b73af4c8eefef75621de349c1ed4e99304e92eaa759e2df7 — do not edit; change foamy-kit and run sync
+// foamy-kit 0.17.0 e203e4a1f8399e4c61d4c27bad5518d0bd53716da87319b9584122640ab74f21 — do not edit; change foamy-kit and run sync
 import QtQuick
 import qs.Commons as Commons
 import qs.Ui
@@ -19,7 +19,9 @@ import "FoamyText.js" as FoamyText
 // Keyboard: like FoamyAction. In a PanelKeyCatcher panel set `hasCursor`
 // from the panel's cursor and route `hovered` back; in a form (settings
 // page) set `focusable: true` to join the Tab chain (focus ring in the
-// accent). Enter/Space activate. `busy` spins the icon (or shows a spinner
+// accent; a primary's, as its keys' border, in the text or the background
+// colour, whichever reads better on the fill inside it). Enter/Space
+// activate. `busy` spins the icon (or shows a spinner
 // glyph when there is none) and keeps the button inert; actionEnabled: false
 // keeps it visible but inert; enabled: false greys it out.
 // `cursorByKeys: cursor.byKeys` draws the keys' cursor: the 1 px border in
@@ -161,13 +163,15 @@ Rectangle {
   // active. A theme or `kind` change of an active or busy button still
   // animates its fill under the new label, for one hover time, as before
   // 0.15.2.
-  property color _activeFill: {
+  // `_fullFill` is where the fill settles; `_activeFill` animates to it.
+  readonly property color _fullFill: {
     if (!busy && mouse.pressed)
       return primary ? Qt.darker(Commons.Color.accent, 1.12) : destructive ? Qt.alpha(Commons.Color.urgent, 0.26) : Qt.alpha(FoamyPalette.text, 0.14)
     if (!busy && (hasCursor || mouse.containsMouse))
       return primary ? _primaryHover : destructive ? Qt.alpha(Commons.Color.urgent, 0.2) : Qt.alpha(FoamyPalette.text, 0.1)
     return _restFill
   }
+  property color _activeFill: _fullFill
   Behavior on _activeFill {
     enabled: root._strength === 1
     ColorAnimation {
@@ -183,11 +187,18 @@ Rectangle {
   // background. Measured on the settled fill, so it doesn't flip while the
   // fill animates. The text alone read 1.23:1 on the dark preview's hover
   // fill, the background (accentInk) 1.55:1 on the light preview's inert one.
-  readonly property color _keysEdge: {
-    const fill = Qt.tint(FoamyPalette.background, _quiet ? _quiet.fill : active ? _primaryHover : _restFill)
+  readonly property color _keysEdge: _edgeOn(_quiet ? _quiet.fill : active ? _primaryHover : _restFill)
+  // A primary's focus ring, by the same rule, on the fill drawn inside it
+  // (settled: rest, hover or press; inert: its own). The text alone read
+  // 1.46:1 on the dark preview's rest fill and 1.63:1 on the light one's.
+  readonly property color _focusEdge: _edgeOn(_quiet ? _quiet.fill : _fullFill)
+  // The text or the background, whichever reads better on `fill` drawn
+  // over the popup background.
+  function _edgeOn(fill) {
+    const shown = Qt.tint(FoamyPalette.background, fill)
     const text = FoamyPalette.text
     const back = FoamyPalette.background
-    return FoamyPalette.contrastRatio(text, fill) >= FoamyPalette.contrastRatio(back, fill) ? text : back
+    return FoamyPalette.contrastRatio(text, shown) >= FoamyPalette.contrastRatio(back, shown) ? text : back
   }
 
   implicitWidth: Math.max(FoamyStyle.controlHeight * 2, content.implicitWidth + FoamyStyle.gapLarge * 2 + border.width * 2)
@@ -198,7 +209,7 @@ Rectangle {
   // keys' border stay.
   border.color: {
     if (activeFocus && focusable)
-      return primary ? FoamyPalette.text : Commons.Color.accent
+      return primary ? _focusEdge : Commons.Color.accent
     if (hasCursor && cursorByKeys)
       return primary ? _keysEdge : Commons.Color.accent
     if (primary)
