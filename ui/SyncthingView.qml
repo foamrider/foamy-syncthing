@@ -58,6 +58,10 @@ PanelKeyCatcher {
     return pendingOffers.length ? String(pendingOffers[0].value) : ""
   }
   property string lastNotice: ""
+  // What status colours on the hero band are measured on: an opaque bound
+  // of its strongest tint, the wash's start under the full glow
+  // (FoamyHeroBand paints the glow over the wash).
+  readonly property color bandSurface: Qt.tint(FoamyPalette.bandFill, FoamyPalette.bandGlow)
 
   readonly property bool online: !!service && service.online
   readonly property bool canManage: online && !service.folderMutationBusy
@@ -414,10 +418,7 @@ PanelKeyCatcher {
             text: FoamyI18n.t(root.summary.title)
             wrapMode: Text.WordWrap
             objectName: "heroTitle"
-            // On the hero band: measured on an opaque bound of its
-            // strongest tint, the wash's start under the full glow
-            // (FoamyHeroBand paints the glow over the wash).
-            color: root.service && root.service.hasProblems ? FoamyPalette.onSurface(FoamyPalette.error, Qt.tint(FoamyPalette.bandFill, FoamyPalette.bandGlow)) : FoamyPalette.text
+            color: root.service && root.service.hasProblems ? FoamyPalette.onSurface(FoamyPalette.error, root.bandSurface) : FoamyPalette.text
             font.pixelSize: FoamyStyle.font.display
           }
           Label {
@@ -444,6 +445,7 @@ PanelKeyCatcher {
           Layout.preferredHeight: Style.space(64)
           Layout.alignment: Qt.AlignVCenter
           progress: root.summary.progress
+          successColor: FoamyPalette.onSurface(FoamyPalette.success, root.bandSurface)
         }
       }
     }
@@ -887,6 +889,7 @@ PanelKeyCatcher {
           Layout.alignment: Qt.AlignVCenter
           spacing: FoamyStyle.gapSmall
           FoamyIcon {
+            objectName: "rowStateIcon"
             anchors.verticalCenter: parent.verticalCenter
             width: Style.space(12)
             height: width

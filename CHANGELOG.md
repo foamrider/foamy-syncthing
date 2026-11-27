@@ -5,9 +5,14 @@
 - Draw the popup's error lines (a failed folder action, a Syncthing error,
   a refused folder chooser, a paste or preparation error), a failed
   folder's detail and the "Needs attention" / "Out of sync" title in the
-  theme's red made readable, as the kit's own error lines are. In a theme
-  with a dim red (Nord) they drew the raw red under 4.5:1 and beside the
-  kit's lighter one; the default dark theme looks the same.
+  theme's red made readable, as the kit's own error lines are, and measure
+  that title and the "Up to date" check mark on the hero band they are
+  drawn on. In a theme with a dim red (Nord) they drew the raw red under
+  4.5:1 and beside the kit's lighter one. The kit's dark preview theme
+  renders the same, pixel for pixel. A dark theme whose red sits near
+  4.5:1 on the band draws the title a little lighter (Tokyo Night: #f7768e
+  to #ff7e96); a light theme draws the title and the check mark a little
+  darker.
 - Show the Folders and Devices tabs as the kit's tab row under the summary:
   tabs as wide as their label, the open one with its label in bold and its
   icon, count and underline in the accent, on a hairline across the popup.
