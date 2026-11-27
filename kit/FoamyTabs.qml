@@ -1,5 +1,5 @@
 pragma ComponentBehavior: Bound
-// foamy-kit 0.14.1 8b1e10d631c85f6f49374c8488dd0a548b65ad8f63a0d0ee350e7eefdc356113 — do not edit; change foamy-kit and run sync
+// foamy-kit 0.15.1 efd3333a1fe9adb4d5a2ef6c7bec6a6a2e5163bf957022c0d51e56c657732f14 — do not edit; change foamy-kit and run sync
 import QtQuick
 
 // A tab row: a full-width row of underline tabs at the top of a popup body,
@@ -49,12 +49,15 @@ import QtQuick
 //   FoamyCursor { id: cursor; count: rows.length + 1 }        // stop 0: the tabs
 //   PanelKeyCatcher {
 //     onMoveRequested: function(dx, dy) {
-//       if (dy === 0 && cursor.at(0)) views.moveCursor(dx)
-//       else cursor.move(dy !== 0 ? dy : dx)
+//       if (dy === 0 && cursor.at(0)) {
+//         cursor.byKeys = true                                   // the keys' look
+//         views.moveCursor(dx)
+//       } else
+//         cursor.move(dy !== 0 ? dy : dx)
 //     }
 //     onActivateRequested: cursor.at(0) ? views.activateCursor() : root.activate(cursor.index)
 //   }
-//   FoamyTabs { id: views; hasCursor: cursor.at(0); onHovered: cursor.hover(0); … }
+//   FoamyTabs { id: views; hasCursor: cursor.at(0); cursorByKeys: cursor.byKeys; onHovered: cursor.hover(0); … }
 //
 // RTL: the tabs follow LayoutMirroring (inherited from the popup), so the
 // first tab sits on the reading start.
@@ -66,6 +69,8 @@ Item {
   property bool hasCursor: false
   // The tab under the panel cursor; -1 while the row doesn't have it.
   property int cursorIndex: -1
+  // The keys moved the cursor here (FoamyCursor.byKeys): an accent border.
+  property bool cursorByKeys: false
   readonly property int count: Array.isArray(model) ? model.length : 0
   readonly property int selectedIndex: indexOf(value)
 
@@ -186,6 +191,8 @@ Item {
       anchors.bottomMargin: FoamyStyle.gapSmall
       radius: FoamyStyle.radius
       color: tab.cursorHere ? FoamyPalette.hoverFill : "transparent"
+      border.width: tab.cursorHere && root.cursorByKeys ? FoamyStyle.borderWidth : 0
+      border.color: FoamyPalette.accent
       Behavior on color {
         ColorAnimation {
           duration: FoamyMotion.hover
@@ -231,9 +238,12 @@ Item {
         anchors.verticalCenter: parent.verticalCenter
         text: tab.countText
         textFormat: Text.PlainText
-        color: tab.entryData.countUrgent === true ? FoamyPalette.onSurface(FoamyPalette.error) : (tab.selected ? FoamyPalette.accent : FoamyPalette.mutedText)
+        // bodySmall and secondaryText: a count is read, not decoration. An
+        // urgent count reads on the cursor's fill, its strongest surface, so
+        // it keeps one colour with and without the cursor.
+        color: tab.entryData.countUrgent === true ? FoamyPalette.onSurface(FoamyPalette.error, Qt.tint(FoamyPalette.background, FoamyPalette.hoverFill)) : (tab.selected ? FoamyPalette.accent : FoamyPalette.secondaryText)
         font.family: FoamyStyle.monoFamily
-        font.pixelSize: FoamyStyle.font.caption
+        font.pixelSize: FoamyStyle.font.bodySmall
       }
     }
 
