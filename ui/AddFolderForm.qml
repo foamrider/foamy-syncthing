@@ -1,7 +1,6 @@
 pragma ComponentBehavior: Bound
 import QtQuick
 import QtQuick.Layouts
-import qs.Commons as Commons
 import "../kit"
 import "../models/PanelModel.js" as PanelModel
 
@@ -224,7 +223,7 @@ Column {
       visible: text !== ""
       width: parent.width
       text: root.browseError
-      color: Commons.Color.urgent
+      color: FoamyPalette.onSurface(FoamyPalette.error)
       Accessible.role: Accessible.AlertMessage
     }
     Label {
@@ -310,7 +309,7 @@ Column {
       visible: text !== ""
       width: parent.width
       text: root.pasteError !== "" ? FoamyI18n.t(root.pasteError) : root.service ? root.service.folderPreparationError || root.service.folderMutationError : ""
-      color: Commons.Color.urgent
+      color: FoamyPalette.onSurface(FoamyPalette.error)
       Accessible.role: Accessible.AlertMessage
     }
     FoamyButton {

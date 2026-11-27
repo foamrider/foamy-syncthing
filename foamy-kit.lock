@@ -1,8 +1,8 @@
 # foamy-kit.lock: written by foamy-kit sync.sh; do not edit.
 # Hashes are of each file's body (the file without its stamp line);
 # notices, REVIEW.md and kit/i18n-texts.json are hashed whole. tests/kit-check.sh verifies them.
-version 0.15.1
-source a7c1c2d5e277116163713b417ea137a69a98af4a
+version 0.15.2
+source 0d8b998426867de17327abad1fa8e1665f176fcc
 components FoamyAction,FoamyButton,FoamyClickAway,FoamyClipboard,FoamyCursor,FoamyDropdown,FoamyHeader,FoamyHeroBand,FoamyI18n,FoamyIcon,FoamyInfoNote,FoamyIpc,FoamyMenu,FoamyMotion,FoamyNative,FoamyNumberField,FoamyPalette,FoamyPopup,FoamyPopupCard,FoamyPrefs,FoamySettings,FoamyShared,FoamyStyle,FoamyTabs,FoamyText,FoamyWheelScroll,SafeTextField
 5079c3e4ecd2ca5399dff48f64327729d8e84916a4c73fbcb9e0491b16014990  .github/workflows/checks.yml
 98bd9e4430551129a6f4c309ee8ba59b66514db5ca1d4c5b7151ec308f6d632b  .github/workflows/verify-native.yml
@@ -10,7 +10,7 @@ components FoamyAction,FoamyButton,FoamyClickAway,FoamyClipboard,FoamyCursor,Foa
 771e7eeb95d50551c7a7a8038f0d033ad3385a63b90f6d767133f5f15b872d5a  .qmlformat.ini
 b04f4e648e7bab0d42d83735e88a4250020233089d0b2fa5dd7264cbf2400bcc  REVIEW.md
 d7f1aa2f6b43aa170f5792de7e7648cdf75b7f8adf654e96d10558769bed6a43  kit/FoamyAction.qml
-621591d7596868bdb01113b5ee60b77aacaa980bc3548cc712ffd97cc3c2d16b  kit/FoamyButton.qml
+9b8e295ba1d4910ee3699ae9ef3afc0c64eff8ed606a9fa2b4ec7b2ea37e24aa  kit/FoamyButton.qml
 8dcfc8720fe0a2299a6c9c901be2f85bc2f9ba92170697e477d716be9cb9e8cf  kit/FoamyClickAway.qml
 cbc26d6a043bec397561973249cfec1a2a1ce2b9d4ce634d5daa43851d0c029d  kit/FoamyClipboard.qml
 1604f2e9bb6c6e2b05a42d33486a69adbcdb32bf731528ec44ce7aeb2d1814e3  kit/FoamyCursor.qml
