@@ -5,7 +5,9 @@ import "../kit"
 
 // A modal confirmation over the popup (unlink a folder). It owns the keys
 // while open: Left/Right/Tab pick a button, Enter activates it, Esc cancels.
-// The pointer moves the same selection.
+// The pointer moves the same selection. A selection the keys made draws
+// the keys' border on its button; the pointer's (and the opening default)
+// does not.
 FocusScope {
   id: root
 
@@ -15,9 +17,19 @@ FocusScope {
   property string confirmText: "Confirm"
   // 0 = cancel (the safe default), 1 = confirm.
   property int selectedIndex: 0
+  // The keys made the selection (FoamyButton.cursorByKeys). The opener
+  // clears it with selectedIndex; a pointer move on a button clears it.
+  property bool selectedByKeys: false
 
   signal canceled
   signal confirmed
+
+  // The pointer selects a button (entering it, or moving inside it while
+  // the keys' border shows).
+  function select(index) {
+    selectedIndex = index
+    selectedByKeys = false
+  }
 
   visible: opened
   focus: opened
@@ -35,6 +47,7 @@ FocusScope {
         root.canceled()
     } else if ([Qt.Key_Left, Qt.Key_Right, Qt.Key_Tab, Qt.Key_Backtab, Qt.Key_H, Qt.Key_L].indexOf(event.key) >= 0) {
       root.selectedIndex = root.selectedIndex === 0 ? 1 : 0
+      root.selectedByKeys = true
     } else
       return
     event.accepted = true
@@ -85,8 +98,9 @@ FocusScope {
           objectName: "unlinkCancel"
           text: root.cancelText
           hasCursor: root.selectedIndex === 0
+          cursorByKeys: root.selectedByKeys
           onHoveredChanged: if (hovered)
-            root.selectedIndex = 0
+            root.select(0)
           onClicked: root.canceled()
         }
         FoamyButton {
@@ -95,8 +109,9 @@ FocusScope {
           text: root.confirmText
           kind: "destructive"
           hasCursor: root.selectedIndex === 1
+          cursorByKeys: root.selectedByKeys
           onHoveredChanged: if (hovered)
-            root.selectedIndex = 1
+            root.select(1)
           onClicked: root.confirmed()
         }
       }

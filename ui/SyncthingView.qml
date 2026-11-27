@@ -305,6 +305,7 @@ PanelKeyCatcher {
       return
     forgetFolderId = folder.id
     confirm.selectedIndex = 0
+    confirm.selectedByKeys = false
     Qt.callLater(confirm.forceActiveFocus)
   }
   function confirmUnlink() {
@@ -378,6 +379,7 @@ PanelKeyCatcher {
       title: FoamyI18n.t("Syncthing")
       meta: root.headerMeta
       settingsHasCursor: cursor.at(root.settingsStop)
+      cursorByKeys: cursor.byKeys
       onSettingsClicked: root.settingsRequested()
       onSettingsHovered: function (hovered) {
         if (hovered)
