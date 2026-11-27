@@ -412,7 +412,8 @@ PanelKeyCatcher {
             Layout.fillWidth: true
             text: FoamyI18n.t(root.summary.title)
             wrapMode: Text.WordWrap
-            color: root.service && root.service.hasProblems ? Commons.Color.urgent : FoamyPalette.text
+            // On the hero band: measured on its strongest tint.
+            color: root.service && root.service.hasProblems ? FoamyPalette.onSurface(FoamyPalette.error, FoamyPalette.bandFill) : FoamyPalette.text
             font.pixelSize: FoamyStyle.font.display
           }
           Label {
@@ -473,7 +474,7 @@ PanelKeyCatcher {
         visible: text !== ""
         text: root.errorText
         wrapMode: Text.WordWrap
-        color: Commons.Color.urgent
+        color: FoamyPalette.onSurface(FoamyPalette.error)
         font.pixelSize: FoamyStyle.font.bodySmall
         Accessible.role: Accessible.AlertMessage
       }
@@ -619,7 +620,7 @@ PanelKeyCatcher {
         width: parent.width
         text: root.service ? root.service.folderMutationError : ""
         wrapMode: Text.WordWrap
-        color: Commons.Color.urgent
+        color: FoamyPalette.onSurface(FoamyPalette.error)
         font.pixelSize: FoamyStyle.font.bodySmall
         Accessible.role: Accessible.AlertMessage
       }
@@ -931,7 +932,7 @@ PanelKeyCatcher {
             width: parent.width
             text: String(rowItem.row.detail || "")
             wrapMode: Text.WrapAnywhere
-            color: rowItem.row.state === "Error" || rowItem.row.state === "Out of sync" || rowItem.row.state === "Conflicts" ? Commons.Color.urgent : FoamyPalette.secondaryText
+            color: rowItem.row.state === "Error" || rowItem.row.state === "Out of sync" || rowItem.row.state === "Conflicts" ? FoamyPalette.onSurface(FoamyPalette.error) : FoamyPalette.secondaryText
             font.pixelSize: FoamyStyle.font.bodySmall
           }
           RowLayout {

@@ -23,8 +23,9 @@ survive a snapshot (keyed model); a plain p stops syncing and Ctrl+P does
 not; settings open; a folder chooser left open goes with its Panel (the real
 pick-folder helper, blocked on a session bus that never answers, is gone
 once the Panel is destroyed and nothing of it outlives the run), and one the
-bus refuses reopens the popup with its error on the Add folder page, which a
-new attempt or leaving the page clears; a crash-looping core is
+bus refuses reopens the popup with its error on the Add folder page (it
+reads at 4.5:1 in a dark theme with a dim red), which a new attempt or
+leaving the page clears; a crash-looping core is
 started four times, then retried with a backoff capped at 5 minutes, and
 right-click/open starts it now; a leftover user unit blocking the install is
 named in the popup summary, not in the bar tooltip, and Install starts
@@ -341,6 +342,13 @@ ShellRoot {
         check(view.editingSettings && view.addOpen && line && line.text === message,
               "the Add folder page shows the chooser error: " + view.addOpen + " " + JSON.stringify(line && line.text))
         check(view.settingsError === "", "the Settings page does not: " + view.settingsError)
+        // This scene runs in a dark theme with a dim red: the error line
+        // still reads on the popup, as the kit's own error lines do.
+        var palette = Kit.FoamyPalette
+        check(palette.contrastRatio(palette.error, palette.background) < 4.5, "the theme's red is dim: " + palette.error)
+        check(line && palette.contrastRatio(line.color, palette.background) >= 4.5,
+              "the chooser error reads on the popup: " + (line && line.color) + " at "
+              + (line && palette.contrastRatio(line.color, palette.background).toFixed(2)) + ":1")
         // A new attempt starts without the old error; the bus refuses it too.
         view.browseRequested()
         check(panels[1].pickerError === "" && line.text === "", "a new chooser clears the old error: " + JSON.stringify(line.text))
@@ -1422,12 +1430,13 @@ def run(
     name="",
     probe_hang=False,
     probe_fail=False,
+    theme="dark",
 ):
     """snapshot(work): the fake core's state (default: write_snapshot's); env:
     added to the shell's environment; missing_helper: no helper for this CPU;
     probe_hang: the first installation check hangs, and its child process
     must be gone when the run ends; probe_fail: the first installation check
-    fails."""
+    fails; theme: the harness theme, a name or a colors.toml path."""
     work = Path(tempfile.mkdtemp(prefix=f"foamy-syncthing-runtime-{host}-"))
     bus = None
     try:
@@ -1444,7 +1453,7 @@ def run(
         (work / "core.log").touch()
         (work / "picker.log").touch()
         bus = SilentBus(work / "picker.log")
-        runner = harness.Run(host, qml, plugin=plugin, prefix=f"foamy-syncthing-qs-{host}-")
+        runner = harness.Run(host, qml, plugin=plugin, prefix=f"foamy-syncthing-qs-{host}-", theme=theme)
         if snapshot is None:
             write_snapshot(work, Path(runner.env["HOME"]))
         else:
@@ -1563,7 +1572,8 @@ def run_live(host):
 
 
 status = 0
-if not run("4.5", SHELL):
+# A dark theme with a dim red, for the error line's contrast check.
+if not run("4.5", SHELL, theme=KIT / "tests/fixtures/themes/dim-red.toml"):
     status = 1
 if not run("4.5", CRASH_SHELL, crash=True):
     status = 1
