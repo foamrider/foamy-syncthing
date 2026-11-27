@@ -66,7 +66,7 @@ ui/SyncthingView.qml: missing-property: Member "folderMutationError" not found o
 ui/SyncthingView.qml: missing-property: Member "folderMutationNotice" not found on type "QObject" | readonly property string notice: service ? service.folderMutationNotice : ""
 ui/SyncthingView.qml: missing-property: Member "folderPreparationError" not found on type "QObject" | return service.folderMutationError || service.controlError || service.folderPreparationError || service.packageError || service.conflictScanError || service.las
 ui/SyncthingView.qml: missing-property: Member "folderRows" not found on type "QObject" | readonly property var folderRows: service ? service.folderRows : []
-ui/SyncthingView.qml: missing-property: Member "hasProblems" not found on type "QObject" | color: root.service && root.service.hasProblems ? FoamyPalette.onSurface(FoamyPalette.error, FoamyPalette.bandFill) : FoamyPalette.text
+ui/SyncthingView.qml: missing-property: Member "hasProblems" not found on type "QObject" | color: root.service && root.service.hasProblems ? FoamyPalette.onSurface(FoamyPalette.error, Qt.tint(FoamyPalette.bandFill, FoamyPalette.bandGlow)) : FoamyPalet
 ui/SyncthingView.qml: missing-property: Member "installSyncthing" not found on type "QObject" | service.installSyncthing()
 ui/SyncthingView.qml: missing-property: Member "lastError" not found on type "QObject" | return service.folderMutationError || service.controlError || service.folderPreparationError || service.packageError || service.conflictScanError || service.las
 ui/SyncthingView.qml: missing-property: Member "online" not found on type "QObject" | readonly property bool online: !!service && service.online

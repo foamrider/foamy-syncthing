@@ -18,7 +18,9 @@ folder starts one; .stversions is ignored and conflicts are flagged per
 folder, a "~/" folder path included, with an urgent bar and its tooltip; the
 status IPC reply; the popup body is built on open only; the Folders /
 Devices tab row is one cursor stop (←/→ between the tabs, Enter opens one,
-Down goes on to the rows, a hovered tab takes the cursor); row delegates
+Down goes on to the rows, a hovered tab takes the cursor); in a dark theme
+with a dim red, the hero title reads on the band and an expanded conflict
+row's state and detail read under the cursor in one red; row delegates
 survive a snapshot (keyed model); a plain p stops syncing and Ctrl+P does
 not; settings open; a folder chooser left open goes with its Panel (the real
 pick-folder helper, blocked on a session bus that never answers, is gone
@@ -202,6 +204,8 @@ ShellRoot {
     check(view && view.rowCount === 2, "two folder rows")
     if (view)
       tabKeys(view)
+    if (view)
+      statusInk(view)
     savedRow = view ? view.rowItem(0) : null
     check(savedRow !== null, "row delegate exists")
     check(view && view.listWheel && view.listWheel.target !== null, "the overview list scrolls with the kit wheel handling")
@@ -241,6 +245,47 @@ ShellRoot {
     if (tabs)
       tabs.hovered()
     check(onTab(0) && !onFirstRow(), "a hovered tab takes the cursor from the row")
+  }
+  // This scene runs in a dark theme with a dim red: the conflict's red
+  // still reads where it is drawn, the hero title on the band and the
+  // expanded row's state and detail on the row under the cursor, and the
+  // row shows one red at rest and under the cursor.
+  function statusInk(view) {
+    var palette = Kit.FoamyPalette
+    var ratio = function(c, under) { return palette.contrastRatio(c, under).toFixed(2) }
+    check(palette.contrastRatio(palette.error, palette.background) < 4.5, "the theme's red is dim: " + palette.error)
+    // The title starts on the wash's strongest stop. (On the band's
+    // strongest point, that stop under the full glow, this red stays at
+    // about 4.3:1: onSurface lightens it at most 1.7 times.)
+    var title = shell.find(view, "heroTitle")
+    check(title && title.text === "Needs attention" && palette.contrastRatio(title.color, palette.bandFill) >= 4.5,
+          "the hero title reads on the band: " + (title && title.text) + " " + (title && title.color) + " at " + (title && ratio(title.color, palette.bandFill)) + ":1")
+    var row = view.rowItem(0)
+    check(row && row.row.state === "Conflicts", "the first row is the conflict: " + (row && row.row.state))
+    if (!row)
+      return
+    view.toggleRow(row.key)
+    var detail = shell.find(row, "rowDetail")
+    var state = shell.find(row, "rowState")
+    // As text: a copy, not a reference that follows the item.
+    var rest = detail ? String(detail.color) : ""
+    var restState = state ? String(state.color) : ""
+    row.hovered()
+    // What the row draws under the cursor, over the popup: its colour
+    // animates to this fill.
+    var under = Qt.tint(palette.background, row.fill)
+    check(row.hasCursor && row.fill.a > 0, "the row takes the cursor: " + row.hasCursor + " " + row.fill)
+    check(detail && detail.text.indexOf("sync conflict") >= 0 && palette.contrastRatio(detail.color, under) >= 4.5,
+          "the conflict detail reads under the cursor: " + (detail && detail.color) + " at " + (detail && ratio(detail.color, under)) + ":1")
+    check(state && palette.contrastRatio(state.color, under) >= 4.5,
+          "the row state reads under the cursor: " + (state && state.color) + " at " + (state && ratio(state.color, under)) + ":1")
+    check(detail && state && Qt.colorEqual(detail.color, state.color) && Qt.colorEqual(detail.color, rest) && Qt.colorEqual(state.color, restState),
+          "one red in the row, at rest and under the cursor: " + rest + " " + restState + " " + (detail && detail.color) + " " + (state && state.color))
+    view.toggleRow(row.key)
+    // Give the cursor back to the tab row, where tabKeys left it.
+    var tabs = shell.find(view, "overviewTabs")
+    if (tabs)
+      tabs.hovered()
   }
   function step2() {
     check(panels[1].popup.bodyItem.rowItem(0) === savedRow, "row delegate survives a snapshot (keyed model)")

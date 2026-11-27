@@ -313,15 +313,16 @@ PanelKeyCatcher {
     Qt.callLater(settingsPage.focusBack)
   }
 
-  function statusColor(state) {
+  // `surface`: what the text is drawn on, when not the popup background.
+  function statusColor(state, surface) {
     if (state === "Error" || state === "Out of sync" || state === "Conflicts")
-      return FoamyPalette.onSurface(FoamyPalette.error)
+      return FoamyPalette.onSurface(FoamyPalette.error, surface)
     if (state === "Syncing" || state === "Scanning" || state === "Checking")
       return Commons.Color.accent
     if (state === "Connected" || state === "Up to date")
-      return FoamyPalette.onSurface(FoamyPalette.success)
+      return FoamyPalette.onSurface(FoamyPalette.success, surface)
     if (state === "Paused" || state === "Waiting to sync")
-      return FoamyPalette.onSurface(FoamyPalette.warning)
+      return FoamyPalette.onSurface(FoamyPalette.warning, surface)
     return FoamyPalette.mutedText
   }
   function statusIcon(state) {
@@ -412,8 +413,11 @@ PanelKeyCatcher {
             Layout.fillWidth: true
             text: FoamyI18n.t(root.summary.title)
             wrapMode: Text.WordWrap
-            // On the hero band: measured on its strongest tint.
-            color: root.service && root.service.hasProblems ? FoamyPalette.onSurface(FoamyPalette.error, FoamyPalette.bandFill) : FoamyPalette.text
+            objectName: "heroTitle"
+            // On the hero band: measured on an opaque bound of its
+            // strongest tint, the wash's start under the full glow
+            // (FoamyHeroBand paints the glow over the wash).
+            color: root.service && root.service.hasProblems ? FoamyPalette.onSurface(FoamyPalette.error, Qt.tint(FoamyPalette.bandFill, FoamyPalette.bandGlow)) : FoamyPalette.text
             font.pixelSize: FoamyStyle.font.display
           }
           Label {
@@ -830,6 +834,9 @@ PanelKeyCatcher {
       })
     readonly property bool isExpanded: !!root.expanded[root.tab + ":" + key]
     readonly property bool isFolder: root.tab === "folders"
+    // The row under the cursor (its strongest fill): status text is
+    // measured there, so it keeps one colour at rest and under the cursor.
+    readonly property color statusSurface: Qt.tint(FoamyPalette.background, fill)
     x: FoamyStyle.gapLarge
     width: rows.width - FoamyStyle.gapLarge * 2
     height: rowContent.implicitHeight + FoamyStyle.rowPadding * 2
@@ -884,13 +891,14 @@ PanelKeyCatcher {
             width: Style.space(12)
             height: width
             name: root.statusIcon(String(rowItem.row.state || ""))
-            color: root.statusColor(String(rowItem.row.state || ""))
+            color: root.statusColor(String(rowItem.row.state || ""), rowItem.statusSurface)
           }
           Text {
+            objectName: "rowState"
             anchors.verticalCenter: parent.verticalCenter
             text: FoamyI18n.t(String(rowItem.row.state || ""))
             textFormat: Text.PlainText
-            color: root.statusColor(String(rowItem.row.state || ""))
+            color: root.statusColor(String(rowItem.row.state || ""), rowItem.statusSurface)
             font.family: FoamyStyle.fontFamily
             font.pixelSize: FoamyStyle.font.bodySmall
           }
@@ -928,11 +936,12 @@ PanelKeyCatcher {
             wrapMode: Text.WrapAnywhere
           }
           Label {
+            objectName: "rowDetail"
             visible: text !== ""
             width: parent.width
             text: String(rowItem.row.detail || "")
             wrapMode: Text.WrapAnywhere
-            color: rowItem.row.state === "Error" || rowItem.row.state === "Out of sync" || rowItem.row.state === "Conflicts" ? FoamyPalette.onSurface(FoamyPalette.error) : FoamyPalette.secondaryText
+            color: rowItem.row.state === "Error" || rowItem.row.state === "Out of sync" || rowItem.row.state === "Conflicts" ? FoamyPalette.onSurface(FoamyPalette.error, rowItem.statusSurface) : FoamyPalette.secondaryText
             font.pixelSize: FoamyStyle.font.bodySmall
           }
           RowLayout {
@@ -982,7 +991,7 @@ PanelKeyCatcher {
               }
               Label {
                 text: FoamyI18n.t(String(related.modelData.state || ""))
-                color: root.statusColor(String(related.modelData.state || ""))
+                color: root.statusColor(String(related.modelData.state || ""), rowItem.statusSurface)
                 font.pixelSize: FoamyStyle.font.bodySmall
               }
             }
