@@ -1,4 +1,4 @@
-// foamy-kit 0.15.2 9b8e295ba1d4910ee3699ae9ef3afc0c64eff8ed606a9fa2b4ec7b2ea37e24aa — do not edit; change foamy-kit and run sync
+// foamy-kit 0.16.0 ddbe841f76b058f2b73af4c8eefef75621de349c1ed4e99304e92eaa759e2df7 — do not edit; change foamy-kit and run sync
 import QtQuick
 import qs.Commons as Commons
 import qs.Ui
@@ -22,6 +22,11 @@ import "FoamyText.js" as FoamyText
 // accent). Enter/Space activate. `busy` spins the icon (or shows a spinner
 // glyph when there is none) and keeps the button inert; actionEnabled: false
 // keeps it visible but inert; enabled: false greys it out.
+// `cursorByKeys: cursor.byKeys` draws the keys' cursor: the 1 px border in
+// the accent (a primary: the text or the background colour, whichever
+// reads better on the fill inside it), at full strength also on an inert,
+// busy or disabled button, which still shows no hover fill. The border
+// keeps its width, so nothing moves.
 // Inert and disabled are drawn weaker, not faded: a lighter tint of the
 // kind's fill and a label that still reads on it over the popup
 // background (inert 4.5:1, disabled 3:1). `foreground` is the label's
@@ -38,6 +43,8 @@ Rectangle {
   property bool busy: false
   property bool actionEnabled: true
   property bool hasCursor: false
+  // The keys moved the cursor here (FoamyCursor.byKeys): an accent border.
+  property bool cursorByKeys: false
   property bool focusable: false
   property Item keyTarget: null
   property string fontFamily: FoamyStyle.fontFamily
@@ -158,7 +165,7 @@ Rectangle {
     if (!busy && mouse.pressed)
       return primary ? Qt.darker(Commons.Color.accent, 1.12) : destructive ? Qt.alpha(Commons.Color.urgent, 0.26) : Qt.alpha(FoamyPalette.text, 0.14)
     if (!busy && (hasCursor || mouse.containsMouse))
-      return primary ? Qt.lighter(Commons.Color.accent, 1.1) : destructive ? Qt.alpha(Commons.Color.urgent, 0.2) : Qt.alpha(FoamyPalette.text, 0.1)
+      return primary ? _primaryHover : destructive ? Qt.alpha(Commons.Color.urgent, 0.2) : Qt.alpha(FoamyPalette.text, 0.1)
     return _restFill
   }
   Behavior on _activeFill {
@@ -168,15 +175,32 @@ Rectangle {
     }
   }
   color: _quiet ? _quiet.fill : _activeFill
+  readonly property color _primaryHover: Qt.lighter(Commons.Color.accent, 1.1)
+
+  // A primary's keys' border: the text or the background, whichever reads
+  // better on the fill the keys' cursor shows inside it (the hover fill;
+  // busy: the rest fill; inert, disabled: theirs) over the popup
+  // background. Measured on the settled fill, so it doesn't flip while the
+  // fill animates. The text alone read 1.23:1 on the dark preview's hover
+  // fill, the background (accentInk) 1.55:1 on the light preview's inert one.
+  readonly property color _keysEdge: {
+    const fill = Qt.tint(FoamyPalette.background, _quiet ? _quiet.fill : active ? _primaryHover : _restFill)
+    const text = FoamyPalette.text
+    const back = FoamyPalette.background
+    return FoamyPalette.contrastRatio(text, fill) >= FoamyPalette.contrastRatio(back, fill) ? text : back
+  }
 
   implicitWidth: Math.max(FoamyStyle.controlHeight * 2, content.implicitWidth + FoamyStyle.gapLarge * 2 + border.width * 2)
   implicitHeight: FoamyStyle.controlHeight
   radius: FoamyStyle.radius
   border.width: activeFocus && focusable ? 2 : FoamyStyle.borderWidth
-  // Inert and disabled fade the border as the fill; the focus ring stays.
+  // Inert and disabled fade the border as the fill; the focus ring and the
+  // keys' border stay.
   border.color: {
     if (activeFocus && focusable)
       return primary ? FoamyPalette.text : Commons.Color.accent
+    if (hasCursor && cursorByKeys)
+      return primary ? _keysEdge : Commons.Color.accent
     if (primary)
       return "transparent"
     const edge = destructive ? Qt.alpha(Commons.Color.urgent, root.hot ? 0.7 : 0.45) : Qt.alpha(FoamyPalette.text, root.hot ? 0.3 : 0.18)
@@ -236,6 +260,19 @@ Rectangle {
     cursorShape: root.active ? Qt.PointingHandCursor : Qt.ArrowCursor
     onClicked: if (root.active)
       root.clicked()
+    // While the keys drew the cursor (`cursorByKeys`), a real pointer move
+    // inside reports the pointer again, as entering does, so the panel's
+    // hover handler takes the cursor back. In scene coordinates: Qt re-sends
+    // hover when items move under a resting pointer (a keys-driven scroll),
+    // which is no move.
+    property point scenePoint
+    onContainsMouseChanged: scenePoint = mapToItem(null, mouseX, mouseY)
+    onPositionChanged: function (event) {
+      const at = mapToItem(null, event.x, event.y)
+      if (containsMouse && root.cursorByKeys && Math.abs(at.x - scenePoint.x) + Math.abs(at.y - scenePoint.y) > 0.01)
+        root.hoveredChanged()
+      scenePoint = at
+    }
   }
 
   PanelToolTip {

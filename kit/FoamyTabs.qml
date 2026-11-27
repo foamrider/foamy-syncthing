@@ -1,5 +1,5 @@
 pragma ComponentBehavior: Bound
-// foamy-kit 0.15.2 efd3333a1fe9adb4d5a2ef6c7bec6a6a2e5163bf957022c0d51e56c657732f14 — do not edit; change foamy-kit and run sync
+// foamy-kit 0.16.0 8e8987cb2ea61fb6718729a34b40239dbd5bab11ac32ae4d075c2befbb4b5cc4 — do not edit; change foamy-kit and run sync
 import QtQuick
 
 // A tab row: a full-width row of underline tabs at the top of a popup body,
@@ -263,11 +263,25 @@ Item {
     }
 
     // Pointer: hover moves the panel cursor here, a press activates.
+    // While the keys drew the cursor (`cursorByKeys`), a real pointer move
+    // inside reports the pointer again, as entering does. A scene position
+    // that changed: Qt re-sends hover when items move under a resting
+    // pointer, which is no move.
     HoverHandler {
+      property point scenePoint
       cursorShape: Qt.PointingHandCursor
       onHoveredChanged: if (hovered) {
+        scenePoint = point.scenePosition
         root.cursorIndex = tab.index
         root.hovered()
+      }
+      onPointChanged: {
+        const at = point.scenePosition
+        if (hovered && root.cursorByKeys && (at.x !== scenePoint.x || at.y !== scenePoint.y)) {
+          root.cursorIndex = tab.index
+          root.hovered()
+        }
+        scenePoint = at
       }
     }
     TapHandler {

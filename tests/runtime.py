@@ -18,7 +18,9 @@ folder starts one; .stversions is ignored and conflicts are flagged per
 folder, a "~/" folder path included, with an urgent bar and its tooltip; the
 status IPC reply; the popup body is built on open only; the Folders /
 Devices tab row is one cursor stop (←/→ between the tabs, Enter opens one,
-Down goes on to the rows, a hovered tab takes the cursor); in a dark theme
+Down goes on to the rows, a hovered tab takes the cursor); the keys' cursor
+draws an accent border on the tab, row, stop, Web UI or Settings action it
+reaches, and the pointer's cursor draws none; in a dark theme
 with a dim red, the hero title reads on the band and an expanded conflict
 row's state, its icon and detail read under the cursor in one red; row delegates
 survive a snapshot (keyed model); a plain p stops syncing and Ctrl+P does
@@ -48,7 +50,9 @@ Add folder field with the caret after it: typing extends it, and a path
 wider than the field shows its end. Closed on Settings and opened again, the
 popup closes on a real Esc, as it does on the Esc after one that left
 Settings. In Settings of a widget without a bar entry, a pick the settings
-queue refuses shows the saved value again at once, in each settings choice.
+queue refuses shows the saved value again at once, in each settings choice,
+and the unlink confirmation draws the keys' border on the button the keys
+select, none for the pointer's selection (entering or moving inside).
 A hung installation check is stopped at its deadline with its child
 process, reported as a failure until a check succeeds, and the next check
 runs; one still hung when the service goes is stopped with it. In Tokyo
@@ -207,6 +211,8 @@ ShellRoot {
     if (view)
       tabKeys(view)
     if (view)
+      keysBorder(view)
+    if (view)
       statusInk(view, function() { step1Rows(view) })
     else
       step1Rows(view)
@@ -251,6 +257,57 @@ ShellRoot {
     if (tabs)
       tabs.hovered()
     check(onTab(0) && !onFirstRow(), "a hovered tab takes the cursor from the row")
+  }
+  // Every element that draws the keys' accent border: a row, a
+  // header action, a button or a tab.
+  function keysBorders(item, found) {
+    found = found || []
+    if (!item)
+      return found
+    var accent = Kit.FoamyPalette.accent
+    if (item.byKeys !== undefined && item.borderSpec !== undefined) {
+      if (item.hasCursor && item.borderTop > 0 && Qt.colorEqual(item.borderSpec.color, accent))
+        found.push("row " + item.key)
+    } else if (item.cursorByKeys !== undefined && item.kind !== undefined) {
+      if (item.hasCursor && Qt.colorEqual(item.border.color, accent))
+        found.push("button " + item.objectName)
+    } else if (item.cursorByKeys !== undefined && item.border !== undefined) {
+      if (item.border.width > 0)
+        found.push("action " + item.iconName)
+    } else if (item.objectName === "foamyTabCursor" && item.border.width > 0) {
+      found.push("tab " + item.parent.objectName)
+    }
+    for (var i = 0; i < item.children.length; i++)
+      keysBorders(item.children[i], found)
+    return found
+  }
+  // The keys' cursor draws an accent border; the pointer's does not. tabKeys
+  // left the cursor on the tab row from a hover.
+  function keysBorder(view) {
+    var drawn = function() { return JSON.stringify(keysBorders(view)) }
+    check(drawn() === "[]", "the pointer's cursor on the tab row: no keys' border: " + drawn())
+    view.moveRequested(1, 0)
+    check(drawn() === '["tab foamyTab1"]', "→ on the tab row: the keys' border on Devices: " + drawn())
+    view.moveRequested(-1, 0)
+    var row = view.rowItem(0)
+    view.moveRequested(0, 1)
+    check(row && drawn() === '["row ' + row.key + '"]', "Down to the first row: the keys' border there: " + drawn())
+    // The second row, then the start/stop, Web UI and Settings actions.
+    view.moveRequested(0, 1)
+    view.moveRequested(0, 1)
+    check(drawn() === '["action pause"]', "Down to the stop action: the keys' border there: " + drawn())
+    view.moveRequested(0, 1)
+    check(drawn() === '["action globe"]', "Down to the Web UI action: the keys' border there: " + drawn())
+    view.moveRequested(0, 1)
+    check(drawn() === '["action settings"]', "Down to Settings: the keys' border there: " + drawn())
+    var other = view.rowItem(1)
+    if (other)
+      other.hovered()
+    check(other && other.hasCursor && drawn() === "[]", "the pointer on a row: no keys' border anywhere: " + drawn())
+    // Give the cursor back to the tab row, as tabKeys left it.
+    var tabs = shell.find(view, "overviewTabs")
+    if (tabs)
+      tabs.hovered()
   }
   // This scene runs in a dark theme with a dim red: the conflict's red
   // still reads where it is drawn, the hero title on the band and the
@@ -1220,12 +1277,14 @@ ShellRoot {
 # overview and a real Esc closes it; after an Esc that leaves Settings, the
 # next Esc closes it too. The settings queue refuses every save, and a pick
 # in each settings choice shows the saved value again at once, beside the
-# error.
+# error. The unlink confirmation draws the keys' border on the button the
+# keys select and none for the pointer's selection.
 SETTINGS_SHELL = r"""
 import QtQuick
 import QtTest
 import Quickshell
 import "harness"
+import "plugin/kit" as Kit
 import "plugin" as Plugin
 
 ShellRoot {
@@ -1299,10 +1358,54 @@ ShellRoot {
         check(ok, "the next Esc closes the popup")
         settingsOpen(function() {
           refusedPicks()
-          console.log("FOAMY CHECKS " + checks)
-          console.log("FOAMY DONE")
-          Qt.quit()
+          unlinkKeys(function() {
+            console.log("FOAMY CHECKS " + checks)
+            console.log("FOAMY DONE")
+            Qt.quit()
+          })
         })
+      })
+    })
+  }
+  // The unlink confirmation, through real keys and a real pointer: it
+  // opens with no keys' border; ←/→ draw it on the button they select; the
+  // pointer entering a button, or moving inside the one it rests on, takes
+  // the selection with no border; Esc cancels.
+  function unlinkKeys(next) {
+    var cancel = find(panel.view, "unlinkCancel")
+    var unlink = find(panel.view, "unlinkConfirm")
+    var dialog = cancel ? cancel.parent.parent.parent.parent : null
+    var accent = Kit.FoamyPalette.accent
+    var drawn = function() {
+      return [cancel, unlink].filter(function(b) { return b.hasCursor && Qt.colorEqual(b.border.color, accent) })
+        .map(function(b) { return b.objectName }).join(",")
+    }
+    panel.view.requestUnlink(panel.view.folderRows[0])
+    wait.waitFor(function() { return dialog && dialog.opened && dialog.activeFocus && cancel.width > 0 }, 5000, function(ok) {
+      check(ok, "the unlink confirmation opens with the keys")
+      if (!ok) {
+        next()
+        return
+      }
+      check(cancel.hasCursor && drawn() === "", "it opens on Cancel with no keys' border: " + drawn())
+      keys.keyClick(Qt.Key_Right, Qt.NoModifier, -1)
+      check(unlink.hasCursor && drawn() === "unlinkConfirm", "→ selects Unlink with the keys' border: " + drawn())
+      keys.mouseMove(unlink, unlink.width / 2, unlink.height / 2, -1, Qt.NoButton, Qt.NoModifier)
+      check(unlink.hasCursor && drawn() === "", "the pointer entering Unlink: no keys' border: " + drawn())
+      keys.keyClick(Qt.Key_Left, Qt.NoModifier, -1)
+      check(cancel.hasCursor && drawn() === "unlinkCancel", "← selects Cancel with the keys' border: " + drawn())
+      keys.mouseMove(unlink, unlink.width / 2 + 3, unlink.height / 2, -1, Qt.NoButton, Qt.NoModifier)
+      check(unlink.hasCursor && drawn() === "", "the pointer moving inside Unlink takes the selection with no border: " + drawn())
+      // Closed while the keys' border shows, it opens again without it.
+      keys.keyClick(Qt.Key_Left, Qt.NoModifier, -1)
+      keys.keyClick(Qt.Key_Escape, Qt.NoModifier, -1)
+      check(!dialog.opened && panel.opened, "Esc cancels the unlink")
+      panel.view.requestUnlink(panel.view.folderRows[0])
+      wait.waitFor(function() { return dialog.opened && dialog.activeFocus }, 5000, function(ok) {
+        check(ok && cancel.hasCursor && drawn() === "", "opened again after the keys' border: on Cancel with none: " + drawn())
+        keys.keyClick(Qt.Key_Escape, Qt.NoModifier, -1)
+        check(!dialog.opened, "Esc cancels it again")
+        next()
       })
     })
   }
